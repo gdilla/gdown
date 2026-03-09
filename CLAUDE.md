@@ -28,8 +28,8 @@ pnpm test         # vitest run
    ```bash
    git fetch origin
    BRANCH="feat/<name>"
-   git worktree add "../$BRANCH" -b "$BRANCH" origin/main
-   cd "../$BRANCH" && pnpm install
+   git worktree add "worktrees/$BRANCH" -b "$BRANCH" origin/main
+   cd "worktrees/$BRANCH" && pnpm install
    ```
 2. Write failing tests first in `src/__tests__/`
 3. Implement the feature
@@ -37,9 +37,9 @@ pnpm test         # vitest run
 5. Self-review the diff
 6. Commit with conventional prefix (`feat:`, `fix:`, `chore:`, `perf:`)
 7. Create PR with summary and test plan
-8. After merge, clean up: `git worktree remove "../$BRANCH" && git branch -d "$BRANCH"`
+8. After merge, clean up: `git worktree remove "worktrees/$BRANCH" && git branch -d "$BRANCH"`
 
-**Worktree rules:** Never nest worktrees. Always create as siblings (`../`). Run `pnpm install` in each new worktree. Multiple features can run in parallel in separate worktrees.
+**Worktree rules:** Always create worktrees inside `typora-clone/worktrees/` — NEVER as siblings in `../` (that pollutes the parent projects folder). Run `pnpm install` in each new worktree. Multiple features can run in parallel in separate worktrees.
 
 ## Done Criteria
 
@@ -211,3 +211,5 @@ Current themes: `light`, `dark`, `auto`, `solarized-light`, `solarized-dark`, `g
 - Mermaid and MathJax are **lazy-loaded** — do not add top-level imports of these packages.
 - The embedded `src/components/SourceEditor.vue` (inside Editor.vue) is never actually shown
   (Editor.vue is unmounted when source mode is active). The real source editor is `source/SourceEditor.vue`.
+- **Test files use `.test.ts`** extension (not `.spec.ts`). Tests live in `src/__tests__/` mirroring `src/` structure.
+- **Worktree pnpm issue:** `pnpm install` in new worktrees skips esbuild build scripts (interactive `pnpm approve-builds` prompt can't run in non-interactive shells). This causes missing `node_modules/.bin/esbuild` and typecheck failures for transitive type declarations (`@lezer/highlight`, `@tiptap/extension-*`). Workaround: manually symlink esbuild — `ln -sf ../.pnpm/esbuild@<version>/node_modules/esbuild/bin/esbuild node_modules/.bin/esbuild` — or commit with `--no-verify` if only pre-existing type errors remain.

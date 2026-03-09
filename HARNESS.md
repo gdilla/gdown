@@ -32,30 +32,28 @@ Without worktrees, you can only work on one branch at a time. If Claude is build
 ### The directory structure
 
 ```
-~/projects/
-├── typora-clone/              ← main worktree (always on main branch)
-│   ├── src/
-│   ├── src-tauri/
-│   ├── CLAUDE.md
-│   └── ...
-├── feat/tab-reorder/          ← worktree for tab reorder feature
-│   ├── src/
-│   └── ...
-├── feat/sepia-theme/          ← worktree for sepia theme feature
-│   └── ...
-└── fix/outline-sync/          ← worktree for outline bug fix
-    └── ...
+~/projects/typora-clone/
+├── src/
+├── src-tauri/
+├── CLAUDE.md
+├── worktrees/                 ← all worktrees live here (gitignored)
+│   ├── feat/tab-reorder/      ← worktree for tab reorder feature
+│   ├── feat/sepia-theme/      ← worktree for sepia theme feature
+│   └── fix/outline-sync/      ← worktree for outline bug fix
+└── ...
 ```
+
+Worktrees live **inside** `typora-clone/worktrees/` — not as siblings in `~/projects/`. This keeps the parent folder clean when you have multiple apps there.
 
 Each worktree is a **full working copy** of the repo, checked out to its own branch. They share git history but have independent `node_modules`, working files, and editor state.
 
 ### Creating a worktree (what Claude does)
 
 ```bash
-# From the main worktree (typora-clone/)
+# From typora-clone/ (the main worktree)
 git fetch origin
-git worktree add ../feat/my-feature -b feat/my-feature origin/main
-cd ../feat/my-feature
+git worktree add worktrees/feat/my-feature -b feat/my-feature origin/main
+cd worktrees/feat/my-feature
 pnpm install    # each worktree needs its own node_modules
 ```
 
@@ -70,14 +68,14 @@ Shows all active worktrees and which branch each is on.
 ### Cleaning up after merge
 
 ```bash
-# From the main worktree
-git worktree remove ../feat/my-feature
+# From the main worktree (typora-clone/)
+git worktree remove worktrees/feat/my-feature
 git branch -d feat/my-feature
 ```
 
 ### Rules
 
-1. **Never create a worktree inside another worktree** — always use `../` to create them as siblings
+1. **Always create worktrees inside `worktrees/`** — never as `../siblings` in the parent projects folder
 2. **One branch per worktree** — git enforces this; you can't have two worktrees on the same branch
 3. **Run `pnpm install` in each new worktree** — `node_modules` is gitignored, it doesn't carry over
 4. **Clean up after merge** — stale worktrees waste disk space and show up in `git worktree list`
@@ -93,7 +91,7 @@ This is the killer use case. You can tell Claude to work on multiple features si
 2. Add Cmd+W to close the active tab"
 ```
 
-Claude creates two worktrees (`../feat/sepia-theme` and `../feat/close-tab-shortcut`), works on each independently, and creates two separate PRs. No conflicts, no stashing, no context switching.
+Claude creates two worktrees (`worktrees/feat/sepia-theme` and `worktrees/feat/close-tab-shortcut`), works on each independently, and creates two separate PRs. No conflicts, no stashing, no context switching.
 
 ---
 
@@ -266,7 +264,7 @@ git worktree prune
 git worktree list
 
 # Remove each finished worktree
-git worktree remove ../feat/done-feature
+git worktree remove worktrees/feat/done-feature
 git branch -d feat/done-feature
 
 # Or prune any that were already deleted from disk
@@ -299,7 +297,7 @@ Currently 130 tests across 10 files covering:
 ## Adding a New Feature (the ideal flow)
 
 1. **Describe it** — Tell Claude what you want in plain English
-2. **Claude creates worktree** — `../feat/your-feature` with its own branch
+2. **Claude creates worktree** — `worktrees/feat/your-feature` with its own branch
 3. **Claude writes tests** — Failing tests that define "done"
 4. **Claude implements** — Code that makes the tests pass
 5. **Claude runs checks** — `pnpm check && pnpm test` in the worktree
@@ -316,7 +314,7 @@ If Claude gets stuck or the approach feels wrong, just say so. It's cheaper to c
 
 - **Don't run `npm install`** — always `pnpm install`. npm will create a `package-lock.json` that conflicts.
 - **Don't develop in the main worktree** — keep it on `main` as your stable reference. Use worktrees for feature work.
-- **Don't create worktrees inside worktrees** — always `../feat-name`, never `./feat-name`.
+- **Don't create worktrees as siblings** — always `worktrees/feat-name` inside the project, never `../feat-name` (that pollutes `~/projects/`).
 - **Don't forget `pnpm install` in new worktrees** — `node_modules` doesn't carry over.
 - **Don't edit `src/components/SourceEditor.vue`** (the one inside components root) — it's vestigial. The real source editor is `src/components/source/SourceEditor.vue`.
 - **Don't add Cmd+/ handling to App.vue** — this caused a devastating content-loss bug. The mode toggle is handled by Editor.vue and source/SourceEditor.vue separately.

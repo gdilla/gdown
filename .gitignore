@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 .claude/settings.json
 src-tauri/target/
+
+# Worktrees (kept inside project to avoid polluting ~/projects/)
+worktrees/
