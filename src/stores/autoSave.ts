@@ -9,7 +9,7 @@ export type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'error'
 const AUTO_SAVE_DELAY_MS = 1500
 
 /** Interval for checking external file changes (ms) */
-const CONFLICT_CHECK_INTERVAL_MS = 5000
+const CONFLICT_CHECK_INTERVAL_MS = 1500
 
 /** Conflict info when external changes are detected */
 export interface ConflictInfo {
@@ -184,8 +184,12 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
       const tab = tabsStore.tabs.find(t => t.id === tabId)
       if (tab) {
         tab.editorState.markdown = diskContent
-        tab.editorState.doc = null // Reset TipTap doc so it reloads from markdown
+        tab.editorState.doc = null
         tab.isModified = false
+        // Push new content into the live running editor
+        window.dispatchEvent(new CustomEvent('gdown:file-reloaded', {
+          detail: { tabId, markdown: diskContent }
+        }))
       }
       // Update known mod time
       invoke<number>('get_file_modified_time', { path: filePath })
@@ -197,7 +201,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         conflictResolver = null
       }
       status.value = 'saved'
-      showNotification(`Reloaded ${tabsStore.tabs.find(t => t.id === tabId)?.title ?? 'file'} from disk`, 'warning')
+      showNotification(`↻ Reloaded ${tabsStore.tabs.find(t => t.id === tabId)?.title ?? 'file'} from disk`, 'warning')
     } else if (action === 'overwrite') {
       conflictDialog.value = null
       if (conflictResolver) {
@@ -450,13 +454,17 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
               }, 200)
             })
           } else {
-            // No local changes — silently reload from disk
+            // No local changes — silently reload from disk and push to live editor
             try {
               const diskContent = await invoke<string>('read_file', { path: tab.filePath })
               tab.editorState.markdown = diskContent
-              tab.editorState.doc = null // Reset so WYSIWYG reloads from markdown
+              tab.editorState.doc = null
               knownModifiedTimes.value[tab.filePath] = currentModTime
-              showNotification(`${tab.title} was updated from disk`, 'warning')
+              // Push new content into the live running editor (if this tab is active)
+              window.dispatchEvent(new CustomEvent('gdown:file-reloaded', {
+                detail: { tabId: tab.id, markdown: diskContent }
+              }))
+              showNotification(`↻ ${tab.title} updated`, 'warning')
             } catch {
               // File may have been deleted
             }

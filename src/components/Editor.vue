@@ -572,6 +572,20 @@ watch(
   }
 );
 
+// Handle external file reload — push new content into live TipTap editor
+function handleFileReloaded(e: Event) {
+  const { tabId, markdown } = (e as CustomEvent<{ tabId: string; markdown: string }>).detail;
+  if (tabId !== tabsStore.activeTabId || !editor.value) return;
+  const html = markdownToHtml(markdown);
+  isRestoringContent = true;
+  try {
+    editor.value.commands.setContent(html, { emitUpdate: false });
+  } finally {
+    isRestoringContent = false;
+  }
+  outlineStore.updateFromEditor(editor.value);
+}
+
 // Handle insert-image event
 function handleInsertImage() {
   const url = prompt("Enter image URL or local path:");
@@ -745,6 +759,7 @@ onMounted(() => {
 
   window.addEventListener("gdown:insert-image", handleInsertImage);
   window.addEventListener("gdown:toggle-mode", handleToggleMode as EventListener);
+  window.addEventListener("gdown:file-reloaded", handleFileReloaded);
   window.addEventListener("keydown", handleKeydown);
 });
 
@@ -761,6 +776,7 @@ onBeforeUnmount(() => {
   if (modeIndicatorTimer) clearTimeout(modeIndicatorTimer);
   window.removeEventListener("gdown:insert-image", handleInsertImage);
   window.removeEventListener("gdown:toggle-mode", handleToggleMode as EventListener);
+  window.removeEventListener("gdown:file-reloaded", handleFileReloaded);
   window.removeEventListener("keydown", handleKeydown);
 });
 </script>

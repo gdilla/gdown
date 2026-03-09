@@ -260,6 +260,15 @@ watch(
   }
 )
 
+// Handle external file reload — push new content into live CodeMirror editor
+function handleFileReloaded(e: Event) {
+  const { tabId, markdown } = (e as CustomEvent<{ tabId: string; markdown: string }>).detail
+  if (tabId !== tabsStore.activeTabId) return
+  const tab = tabsStore.activeTab
+  const fullContent = assembleFrontMatter(tab?.editorState.frontmatter ?? null, markdown)
+  restoreContent(fullContent)
+}
+
 function handleKeydown(e: KeyboardEvent) {
   // Cmd+/: switch back to WYSIWYG mode (Editor.vue handles the other direction)
   if (e.metaKey && !e.shiftKey && e.key === '/') {
@@ -272,10 +281,12 @@ function handleKeydown(e: KeyboardEvent) {
 onMounted(() => {
   initEditor()
   window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('gdown:file-reloaded', handleFileReloaded)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('gdown:file-reloaded', handleFileReloaded)
   if (cmView.value) {
     cmView.value.destroy()
     cmView.value = null
