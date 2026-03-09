@@ -1,11 +1,7 @@
 <template>
   <div class="source-editor-wrapper">
-    <div class="source-editor-container" ref="editorContainer"></div>
-    <div
-      v-if="mathPreviewVisible"
-      class="math-preview-panel"
-      ref="mathPreviewPanel"
-    >
+    <div ref="editorContainer" class="source-editor-container"></div>
+    <div v-if="mathPreviewVisible" ref="mathPreviewPanel" class="math-preview-panel">
       <div class="math-preview-header">
         <span class="math-preview-title">Math Preview</span>
         <button class="math-preview-close" @click="mathPreviewVisible = false">&times;</button>
@@ -17,15 +13,29 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, nextTick, shallowRef } from 'vue'
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from '@codemirror/view'
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+} from '@codemirror/view'
 import { EditorState, type Extension } from '@codemirror/state'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, indentOnInput } from '@codemirror/language'
+import {
+  syntaxHighlighting,
+  defaultHighlightStyle,
+  bracketMatching,
+  indentOnInput,
+} from '@codemirror/language'
 import { mathHighlightPlugin, extractMathExpressions } from '../../codemirror/math-language'
 import { renderMathToSvg } from '../../codemirror/mathjax-preview'
-import { frontmatterHighlightPlugin, frontmatterHighlightTheme } from '../../codemirror/frontmatter-highlight'
+import {
+  frontmatterHighlightPlugin,
+  frontmatterHighlightTheme,
+} from '../../codemirror/frontmatter-highlight'
 import { parseFrontMatter, assembleFrontMatter } from '../../utils/frontmatter'
 import { useTabsStore } from '../../stores/tabs'
 import { useEditorModeStore } from '../../stores/editorMode'
@@ -60,11 +70,7 @@ function buildExtensions(): Extension[] {
     mathHighlightPlugin,
     frontmatterHighlightPlugin,
     frontmatterHighlightTheme,
-    keymap.of([
-      ...defaultKeymap,
-      ...historyKeymap,
-      indentWithTab,
-    ]),
+    keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
     EditorView.updateListener.of((update) => {
       if (update.docChanged && !isRestoringContent) {
         const tabId = tabsStore.activeTabId
@@ -86,6 +92,7 @@ function buildExtensions(): Extension[] {
         }
       }
     }),
+    EditorView.lineWrapping,
     EditorView.theme({
       '&': {
         height: '100%',
@@ -143,12 +150,14 @@ async function updateMathPreview(text: string) {
   }
 
   const renderedSvgs = await Promise.all(
-    expressions.map(expr => renderMathToSvg(expr.expression, expr.isBlock))
+    expressions.map((expr) => renderMathToSvg(expr.expression, expr.isBlock)),
   )
 
   const parts: string[] = expressions.map((expr, i) => {
     const typeLabel = expr.isBlock ? 'Display' : 'Inline'
-    const wrapperClass = expr.isBlock ? 'math-preview-item math-preview-display' : 'math-preview-item math-preview-inline'
+    const wrapperClass = expr.isBlock
+      ? 'math-preview-item math-preview-display'
+      : 'math-preview-item math-preview-inline'
     return `
       <div class="${wrapperClass}">
         <div class="math-preview-label">${typeLabel} (line ${getLineNumber(text, expr.from)})</div>
@@ -169,10 +178,7 @@ function getLineNumber(text: string, pos: number): number {
 }
 
 function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 /**
@@ -246,10 +252,13 @@ watch(
   (newTabId, oldTabId) => {
     if (newTabId === oldTabId) return
     if (newTabId) {
-      const tab = tabsStore.tabs.find(t => t.id === newTabId)
+      const tab = tabsStore.tabs.find((t) => t.id === newTabId)
       if (tab) {
         nextTick(() => {
-          const fullContent = assembleFrontMatter(tab.editorState.frontmatter, tab.editorState.markdown || '')
+          const fullContent = assembleFrontMatter(
+            tab.editorState.frontmatter,
+            tab.editorState.markdown || '',
+          )
           restoreContent(fullContent)
           if (mathPreviewVisible.value) {
             updateMathPreview(fullContent)
@@ -257,7 +266,7 @@ watch(
         })
       }
     }
-  }
+  },
 )
 
 // Handle external file reload — push new content into live CodeMirror editor
