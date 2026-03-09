@@ -275,18 +275,19 @@ git worktree prune
 
 ## Test Coverage
 
-Currently 130 tests across 10 files covering:
+Currently 135 tests across 11 files covering:
 
 | Area | Tests | What's covered |
 |------|-------|---------------|
-| `frontmatter.test.ts` | 22 | YAML front-matter parsing, assembly, detection |
 | `markdownConverter.test.ts` | 26 | MD↔HTML roundtrip for all syntax elements |
 | `tabs.test.ts` | 23 | Tab CRUD, reordering, deduplication |
+| `frontmatter.test.ts` | 22 | YAML front-matter parsing, assembly, detection |
 | `outline.test.ts` | 17 | Heading extraction from editor JSON and markdown |
 | `findReplace.test.ts` | 11 | Search panel state management |
 | `sidebar.test.ts` | 10 | Sidebar visibility, folder state |
 | `preferences.test.ts` | 9 | Theme, font, persistence, defaults |
 | `editorMode.test.ts` | 6 | Mode toggle, computed properties |
+| `copyMarkdown.test.ts` | 5 | Full doc assembly from body + front-matter |
 | `focusMode.test.ts` | 3 | Toggle, set state |
 | `typewriterMode.test.ts` | 3 | Toggle, set state |
 

@@ -49,6 +49,7 @@ A PR is ready when:
 - No `any` types introduced
 - CSS uses custom properties only (no hardcoded colors)
 - CLAUDE.md updated if architecture changed
+- After every PR, suggest improvements to CLAUDE.md and HARNESS.md based on what was learned
 
 ## Escalation Policy — Ask the Human
 
