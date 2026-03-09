@@ -46,6 +46,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from "vue";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEditorModeStore } from "../stores/editorMode";
 import { useOutlineStore } from "../stores/outline";
 import { useFocusModeStore } from "../stores/focusMode";
@@ -208,7 +209,7 @@ const editor = useEditor({
         if (link) {
           const href = link.getAttribute("href");
           if (href) {
-            window.open(href, "_blank");
+            openUrl(href).catch(() => window.open(href, "_blank"));
             event.preventDefault();
             return true;
           }
