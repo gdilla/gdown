@@ -1,0 +1,231 @@
+:root {
+  /* Light theme (default) */
+  --tab-bar-bg: #e8e8e8;
+  --tab-bar-border: #d0d0d0;
+  --tab-active-bg: #ffffff;
+  --tab-hover-bg: rgba(0, 0, 0, 0.04);
+  --tab-text-color: #777;
+  --tab-text-active-color: #333;
+  --tab-separator-color: rgba(0, 0, 0, 0.08);
+  --tab-active-indicator: #4a9eff;
+  --tab-close-color: #999;
+  --tab-close-hover-bg: rgba(0, 0, 0, 0.1);
+  --tab-close-hover-color: #333;
+  --tab-modified-dot-color: #f59e0b;
+  --bg-primary: #ffffff;
+  --text-primary: #333;
+
+  /* Sidebar variables */
+  --sidebar-width: 260px;
+  --sidebar-bg: #f5f5f5;
+  --sidebar-border: #e0e0e0;
+  --sidebar-hover-bg: rgba(0, 0, 0, 0.06);
+  --sidebar-selected-bg: rgba(0, 122, 255, 0.12);
+  --sidebar-selected-color: #007aff;
+  --sidebar-text-color: #333;
+  --sidebar-title-color: #888;
+  --sidebar-btn-color: #888;
+  --sidebar-btn-hover-color: #333;
+  --sidebar-chevron-color: #999;
+  --sidebar-folder-color: #e8a838;
+  --sidebar-file-color: #999;
+  --sidebar-markdown-color: #519aba;
+  --sidebar-error-color: #d32f2f;
+
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ---- Math rendering styles ---- */
+
+.math-inline {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.math-inline mjx-container,
+.math-inline svg {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.math-block {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+  overflow-x: auto;
+}
+
+.math-render-error {
+  color: #d32f2f;
+  font-family: 'SF Mono', Menlo, Monaco, monospace;
+  font-size: 0.9em;
+  background: rgba(211, 47, 47, 0.08);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.math-error-block {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+  padding: 8px;
+}
+
+/* ---- Dark Theme ---- */
+
+[data-theme="dark"] {
+  --tab-bar-bg: #2d2d2d;
+  --tab-bar-border: #3a3a3a;
+  --tab-active-bg: #1e1e1e;
+  --tab-hover-bg: rgba(255, 255, 255, 0.06);
+  --tab-text-color: #999;
+  --tab-text-active-color: #e0e0e0;
+  --tab-separator-color: rgba(255, 255, 255, 0.08);
+  --tab-active-indicator: #4a9eff;
+  --tab-close-color: #777;
+  --tab-close-hover-bg: rgba(255, 255, 255, 0.1);
+  --tab-close-hover-color: #e0e0e0;
+  --tab-modified-dot-color: #f59e0b;
+  --bg-primary: #1e1e1e;
+  --text-primary: #d4d4d4;
+
+  --sidebar-bg: #252525;
+  --sidebar-border: #3a3a3a;
+  --sidebar-hover-bg: rgba(255, 255, 255, 0.06);
+  --sidebar-selected-bg: rgba(0, 122, 255, 0.2);
+  --sidebar-selected-color: #4a9eff;
+  --sidebar-text-color: #d4d4d4;
+  --sidebar-title-color: #777;
+  --sidebar-btn-color: #777;
+  --sidebar-btn-hover-color: #d4d4d4;
+  --sidebar-chevron-color: #666;
+  --sidebar-folder-color: #e8a838;
+  --sidebar-file-color: #777;
+  --sidebar-markdown-color: #519aba;
+  --sidebar-error-color: #f44336;
+
+  color-scheme: dark;
+}
+
+/* ---- Solarized Light Theme ---- */
+[data-theme="solarized-light"] {
+  --bg-primary: #fdf6e3;
+  --text-primary: #657b83;
+  --tab-bar-bg: #eee8d5;
+  --tab-bar-border: #ddd6c1;
+  --tab-active-bg: #fdf6e3;
+  --tab-hover-bg: rgba(0,0,0,0.04);
+  --tab-text-color: #93a1a1;
+  --tab-text-active-color: #586e75;
+  --tab-separator-color: rgba(0,0,0,0.08);
+  --tab-active-indicator: #268bd2;
+  --tab-close-color: #93a1a1;
+  --tab-close-hover-bg: rgba(0,0,0,0.08);
+  --tab-close-hover-color: #586e75;
+  --tab-modified-dot-color: #cb4b16;
+  --sidebar-bg: #eee8d5;
+  --sidebar-border: #ddd6c1;
+  --sidebar-hover-bg: rgba(0,0,0,0.05);
+  --sidebar-selected-bg: rgba(38,139,210,0.12);
+  --sidebar-selected-color: #268bd2;
+  --sidebar-text-color: #657b83;
+  --sidebar-title-color: #93a1a1;
+  --sidebar-btn-color: #93a1a1;
+  --sidebar-btn-hover-color: #586e75;
+  --sidebar-chevron-color: #93a1a1;
+  --sidebar-folder-color: #b58900;
+  --sidebar-file-color: #93a1a1;
+  --sidebar-markdown-color: #268bd2;
+  --sidebar-error-color: #dc322f;
+}
+
+/* ---- Solarized Dark Theme ---- */
+[data-theme="solarized-dark"] {
+  --bg-primary: #002b36;
+  --text-primary: #839496;
+  --tab-bar-bg: #073642;
+  --tab-bar-border: #0a4f5e;
+  --tab-active-bg: #002b36;
+  --tab-hover-bg: rgba(255,255,255,0.05);
+  --tab-text-color: #586e75;
+  --tab-text-active-color: #93a1a1;
+  --tab-separator-color: rgba(255,255,255,0.08);
+  --tab-active-indicator: #268bd2;
+  --tab-close-color: #586e75;
+  --tab-close-hover-bg: rgba(255,255,255,0.08);
+  --tab-close-hover-color: #839496;
+  --tab-modified-dot-color: #cb4b16;
+  --sidebar-bg: #073642;
+  --sidebar-border: #0a4f5e;
+  --sidebar-hover-bg: rgba(255,255,255,0.05);
+  --sidebar-selected-bg: rgba(38,139,210,0.2);
+  --sidebar-selected-color: #268bd2;
+  --sidebar-text-color: #839496;
+  --sidebar-title-color: #586e75;
+  --sidebar-btn-color: #586e75;
+  --sidebar-btn-hover-color: #839496;
+  --sidebar-chevron-color: #586e75;
+  --sidebar-folder-color: #b58900;
+  --sidebar-file-color: #586e75;
+  --sidebar-markdown-color: #268bd2;
+  --sidebar-error-color: #dc322f;
+  color-scheme: dark;
+}
+
+/* ---- GitHub Theme ---- */
+[data-theme="github"] {
+  --bg-primary: #ffffff;
+  --text-primary: #1f2328;
+  --tab-bar-bg: #f6f8fa;
+  --tab-bar-border: #d0d7de;
+  --tab-active-bg: #ffffff;
+  --tab-hover-bg: rgba(0,0,0,0.04);
+  --tab-text-color: #636c76;
+  --tab-text-active-color: #1f2328;
+  --tab-separator-color: rgba(0,0,0,0.08);
+  --tab-active-indicator: #0969da;
+  --tab-close-color: #636c76;
+  --tab-close-hover-bg: rgba(0,0,0,0.06);
+  --tab-close-hover-color: #1f2328;
+  --tab-modified-dot-color: #9a6700;
+  --sidebar-bg: #f6f8fa;
+  --sidebar-border: #d0d7de;
+  --sidebar-hover-bg: rgba(0,0,0,0.04);
+  --sidebar-selected-bg: rgba(9,105,218,0.1);
+  --sidebar-selected-color: #0969da;
+  --sidebar-text-color: #1f2328;
+  --sidebar-title-color: #636c76;
+  --sidebar-btn-color: #636c76;
+  --sidebar-btn-hover-color: #1f2328;
+  --sidebar-chevron-color: #636c76;
+  --sidebar-folder-color: #e16f24;
+  --sidebar-file-color: #636c76;
+  --sidebar-markdown-color: #0969da;
+  --sidebar-error-color: #cf222e;
+}
+
+/* ---- Editor CSS variable defaults ---- */
+
+:root {
+  --editor-font-size: 16px;
+  --editor-line-height: 1.6;
+  --editor-max-width: 800px;
+}

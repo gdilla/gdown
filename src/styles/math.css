@@ -1,0 +1,119 @@
+/* === MATH INLINE (Typora-like) === */
+.gdown-editor .math-inline {
+  display: inline;
+  cursor: pointer;
+  vertical-align: baseline;
+  position: relative;
+}
+
+.gdown-editor .math-inline .math-inline-render {
+  display: inline;
+  vertical-align: baseline;
+}
+
+.gdown-editor .math-inline .math-inline-render .katex {
+  font-size: 1em;
+}
+
+.gdown-editor .math-inline .math-inline-input {
+  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 2px 6px;
+  border: 1px solid #4183c4;
+  border-radius: 3px;
+  background: #f0f7ff;
+  color: #333;
+  outline: none;
+  min-width: 60px;
+  max-width: 400px;
+}
+
+.gdown-editor .math-inline.ProseMirror-selectednode {
+  background: rgba(65, 131, 196, 0.1);
+  border-radius: 3px;
+  outline: 2px solid #4183c4;
+  outline-offset: 1px;
+}
+
+.gdown-editor .math-inline .math-error {
+  color: #e53e3e;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.9em;
+  background: #fff5f5;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+/* === MATH BLOCK (Typora-like) === */
+.gdown-editor .math-block {
+  margin: 1.5em 0;
+  padding: 16px;
+  text-align: center;
+  border-radius: 6px;
+  background: #fafafa;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+  position: relative;
+}
+
+.gdown-editor .math-block:hover {
+  background: #f5f5f5;
+}
+
+.gdown-editor .math-block.ProseMirror-selectednode {
+  outline: 2px solid #4183c4;
+  outline-offset: 2px;
+  background: #f0f7ff;
+}
+
+.gdown-editor .math-block .math-block-render {
+  min-height: 1.5em;
+}
+
+.gdown-editor .math-block .math-block-render .katex-display {
+  margin: 0;
+}
+
+.gdown-editor .math-block .math-block-render .katex {
+  font-size: 1.1em;
+}
+
+.gdown-editor .math-block .math-block-placeholder {
+  color: #aaa;
+  font-style: italic;
+  font-size: 14px;
+}
+
+.gdown-editor .math-block .math-error {
+  color: #e53e3e;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.85em;
+  background: #fff5f5;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.gdown-editor .math-block .math-block-input {
+  display: block;
+  width: 100%;
+  min-height: 60px;
+  max-height: 300px;
+  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 12px;
+  border: 1px solid #4183c4;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  outline: none;
+  resize: vertical;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.gdown-editor .math-block .math-block-input::placeholder {
+  color: #aaa;
+  font-style: italic;
+}

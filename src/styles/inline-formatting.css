@@ -1,0 +1,109 @@
+/**
+ * Inline Formatting Styles for gdown editor
+ *
+ * Typora-like seamless inline rendering:
+ * - Markdown syntax characters disappear
+ * - Formatting appears instantly as the user types
+ * - Bold, italic, strikethrough, inline code, underline, highlight,
+ *   subscript, and superscript all render in-place
+ */
+
+/* Strong/Bold — clean bold rendering */
+.gdown-editor strong {
+  font-weight: 600;
+  color: inherit;
+}
+
+/* Emphasis/Italic */
+.gdown-editor em {
+  font-style: italic;
+  color: inherit;
+}
+
+/* Strikethrough — Typora renders with a clean line-through and slight dimming */
+.gdown-editor s,
+.gdown-editor del {
+  text-decoration: line-through;
+  color: inherit;
+  opacity: 0.7;
+}
+
+/* Inline Code — Typora-like pill styling */
+.gdown-editor code {
+  background: #f5f5f5;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  color: #e96900;
+  /* Prevent code from inheriting bold/italic from parent */
+  font-weight: normal;
+  font-style: normal;
+}
+
+/* Code inside pre blocks should not have the pill styling */
+.gdown-editor pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  border-radius: 0;
+}
+
+/* Underline */
+.gdown-editor u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  color: inherit;
+}
+
+/* Highlight/Mark — Typora-like yellow background */
+.gdown-editor mark {
+  background-color: #fff3a3;
+  padding: 1px 2px;
+  border-radius: 2px;
+  color: inherit;
+}
+
+/* Subscript */
+.gdown-editor sub {
+  font-size: 0.75em;
+  vertical-align: sub;
+  line-height: 0;
+}
+
+/* Superscript */
+.gdown-editor sup {
+  font-size: 0.75em;
+  vertical-align: super;
+  line-height: 0;
+}
+
+/* Combined formatting (e.g., bold + italic) — Typora renders these seamlessly */
+.gdown-editor strong em,
+.gdown-editor em strong {
+  font-weight: 600;
+  font-style: italic;
+}
+
+/* Bold + strikethrough */
+.gdown-editor strong s,
+.gdown-editor s strong {
+  font-weight: 600;
+  text-decoration: line-through;
+}
+
+/* Italic + strikethrough */
+.gdown-editor em s,
+.gdown-editor s em {
+  font-style: italic;
+  text-decoration: line-through;
+}
+
+/* Bold + italic + strikethrough */
+.gdown-editor strong em s,
+.gdown-editor s strong em,
+.gdown-editor em s strong {
+  font-weight: 600;
+  font-style: italic;
+  text-decoration: line-through;
+}
