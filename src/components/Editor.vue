@@ -46,6 +46,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from "vue";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEditorModeStore } from "../stores/editorMode";
 import { useOutlineStore } from "../stores/outline";
 import { useFocusModeStore } from "../stores/focusMode";
@@ -70,6 +71,7 @@ import { GdownCodeBlock } from "../extensions/GdownCodeBlock";
 import { GdownBulletList, GdownListItem } from "../extensions/GdownBulletList";
 import { GdownOrderedList } from "../extensions/GdownOrderedList";
 import { GdownTaskList, GdownTaskItem } from "../extensions/GdownTaskList";
+import { GdownTable, TableRow, TableCell, TableHeader } from "../extensions/GdownTable";
 import { MathInline } from "../extensions/MathInline";
 import { MathBlock } from "../extensions/MathBlock";
 import { MermaidBlock } from "../extensions/MermaidBlock";
@@ -84,6 +86,7 @@ import InsertLinkDialog from "./InsertLinkDialog.vue";
 import FindReplace from "./FindReplace.vue";
 import SourceEditor from "./SourceEditor.vue";
 import { useFindReplaceStore } from "../stores/findReplace";
+import { useEditorSettingsStore } from "../stores/editorSettings";
 import { useTabsStore } from "../stores/tabs";
 import { htmlToMarkdown, markdownToHtml } from "../utils/markdownConverter";
 import { assembleFrontMatter, parseFrontMatter } from "../utils/frontmatter";
@@ -96,6 +99,7 @@ const outlineStore = useOutlineStore();
 const focusModeStore = useFocusModeStore();
 const typewriterModeStore = useTypewriterModeStore();
 const findReplaceStore = useFindReplaceStore();
+const editorSettings = useEditorSettingsStore();
 
 // Initialize auto-save service (editor ref is set up below, so we use a getter)
 let editorRef: { getHTML: () => string } | null = null;
@@ -149,6 +153,11 @@ const editor = useEditor({
     GdownListItem,
     GdownTaskList,
     GdownTaskItem,
+    // Table support (GFM tables)
+    GdownTable,
+    TableRow,
+    TableCell,
+    TableHeader,
     // Custom inline formatting marks with Typora-exact shortcuts & input rules
     GdownBold,
     GdownItalic,
@@ -195,14 +204,15 @@ const editor = useEditor({
       spellcheck: "true",
     },
     handleClick: (_view, _pos, event) => {
-      // Handle Cmd+click on links to open them
-      if (event.metaKey || event.ctrlKey) {
-        const target = event.target as HTMLElement;
-        const link = target.closest("a.gdown-link") as HTMLAnchorElement | null;
-        if (link) {
-          const href = link.getAttribute("href");
-          if (href) {
-            window.open(href, "_blank");
+      const target = event.target as HTMLElement;
+      const link = target.closest("a.gdown-link") as HTMLAnchorElement | null;
+      if (link) {
+        const href = link.getAttribute("href");
+        if (href) {
+          const isBrowseMode = editorSettings.linkMode === 'browse';
+          const isModClick = event.metaKey || event.ctrlKey;
+          if (isBrowseMode || isModClick) {
+            openUrl(href).catch(() => window.open(href, "_blank"));
             event.preventDefault();
             return true;
           }
@@ -566,6 +576,20 @@ watch(
   }
 );
 
+// Handle external file reload — push new content into live TipTap editor
+function handleFileReloaded(e: Event) {
+  const { tabId, markdown } = (e as CustomEvent<{ tabId: string; markdown: string }>).detail;
+  if (tabId !== tabsStore.activeTabId || !editor.value) return;
+  const html = markdownToHtml(markdown);
+  isRestoringContent = true;
+  try {
+    editor.value.commands.setContent(html, { emitUpdate: false });
+  } finally {
+    isRestoringContent = false;
+  }
+  outlineStore.updateFromEditor(editor.value);
+}
+
 // Handle insert-image event
 function handleInsertImage() {
   const url = prompt("Enter image URL or local path:");
@@ -739,6 +763,7 @@ onMounted(() => {
 
   window.addEventListener("gdown:insert-image", handleInsertImage);
   window.addEventListener("gdown:toggle-mode", handleToggleMode as EventListener);
+  window.addEventListener("gdown:file-reloaded", handleFileReloaded);
   window.addEventListener("keydown", handleKeydown);
 });
 
@@ -755,6 +780,7 @@ onBeforeUnmount(() => {
   if (modeIndicatorTimer) clearTimeout(modeIndicatorTimer);
   window.removeEventListener("gdown:insert-image", handleInsertImage);
   window.removeEventListener("gdown:toggle-mode", handleToggleMode as EventListener);
+  window.removeEventListener("gdown:file-reloaded", handleFileReloaded);
   window.removeEventListener("keydown", handleKeydown);
 });
 </script>
@@ -1240,5 +1266,35 @@ onBeforeUnmount(() => {
 .gdown-editor .search-highlight.search-highlight-current {
   background-color: rgba(255, 152, 0, 0.6);
   box-shadow: 0 0 0 1px rgba(255, 152, 0, 0.5);
+}
+
+/* === TABLES (GFM-style) === */
+.gdown-editor table.gdown-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  overflow: hidden;
+}
+
+.gdown-editor table.gdown-table th,
+.gdown-editor table.gdown-table td {
+  border: 1px solid var(--sidebar-border, #e0e0e0);
+  padding: 6px 12px;
+  text-align: left;
+  vertical-align: top;
+  min-width: 80px;
+}
+
+.gdown-editor table.gdown-table th {
+  background: var(--sidebar-bg, #f5f5f5);
+  font-weight: 600;
+}
+
+.gdown-editor table.gdown-table tr:nth-child(even) td {
+  background: var(--tab-hover-bg, rgba(0,0,0,0.02));
+}
+
+.gdown-editor table.gdown-table .selectedCell {
+  background: var(--sidebar-selected-bg, rgba(0,122,255,0.08));
 }
 </style>

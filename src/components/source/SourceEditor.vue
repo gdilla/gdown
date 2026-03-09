@@ -135,26 +135,28 @@ function buildExtensions(): Extension[] {
 /**
  * Update the math preview panel with rendered math expressions.
  */
-function updateMathPreview(text: string) {
+async function updateMathPreview(text: string) {
   const expressions = extractMathExpressions(text)
   if (expressions.length === 0) {
     mathPreviewHtml.value = '<p class="math-preview-empty">No math expressions found</p>'
     return
   }
 
-  const parts: string[] = []
-  for (const expr of expressions) {
+  const renderedSvgs = await Promise.all(
+    expressions.map(expr => renderMathToSvg(expr.expression, expr.isBlock))
+  )
+
+  const parts: string[] = expressions.map((expr, i) => {
     const typeLabel = expr.isBlock ? 'Display' : 'Inline'
-    const renderedSvg = renderMathToSvg(expr.expression, expr.isBlock)
     const wrapperClass = expr.isBlock ? 'math-preview-item math-preview-display' : 'math-preview-item math-preview-inline'
-    parts.push(`
+    return `
       <div class="${wrapperClass}">
         <div class="math-preview-label">${typeLabel} (line ${getLineNumber(text, expr.from)})</div>
-        <div class="math-preview-rendered">${renderedSvg}</div>
+        <div class="math-preview-rendered">${renderedSvgs[i]}</div>
         <div class="math-preview-source"><code>${escapeHtml(expr.expression)}</code></div>
       </div>
-    `)
-  }
+    `
+  })
   mathPreviewHtml.value = parts.join('')
 }
 
@@ -258,6 +260,15 @@ watch(
   }
 )
 
+// Handle external file reload — push new content into live CodeMirror editor
+function handleFileReloaded(e: Event) {
+  const { tabId, markdown } = (e as CustomEvent<{ tabId: string; markdown: string }>).detail
+  if (tabId !== tabsStore.activeTabId) return
+  const tab = tabsStore.activeTab
+  const fullContent = assembleFrontMatter(tab?.editorState.frontmatter ?? null, markdown)
+  restoreContent(fullContent)
+}
+
 function handleKeydown(e: KeyboardEvent) {
   // Cmd+/: switch back to WYSIWYG mode (Editor.vue handles the other direction)
   if (e.metaKey && !e.shiftKey && e.key === '/') {
@@ -270,10 +281,12 @@ function handleKeydown(e: KeyboardEvent) {
 onMounted(() => {
   initEditor()
   window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('gdown:file-reloaded', handleFileReloaded)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('gdown:file-reloaded', handleFileReloaded)
   if (cmView.value) {
     cmView.value.destroy()
     cmView.value = null

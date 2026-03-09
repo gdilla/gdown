@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue'
+import { startDrag } from '@crabnebula/tauri-plugin-drag'
 import type { FileNode } from '../../types/filetree'
 
 const props = defineProps<{
@@ -74,6 +75,18 @@ function handleClick() {
   }
 }
 
+/** 32x32 semi-transparent document icon for drag preview */
+const DRAG_ICON =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAVklEQVR4nO3OsQkAIAxEUfcfIJNkCMcSC0FEYyEmgv/gV9e8lNgwVc0niYj5uwAshBtghXAFzBDugBERAugRYYCGCAXUrgN2AQAAAAAAAAAAAHgf8N0KqU2KQgyYqvMAAAAASUVORK5CYII='
+
+/** Start a native OS file drag for dropping into external apps */
+function handleDragStart(event: DragEvent) {
+  if (props.node.is_dir) return
+  // Prevent the browser's default drag behavior
+  event.preventDefault()
+  startDrag({ item: [props.node.path], icon: DRAG_ICON })
+}
+
 /** Whether this node is currently selected */
 const isSelected = computed(() => props.selectedPath === props.node.path)
 
@@ -136,19 +149,28 @@ const indentStyle = computed(() => ({
         'is-markdown': isMarkdown,
       }"
       :style="indentStyle"
-      @click="handleClick"
+      :draggable="!node.is_dir"
       :title="node.path"
       role="treeitem"
       :aria-expanded="node.is_dir ? expanded : undefined"
       :aria-selected="isSelected"
       tabindex="0"
+      @click="handleClick"
+      @dragstart="handleDragStart"
       @keydown.enter.prevent="handleClick"
       @keydown.space.prevent="handleClick"
     >
       <!-- Expand/collapse chevron for directories -->
       <span v-if="node.is_dir" class="chevron" :class="{ expanded }">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-          <path d="M4.5 2L8.5 6L4.5 10" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <path
+            d="M4.5 2L8.5 6L4.5 10"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </span>
       <span v-else class="chevron-placeholder"></span>
@@ -156,26 +178,73 @@ const indentStyle = computed(() => ({
       <!-- File/folder icon -->
       <span class="node-icon">
         <!-- Open folder icon -->
-        <svg v-if="node.is_dir && expanded" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" class="icon-folder-open">
-          <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.62 4H13.5A1.5 1.5 0 0 1 15 5.5v.25H2.25A1.75 1.75 0 0 0 .5 7.5v4.325L1 3.5z"/>
-          <path d="M1.505 7A1.5 1.5 0 0 1 3 5.5h11.5a1.5 1.5 0 0 1 1.476 1.77l-1 5.5A1.5 1.5 0 0 1 13.5 14H2.5a1.5 1.5 0 0 1-1.496-1.37l-.999-5.63z"/>
+        <svg
+          v-if="node.is_dir && expanded"
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          class="icon-folder-open"
+        >
+          <path
+            d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.62 4H13.5A1.5 1.5 0 0 1 15 5.5v.25H2.25A1.75 1.75 0 0 0 .5 7.5v4.325L1 3.5z"
+          />
+          <path
+            d="M1.505 7A1.5 1.5 0 0 1 3 5.5h11.5a1.5 1.5 0 0 1 1.476 1.77l-1 5.5A1.5 1.5 0 0 1 13.5 14H2.5a1.5 1.5 0 0 1-1.496-1.37l-.999-5.63z"
+          />
         </svg>
         <!-- Closed folder icon -->
-        <svg v-else-if="node.is_dir" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" class="icon-folder">
-          <path d="M2.5 2A1.5 1.5 0 0 0 1 3.5v9A1.5 1.5 0 0 0 2.5 14h11a1.5 1.5 0 0 0 1.5-1.5V5.5A1.5 1.5 0 0 0 13.5 4H9.621a1.5 1.5 0 0 1-1.06-.44L7.439 2.44A1.5 1.5 0 0 0 6.38 2H2.5z"/>
+        <svg
+          v-else-if="node.is_dir"
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          class="icon-folder"
+        >
+          <path
+            d="M2.5 2A1.5 1.5 0 0 0 1 3.5v9A1.5 1.5 0 0 0 2.5 14h11a1.5 1.5 0 0 0 1.5-1.5V5.5A1.5 1.5 0 0 0 13.5 4H9.621a1.5 1.5 0 0 1-1.06-.44L7.439 2.44A1.5 1.5 0 0 0 6.38 2H2.5z"
+          />
         </svg>
         <!-- Markdown file icon (distinctive M-down-arrow icon) -->
-        <svg v-else-if="isMarkdown" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" :class="fileIconClass">
-          <path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm1 3v6h1.5V7.707l1.75 2.043L8 7.707V11h1.5V5H8L6.25 7.293 4.5 5H3zm8 0v3.293L9.354 8.646l-1.061 1.06L11 12.414l2.707-2.707-1.061-1.06L11 10.292V5h-1.5z"/>
+        <svg
+          v-else-if="isMarkdown"
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          :class="fileIconClass"
+        >
+          <path
+            d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm1 3v6h1.5V7.707l1.75 2.043L8 7.707V11h1.5V5H8L6.25 7.293 4.5 5H3zm8 0v3.293L9.354 8.646l-1.061 1.06L11 12.414l2.707-2.707-1.061-1.06L11 10.292V5h-1.5z"
+          />
         </svg>
         <!-- Image file icon -->
-        <svg v-else-if="fileIconClass === 'icon-image'" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" :class="fileIconClass">
-          <path d="M6.002 5.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/>
-          <path d="M2.002 1a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2h-12zm12 1a1 1 0 0 1 1 1v6.5l-3.777-1.947a.5.5 0 0 0-.577.093l-3.71 3.71-2.66-1.772a.5.5 0 0 0-.63.062L1.002 12V3a1 1 0 0 1 1-1h12z"/>
+        <svg
+          v-else-if="fileIconClass === 'icon-image'"
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          :class="fileIconClass"
+        >
+          <path d="M6.002 5.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z" />
+          <path
+            d="M2.002 1a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2h-12zm12 1a1 1 0 0 1 1 1v6.5l-3.777-1.947a.5.5 0 0 0-.577.093l-3.71 3.71-2.66-1.772a.5.5 0 0 0-.63.062L1.002 12V3a1 1 0 0 1 1-1h12z"
+          />
         </svg>
         <!-- Generic file icon for all other types -->
-        <svg v-else width="14" height="14" viewBox="0 0 16 16" fill="currentColor" :class="fileIconClass">
-          <path d="M4 0h5.293A1 1 0 0 1 10 .293L13.707 4a1 1 0 0 1 .293.707V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2zm5.5 1.5v2a1 1 0 0 0 1 1h2l-3-3z"/>
+        <svg
+          v-else
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          :class="fileIconClass"
+        >
+          <path
+            d="M4 0h5.293A1 1 0 0 1 10 .293L13.707 4a1 1 0 0 1 .293.707V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2zm5.5 1.5v2a1 1 0 0 0 1 1h2l-3-3z"
+          />
         </svg>
       </span>
 
@@ -191,8 +260,8 @@ const indentStyle = computed(() => ({
       ref="childrenRef"
       class="node-children"
       :class="{ 'node-children-animating': animating }"
-      @transitionend.self="onTransitionEnd"
       role="group"
+      @transitionend.self="onTransitionEnd"
     >
       <FileTreeNode
         v-for="child in sortedChildren"

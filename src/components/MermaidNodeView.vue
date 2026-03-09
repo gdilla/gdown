@@ -42,7 +42,6 @@
 import { ref, onMounted, watch, nextTick } from 'vue'
 import { NodeViewWrapper } from '@tiptap/vue-3'
 import type { NodeViewProps } from '@tiptap/vue-3'
-import mermaid from 'mermaid'
 
 const props = defineProps<NodeViewProps>()
 
@@ -51,13 +50,23 @@ const svgOutput = ref('')
 const renderError = ref('')
 const sourceTextarea = ref<HTMLTextAreaElement | null>(null)
 
-// Initialize mermaid with sensible defaults
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'default',
-  securityLevel: 'loose',
-  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
-})
+// Lazily loaded mermaid instance — imported only on first render
+let mermaidReady: Promise<typeof import('mermaid')['default']> | null = null
+
+function getMermaid(): Promise<typeof import('mermaid')['default']> {
+  if (!mermaidReady) {
+    mermaidReady = import('mermaid').then(({ default: m }) => {
+      m.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'loose',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      })
+      return m
+    })
+  }
+  return mermaidReady
+}
 
 let renderCounter = 0
 
@@ -72,6 +81,7 @@ async function renderDiagram() {
   try {
     renderCounter++
     const id = `mermaid-${Date.now()}-${renderCounter}`
+    const mermaid = await getMermaid()
     const { svg } = await mermaid.render(id, code)
     svgOutput.value = svg
     renderError.value = ''

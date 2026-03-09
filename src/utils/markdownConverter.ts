@@ -150,6 +150,48 @@ turndown.addRule('superscript', {
   },
 })
 
+// GFM tables — serialize TipTap table HTML back to pipe-table markdown
+turndown.addRule('tableCell', {
+  filter: ['th', 'td'],
+  replacement(content: string) {
+    return ` ${content.trim().replace(/\|/g, '\\|')} |`
+  },
+})
+
+turndown.addRule('tableRow', {
+  filter: 'tr',
+  replacement(content: string, node: HTMLElement) {
+    const cells = content.trimEnd()
+    const row = `|${cells}\n`
+    // Insert separator after the header row (first row inside thead, or first tr overall)
+    const parent = node.parentElement
+    const isHeaderRow =
+      parent?.nodeName === 'THEAD' ||
+      (parent?.nodeName === 'TBODY' && !node.previousElementSibling && !parent.previousElementSibling?.nodeName)
+    if (isHeaderRow && parent?.nodeName === 'THEAD') {
+      const cellCount = node.querySelectorAll('th, td').length
+      const separator = `|${' --- |'.repeat(cellCount)}\n`
+      return row + separator
+    }
+    return row
+  },
+})
+
+turndown.addRule('table', {
+  filter: 'table',
+  replacement(content: string) {
+    return `\n\n${content.trimEnd()}\n\n`
+  },
+})
+
+// Suppress thead/tbody/tfoot wrappers — handled by tableRow
+turndown.addRule('tableSection', {
+  filter: ['thead', 'tbody', 'tfoot'],
+  replacement(content: string) {
+    return content
+  },
+})
+
 /**
  * Convert HTML (from TipTap) to Markdown string.
  */

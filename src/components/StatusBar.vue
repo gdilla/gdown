@@ -50,20 +50,25 @@
           @click="copyPath"
         >
           <svg viewBox="0 0 16 16" fill="currentColor">
-            <path d="M4 4h6v1H4V4zm0 2h6v1H4V6zm0 2h4v1H4V8z"/>
-            <path d="M10 1H2a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V2a1 1 0 00-1-1zm0 11H2V2h8v10z"/>
-            <path d="M13 4h1v9a1 1 0 01-1 1H5v-1h8V4z"/>
+            <path d="M4 4h6v1H4V4zm0 2h6v1H4V6zm0 2h4v1H4V8z" />
+            <path
+              d="M10 1H2a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V2a1 1 0 00-1-1zm0 11H2V2h8v10z"
+            />
+            <path d="M13 4h1v9a1 1 0 01-1 1H5v-1h8V4z" />
           </svg>
         </button>
         <span v-if="copied" class="copy-confirm">Copied!</span>
       </div>
-      <div class="path-word-divider" v-if="tabsStore.activeTab?.filePath && wordCountStore.displayText" />
+      <div
+        v-if="tabsStore.activeTab?.filePath && wordCountStore.displayText"
+        class="path-word-divider"
+      />
       <!-- Word count display (Typora-style: click to expand details) -->
       <div
         v-if="tabsStore.activeTab"
         class="word-count"
-        @click="wordCountStore.toggleDetails()"
         :title="'Click for detailed statistics'"
+        @click="wordCountStore.toggleDetails()"
       >
         <span class="word-count-text">{{ wordCountStore.displayText }}</span>
       </div>
@@ -75,11 +80,7 @@
           @click.stop
         >
           <div class="wc-popover-title">Document Statistics</div>
-          <div
-            v-for="item in wordCountStore.detailLines"
-            :key="item.label"
-            class="wc-popover-row"
-          >
+          <div v-for="item in wordCountStore.detailLines" :key="item.label" class="wc-popover-row">
             <span class="wc-label">{{ item.label }}</span>
             <span class="wc-value">{{ item.value }}</span>
           </div>
@@ -87,10 +88,76 @@
       </Transition>
     </div>
     <div class="status-bar-right">
+      <!-- Copy document as markdown -->
+      <button
+        v-if="tabsStore.activeTab"
+        class="copy-md-btn"
+        :title="mdCopied ? 'Copied!' : 'Copy document as Markdown'"
+        @click="copyMarkdown"
+      >
+        <svg
+          v-if="!mdCopied"
+          class="mode-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+        <svg
+          v-else
+          class="mode-icon copy-md-check"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+        <span class="mode-label">{{ mdCopied ? 'Copied!' : 'Copy MD' }}</span>
+      </button>
+      <div class="status-bar-divider"></div>
+      <!-- Link mode toggle: Browse (click opens) vs Edit (hover popup) -->
+      <button
+        class="mode-toggle-btn"
+        :class="{ active: editorSettings.linkMode === 'edit' }"
+        :title="
+          editorSettings.linkMode === 'browse'
+            ? 'Link mode: Browse (click opens URL) — click to switch to Edit mode'
+            : 'Link mode: Edit (hover for options) — click to switch to Browse mode'
+        "
+        @click="editorSettings.linkMode = editorSettings.linkMode === 'browse' ? 'edit' : 'browse'"
+      >
+        <svg
+          class="mode-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
+        <span class="mode-label">{{
+          editorSettings.linkMode === 'browse' ? 'Browse' : 'Edit'
+        }}</span>
+      </button>
       <button
         class="mode-toggle-btn"
         :class="{ active: editorModeStore.mode === 'source' }"
-        :title="editorModeStore.mode === 'wysiwyg' ? 'Switch to Source Mode (⌘/)' : 'Switch to WYSIWYG Mode (⌘/)'"
+        :title="
+          editorModeStore.mode === 'wysiwyg'
+            ? 'Switch to Source Mode (⌘/)'
+            : 'Switch to WYSIWYG Mode (⌘/)'
+        "
         @click="handleModeToggle()"
       >
         <!-- Source code icon -->
@@ -121,7 +188,9 @@
           <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
           <circle cx="12" cy="12" r="3" />
         </svg>
-        <span class="mode-label">{{ editorModeStore.mode === 'wysiwyg' ? 'WYSIWYG' : 'Source' }}</span>
+        <span class="mode-label">{{
+          editorModeStore.mode === 'wysiwyg' ? 'WYSIWYG' : 'Source'
+        }}</span>
       </button>
     </div>
   </div>
@@ -135,6 +204,8 @@ import { useTabsStore } from '../stores/tabs'
 import { useWordCountStore } from '../stores/wordCount'
 import { useSidebarStore } from '../stores/sidebar'
 import { useOutlineStore } from '../stores/outline'
+import { useEditorSettingsStore } from '../stores/editorSettings'
+import { assembleFullMarkdown } from '../utils/copyMarkdown'
 
 const editorModeStore = useEditorModeStore()
 const autoSaveStore = useAutoSaveStore()
@@ -143,9 +214,13 @@ const tabsStore = useTabsStore()
 const wordCountStore = useWordCountStore()
 const sidebarStore = useSidebarStore()
 const outlineStore = useOutlineStore()
+const editorSettings = useEditorSettingsStore()
 
 const copied = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | null = null
+
+const mdCopied = ref(false)
+let mdCopyTimer: ReturnType<typeof setTimeout> | null = null
 
 /** Shortened path for display: show last 2 segments or "Untitled" */
 const displayPath = computed(() => {
@@ -162,7 +237,21 @@ async function copyPath() {
   await navigator.clipboard.writeText(path)
   copied.value = true
   if (copyTimer) clearTimeout(copyTimer)
-  copyTimer = setTimeout(() => { copied.value = false }, 1500)
+  copyTimer = setTimeout(() => {
+    copied.value = false
+  }, 1500)
+}
+
+async function copyMarkdown() {
+  const tab = tabsStore.activeTab
+  if (!tab) return
+  const full = assembleFullMarkdown(tab.editorState.markdown, tab.editorState.frontmatter)
+  await navigator.clipboard.writeText(full)
+  mdCopied.value = true
+  if (mdCopyTimer) clearTimeout(mdCopyTimer)
+  mdCopyTimer = setTimeout(() => {
+    mdCopied.value = false
+  }, 1500)
 }
 
 /**
@@ -300,7 +389,7 @@ const saveTooltip = computed(() => {
 .path-word-divider {
   width: 1px;
   height: 10px;
-  background: var(--tab-separator-color, rgba(0,0,0,0.12));
+  background: var(--tab-separator-color, rgba(0, 0, 0, 0.12));
   margin: 0 4px;
 }
 
@@ -317,7 +406,9 @@ const saveTooltip = computed(() => {
   background: transparent;
   color: var(--tab-text-color, #999);
   cursor: pointer;
-  transition: color 0.15s, background 0.15s;
+  transition:
+    color 0.15s,
+    background 0.15s;
 }
 
 .panel-toggle-btn svg {
@@ -327,7 +418,7 @@ const saveTooltip = computed(() => {
 
 .panel-toggle-btn:hover {
   color: var(--tab-text-active-color, #333);
-  background: var(--tab-hover-bg, rgba(0,0,0,0.06));
+  background: var(--tab-hover-bg, rgba(0, 0, 0, 0.06));
 }
 
 .panel-toggle-btn.active {
@@ -337,7 +428,7 @@ const saveTooltip = computed(() => {
 .panel-toggle-divider {
   width: 1px;
   height: 12px;
-  background: var(--tab-separator-color, rgba(0,0,0,0.12));
+  background: var(--tab-separator-color, rgba(0, 0, 0, 0.12));
   margin: 0 2px;
 }
 
@@ -348,7 +439,9 @@ const saveTooltip = computed(() => {
   gap: 4px;
   font-size: 11px;
   line-height: 1;
-  transition: color 0.2s ease, opacity 0.2s ease;
+  transition:
+    color 0.2s ease,
+    opacity 0.2s ease;
 }
 
 .save-status-icon {
@@ -388,8 +481,12 @@ const saveTooltip = computed(() => {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Error state — red */
@@ -478,13 +575,46 @@ const saveTooltip = computed(() => {
 /* Popover transition */
 .wc-popover-enter-active,
 .wc-popover-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .wc-popover-enter-from,
 .wc-popover-leave-to {
   opacity: 0;
   transform: translateX(-50%) translateY(4px);
+}
+
+/* Copy markdown button */
+.copy-md-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--tab-text-color, #777);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.copy-md-btn:hover {
+  background: var(--tab-hover-bg, rgba(0, 0, 0, 0.06));
+  color: var(--tab-text-active-color, #333);
+}
+
+.copy-md-check {
+  color: #4caf50;
+}
+
+.status-bar-divider {
+  width: 1px;
+  height: 12px;
+  background: var(--tab-separator-color, rgba(0, 0, 0, 0.12));
 }
 
 .mode-toggle-btn {
