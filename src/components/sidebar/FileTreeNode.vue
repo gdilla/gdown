@@ -75,12 +75,16 @@ function handleClick() {
   }
 }
 
+/** 32x32 semi-transparent document icon for drag preview */
+const DRAG_ICON =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAVklEQVR4nO3OsQkAIAxEUfcfIJNkCMcSC0FEYyEmgv/gV9e8lNgwVc0niYj5uwAshBtghXAFzBDugBERAugRYYCGCAXUrgN2AQAAAAAAAAAAAHgf8N0KqU2KQgyYqvMAAAAASUVORK5CYII='
+
 /** Start a native OS file drag for dropping into external apps */
 function handleDragStart(event: DragEvent) {
   if (props.node.is_dir) return
   // Prevent the browser's default drag behavior
   event.preventDefault()
-  startDrag({ item: [props.node.path], icon: '' })
+  startDrag({ item: [props.node.path], icon: DRAG_ICON })
 }
 
 /** Whether this node is currently selected */
