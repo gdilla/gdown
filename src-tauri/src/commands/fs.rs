@@ -23,9 +23,7 @@ pub fn read_file(path: String) -> Result<String, String> {
         return Err(format!("Path '{}' is not a file", path));
     }
 
-    fs::read_to_string(file_path).map_err(|e| {
-        format!("Failed to read file '{}': {}", path, e)
-    })
+    fs::read_to_string(file_path).map_err(|e| format!("Failed to read file '{}': {}", path, e))
 }
 
 /// Tauri command: Writes content to a file at the given path.
@@ -42,9 +40,8 @@ pub fn write_file(path: String, content: String) -> Result<(), String> {
     // Ensure parent directory exists
     if let Some(parent) = file_path.parent() {
         if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| {
-                format!("Failed to create directory '{}': {}", parent.display(), e)
-            })?;
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directory '{}': {}", parent.display(), e))?;
         }
     }
 
@@ -52,9 +49,8 @@ pub fn write_file(path: String, content: String) -> Result<(), String> {
     // This prevents data loss if the process crashes mid-write.
     let tmp_path = file_path.with_extension("gdown-tmp");
 
-    let mut tmp_file = fs::File::create(&tmp_path).map_err(|e| {
-        format!("Failed to create temp file '{}': {}", tmp_path.display(), e)
-    })?;
+    let mut tmp_file = fs::File::create(&tmp_path)
+        .map_err(|e| format!("Failed to create temp file '{}': {}", tmp_path.display(), e))?;
 
     tmp_file.write_all(content.as_bytes()).map_err(|e| {
         // Clean up temp file on write failure
@@ -86,13 +82,12 @@ pub fn get_file_modified_time(path: String) -> Result<u64, String> {
         return Err(format!("File '{}' does not exist", path));
     }
 
-    let metadata = fs::metadata(file_path).map_err(|e| {
-        format!("Failed to read metadata for '{}': {}", path, e)
-    })?;
+    let metadata = fs::metadata(file_path)
+        .map_err(|e| format!("Failed to read metadata for '{}': {}", path, e))?;
 
-    let modified = metadata.modified().map_err(|e| {
-        format!("Failed to get modified time for '{}': {}", path, e)
-    })?;
+    let modified = metadata
+        .modified()
+        .map_err(|e| format!("Failed to get modified time for '{}': {}", path, e))?;
 
     let duration = modified
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -121,13 +116,8 @@ pub struct FileNode {
 /// Hidden files/folders (starting with `.`) are excluded by default.
 /// Only markdown and common text files are included; all directories are traversed.
 fn read_dir_recursive(dir_path: &Path) -> Result<Vec<FileNode>, String> {
-    let entries = fs::read_dir(dir_path).map_err(|e| {
-        format!(
-            "Failed to read directory '{}': {}",
-            dir_path.display(),
-            e
-        )
-    })?;
+    let entries = fs::read_dir(dir_path)
+        .map_err(|e| format!("Failed to read directory '{}': {}", dir_path.display(), e))?;
 
     let mut nodes: Vec<FileNode> = Vec::new();
 
@@ -141,9 +131,9 @@ fn read_dir_recursive(dir_path: &Path) -> Result<Vec<FileNode>, String> {
             continue;
         }
 
-        let metadata = entry.metadata().map_err(|e| {
-            format!("Failed to read metadata for '{}': {}", path.display(), e)
-        })?;
+        let metadata = entry
+            .metadata()
+            .map_err(|e| format!("Failed to read metadata for '{}': {}", path.display(), e))?;
 
         if metadata.is_dir() {
             let children = read_dir_recursive(&path)?;
@@ -154,19 +144,32 @@ fn read_dir_recursive(dir_path: &Path) -> Result<Vec<FileNode>, String> {
                 children: Some(children),
             });
         } else if metadata.is_file() {
-            let ext = path
-                .extension()
-                .map(|e| e.to_string_lossy().to_lowercase());
+            let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
 
             // Include markdown files and common text files
-            let include = match ext.as_deref() {
-                Some("md") | Some("markdown") | Some("mdown") | Some("mkd")
-                | Some("txt") | Some("text") | Some("rst") | Some("adoc")
-                | Some("org") | Some("json") | Some("yaml") | Some("yml")
-                | Some("toml") | Some("html") | Some("htm") | Some("css")
-                | Some("js") | Some("ts") | Some("xml") | Some("csv") => true,
-                _ => false,
-            };
+            let include = matches!(
+                ext.as_deref(),
+                Some("md")
+                    | Some("markdown")
+                    | Some("mdown")
+                    | Some("mkd")
+                    | Some("txt")
+                    | Some("text")
+                    | Some("rst")
+                    | Some("adoc")
+                    | Some("org")
+                    | Some("json")
+                    | Some("yaml")
+                    | Some("yml")
+                    | Some("toml")
+                    | Some("html")
+                    | Some("htm")
+                    | Some("css")
+                    | Some("js")
+                    | Some("ts")
+                    | Some("xml")
+                    | Some("csv")
+            );
 
             if include {
                 nodes.push(FileNode {
@@ -237,9 +240,8 @@ pub fn read_directory_shallow(path: String) -> Result<Vec<FileNode>, String> {
         return Err(format!("Path '{}' is not a directory", path));
     }
 
-    let entries = fs::read_dir(dir_path).map_err(|e| {
-        format!("Failed to read directory '{}': {}", path, e)
-    })?;
+    let entries = fs::read_dir(dir_path)
+        .map_err(|e| format!("Failed to read directory '{}': {}", path, e))?;
 
     let mut nodes: Vec<FileNode> = Vec::new();
 
@@ -457,9 +459,8 @@ pub fn write_image_to_assets(
         format!("Failed to write image data: {}", e)
     })?;
 
-    file.sync_all().map_err(|e| {
-        format!("Failed to sync image file: {}", e)
-    })?;
+    file.sync_all()
+        .map_err(|e| format!("Failed to sync image file: {}", e))?;
 
     // Return the relative path from the document's directory
     Ok(format!("assets/{}", target_name))

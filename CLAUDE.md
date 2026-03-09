@@ -3,6 +3,62 @@
 Leaf is a Typora-inspired markdown editor built with Tauri 2 + Vue 3 + Tiptap v3.
 GitHub: https://github.com/gdilla/gdown
 
+## Quality Gates
+
+Every change must pass these before merge:
+
+```bash
+pnpm check        # typecheck + lint + rust:lint (combined gate)
+pnpm test         # vitest unit tests
+pnpm build        # full Tauri build (for release)
+```
+
+Individual gates:
+```bash
+pnpm typecheck    # vue-tsc --noEmit
+pnpm lint         # ESLint (src/)
+pnpm rust:lint    # cargo clippy -D warnings
+pnpm rust:fmt     # cargo fmt --check
+pnpm test         # vitest run
+```
+
+## Feature Development Protocol
+
+1. Create an isolated worktree for the feature:
+   ```bash
+   git fetch origin
+   BRANCH="feat/<name>"
+   git worktree add "../$BRANCH" -b "$BRANCH" origin/main
+   cd "../$BRANCH" && pnpm install
+   ```
+2. Write failing tests first in `src/__tests__/`
+3. Implement the feature
+4. Run `pnpm check && pnpm test` — all must pass
+5. Self-review the diff
+6. Commit with conventional prefix (`feat:`, `fix:`, `chore:`, `perf:`)
+7. Create PR with summary and test plan
+8. After merge, clean up: `git worktree remove "../$BRANCH" && git branch -d "$BRANCH"`
+
+**Worktree rules:** Never nest worktrees. Always create as siblings (`../`). Run `pnpm install` in each new worktree. Multiple features can run in parallel in separate worktrees.
+
+## Done Criteria
+
+A PR is ready when:
+- All quality gates pass (`pnpm check && pnpm test`)
+- Tests cover the new behavior
+- No `any` types introduced
+- CSS uses custom properties only (no hardcoded colors)
+- CLAUDE.md updated if architecture changed
+
+## Escalation Policy — Ask the Human
+
+- Tauri permission/capability changes
+- New dependency additions
+- Architecture changes (new stores, new extension patterns)
+- Anything touching mode switching between WYSIWYG and source
+
+---
+
 ## Tech Stack
 
 - **Framework:** Vue 3 + TypeScript 5.9 (strict), `<script setup>` Composition API
@@ -12,7 +68,9 @@ GitHub: https://github.com/gdilla/gdown
 - **State:** Pinia 3 — one store per domain in `src/stores/`
 - **Build:** Vite 7
 - **Package manager:** pnpm (NEVER use npm or yarn)
-- **Type check:** `pnpm typecheck` (runs `vue-tsc -b --noEmit`)
+- **Testing:** Vitest + @vue/test-utils + jsdom
+- **Linting:** ESLint (flat config) + Prettier + Clippy + rustfmt
+- **CI:** GitHub Actions (`.github/workflows/ci.yml`)
 - **Diagrams:** Mermaid 11 (lazy-loaded — only on first render)
 - **Math:** KaTeX (eager) + MathJax (lazy-loaded — only on first render)
 - **Markdown parsing:** markdown-it (MD→HTML) + Turndown (HTML→MD)
@@ -32,6 +90,7 @@ GitHub: https://github.com/gdilla/gdown
 typora-clone/
 ├── src/
 │   ├── App.vue               — Root; keyboard shortcuts, Tauri event listeners, v-if Editor/SourceEditor
+│   ├── __tests__/            — Vitest tests (mirrors src/ structure)
 │   ├── components/
 │   │   ├── Editor.vue        — Tiptap WYSIWYG editor (only mounted in wysiwyg mode)
 │   │   ├── source/
@@ -44,7 +103,8 @@ typora-clone/
 │   ├── stores/               — Pinia stores (tabs, autoSave, preferences, editorMode, etc.)
 │   ├── utils/
 │   │   ├── markdownConverter.ts  — htmlToMarkdown (Turndown) + markdownToHtml (markdown-it)
-│   │   └── mathRenderer.ts       — MathJax lazy singleton
+│   │   ├── mathRenderer.ts       — MathJax lazy singleton
+│   │   └── frontmatter.ts        — YAML front-matter parsing
 │   ├── codemirror/           — CodeMirror extensions (math highlight, frontmatter, mathjax preview)
 │   └── style.css             — CSS custom properties for all themes
 ├── src-tauri/
@@ -53,6 +113,9 @@ typora-clone/
 │   │   ├── main.rs           — Entry point (calls leaf_lib::run())
 │   │   └── commands/         — fs.rs, export.rs, session.rs
 │   └── tauri.conf.json       — App config (productName: "Leaf", identifier: com.gautambanerjee.leaf)
+├── .github/workflows/ci.yml  — CI: typecheck, lint, test, clippy, rustfmt
+├── eslint.config.js          — ESLint flat config (Vue 3 + TS)
+├── vitest.config.ts          — Vitest configuration
 └── public/
 ```
 
@@ -64,6 +127,7 @@ typora-clone/
 - Custom Tiptap extensions in `src/extensions/`, named `Gdown*`
 - Pinia stores: one file per domain, composable style (not options)
 - Prefer `computed()` over watchers
+- Every new feature MUST include tests in `src/__tests__/`
 
 ## Architecture: Mode Switching (critical — many bugs here)
 
@@ -91,7 +155,8 @@ The WYSIWYG/source switch uses `v-if` in App.vue — **two separate components**
 ```bash
 pnpm dev          # Start Tauri dev server (hot reload, Vite on :1420)
 pnpm vite:dev     # Frontend only (no Tauri window)
-pnpm typecheck    # TypeScript check (vue-tsc --noEmit)
+pnpm check        # All quality gates (typecheck + lint + rust lint)
+pnpm test         # Vitest unit tests
 pnpm build        # Full release build → Leaf.app + Leaf.dmg
 ```
 
@@ -133,6 +198,7 @@ Current themes: `light`, `dark`, `auto`, `solarized-light`, `solarized-dark`, `g
 - Repo: https://github.com/gdilla/gdown
 - Commit style: `feat:`, `fix:`, `chore:`, `perf:` prefixes
 - Never commit to main directly
+- Pre-commit hook runs lint-staged + typecheck automatically
 
 ## Common Mistakes
 

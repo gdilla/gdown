@@ -40,6 +40,7 @@ impl ExportFormat {
     }
 
     /// Returns all supported formats.
+    #[allow(dead_code)]
     pub fn all() -> Vec<ExportFormat> {
         vec![
             ExportFormat::Pdf,
@@ -483,10 +484,7 @@ fn find_pandoc_path() -> Option<String> {
 
 /// Get the Pandoc version string from the binary at the given path.
 fn get_pandoc_version(pandoc_path: &str) -> Option<String> {
-    let output = Command::new(pandoc_path)
-        .arg("--version")
-        .output()
-        .ok()?;
+    let output = Command::new(pandoc_path).arg("--version").output().ok()?;
 
     if output.status.success() {
         let version_output = String::from_utf8_lossy(&output.stdout);
@@ -645,7 +643,8 @@ pub fn export_document(
 ) -> Result<ExportResult, String> {
     // Locate Pandoc
     let pandoc_path = find_pandoc_path().ok_or_else(|| {
-        "Pandoc is not installed. Please install Pandoc from https://pandoc.org/installing.html".to_string()
+        "Pandoc is not installed. Please install Pandoc from https://pandoc.org/installing.html"
+            .to_string()
     })?;
 
     // Use provided config or default for format
@@ -683,7 +682,10 @@ pub fn export_save_dialog(
     let base_name = default_name.unwrap_or_else(|| "Untitled".to_string());
     // Replace .md extension with the target extension
     let file_name = if base_name.ends_with(".md") || base_name.ends_with(".markdown") {
-        let stem = base_name.rsplit_once('.').map(|(s, _)| s).unwrap_or(&base_name);
+        let stem = base_name
+            .rsplit_once('.')
+            .map(|(s, _)| s)
+            .unwrap_or(&base_name);
         format!("{}.{}", stem, ext)
     } else {
         format!("{}.{}", base_name, ext)
@@ -692,7 +694,7 @@ pub fn export_save_dialog(
     let file = app
         .dialog()
         .file()
-        .set_title(&format!("Export as {}", label))
+        .set_title(format!("Export as {}", label))
         .set_file_name(&file_name)
         .add_filter(label, &[ext])
         .add_filter("All Files", &["*"])
@@ -1076,7 +1078,10 @@ That's the end of the test document.
     fn test_integration_export_html() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output.html");
@@ -1099,7 +1104,10 @@ That's the end of the test document.
         let content = fs::read_to_string(&output).expect("read html");
         assert!(content.contains("<html"), "Missing <html tag");
         assert!(content.contains("Heading 1"), "Missing heading content");
-        assert!(content.contains("<strong>bold</strong>"), "Missing bold formatting");
+        assert!(
+            content.contains("<strong>bold</strong>"),
+            "Missing bold formatting"
+        );
         assert!(content.contains("<code"), "Missing code element");
         // MathJax is included as a script reference in standalone HTML
         assert!(
@@ -1112,7 +1120,10 @@ That's the end of the test document.
     fn test_integration_export_html_with_katex() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output_katex.html");
@@ -1128,7 +1139,11 @@ That's the end of the test document.
             None,
         );
 
-        assert!(result.is_ok(), "HTML+KaTeX export failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "HTML+KaTeX export failed: {:?}",
+            result.err()
+        );
         assert!(output.exists());
         let content = fs::read_to_string(&output).expect("read html");
         assert!(
@@ -1141,7 +1156,10 @@ That's the end of the test document.
     fn test_integration_export_html_with_toc() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output_toc.html");
@@ -1162,7 +1180,9 @@ That's the end of the test document.
         assert!(output.exists());
         let content = fs::read_to_string(&output).expect("read html");
         assert!(
-            content.contains("TOC") || content.to_lowercase().contains("toc") || content.contains("table-of-contents"),
+            content.contains("TOC")
+                || content.to_lowercase().contains("toc")
+                || content.contains("table-of-contents"),
             "Missing table of contents"
         );
     }
@@ -1171,7 +1191,10 @@ That's the end of the test document.
     fn test_integration_export_html_with_custom_css() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output_css.html");
@@ -1203,7 +1226,10 @@ That's the end of the test document.
     fn test_integration_export_html_not_standalone() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output_fragment.html");
@@ -1219,17 +1245,27 @@ That's the end of the test document.
             None,
         );
 
-        assert!(result.is_ok(), "HTML fragment export failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "HTML fragment export failed: {:?}",
+            result.err()
+        );
         assert!(output.exists());
         let content = fs::read_to_string(&output).expect("read html");
-        assert!(!content.contains("<!DOCTYPE"), "Fragment should not have DOCTYPE");
+        assert!(
+            !content.contains("<!DOCTYPE"),
+            "Fragment should not have DOCTYPE"
+        );
     }
 
     #[test]
     fn test_integration_export_latex() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output.tex");
@@ -1248,9 +1284,18 @@ That's the end of the test document.
         assert!(output.exists(), "LaTeX output file not created");
 
         let content = fs::read_to_string(&output).expect("read tex");
-        assert!(content.contains("\\documentclass"), "Missing \\documentclass");
-        assert!(content.contains("article"), "Missing article document class");
-        assert!(content.contains(r"\begin{document}"), "Missing begin document");
+        assert!(
+            content.contains("\\documentclass"),
+            "Missing \\documentclass"
+        );
+        assert!(
+            content.contains("article"),
+            "Missing article document class"
+        );
+        assert!(
+            content.contains(r"\begin{document}"),
+            "Missing begin document"
+        );
         assert!(content.contains("Heading 1"), "Missing heading content");
     }
 
@@ -1258,7 +1303,10 @@ That's the end of the test document.
     fn test_integration_export_latex_with_custom_class() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output_report.tex");
@@ -1275,7 +1323,11 @@ That's the end of the test document.
             None,
         );
 
-        assert!(result.is_ok(), "LaTeX report export failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "LaTeX report export failed: {:?}",
+            result.err()
+        );
         let content = fs::read_to_string(&output).expect("read tex");
         assert!(content.contains("report"), "Missing report document class");
     }
@@ -1284,7 +1336,10 @@ That's the end of the test document.
     fn test_integration_export_word() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output.docx");
@@ -1311,7 +1366,10 @@ That's the end of the test document.
     fn test_integration_export_epub() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output.epub");
@@ -1337,7 +1395,10 @@ That's the end of the test document.
     fn test_integration_export_rtf() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output.rtf");
@@ -1355,20 +1416,30 @@ That's the end of the test document.
         assert!(result.is_ok(), "RTF export failed: {:?}", result.err());
         assert!(output.exists(), "RTF output file not created");
         let content = fs::read_to_string(&output).expect("read rtf");
-        assert!(content.starts_with("{\\rtf"), "RTF file should start with {{\\rtf");
+        assert!(
+            content.starts_with("{\\rtf"),
+            "RTF file should start with {{\\rtf"
+        );
     }
 
     #[test]
     fn test_integration_export_html_with_header_includes() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output_header.html");
 
         let header_path = dir.path().join("header.html");
-        fs::write(&header_path, "<meta name=\"generator\" content=\"gdown\">\n<style>h1 { color: blue; }</style>").expect("write header");
+        fs::write(
+            &header_path,
+            "<meta name=\"generator\" content=\"gdown\">\n<style>h1 { color: blue; }</style>",
+        )
+        .expect("write header");
 
         let mut config = ExportConfig::default_for(&ExportFormat::Html);
         config.header_includes = Some(header_path.to_str().unwrap().to_string());
@@ -1382,7 +1453,11 @@ That's the end of the test document.
             None,
         );
 
-        assert!(result.is_ok(), "HTML+header export failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "HTML+header export failed: {:?}",
+            result.err()
+        );
         let content = fs::read_to_string(&output).expect("read html");
         assert!(content.contains("gdown"), "Header include content missing");
         assert!(content.contains("color: blue"), "Header style missing");
@@ -1392,13 +1467,17 @@ That's the end of the test document.
     fn test_integration_export_html_with_before_after_body() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output_before_after.html");
 
         let before_path = dir.path().join("before.html");
-        fs::write(&before_path, "<div class=\"banner\">Welcome to gdown</div>").expect("write before");
+        fs::write(&before_path, "<div class=\"banner\">Welcome to gdown</div>")
+            .expect("write before");
 
         let after_path = dir.path().join("after.html");
         fs::write(&after_path, "<footer>Generated by gdown</footer>").expect("write after");
@@ -1416,17 +1495,30 @@ That's the end of the test document.
             None,
         );
 
-        assert!(result.is_ok(), "HTML+before/after export failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "HTML+before/after export failed: {:?}",
+            result.err()
+        );
         let content = fs::read_to_string(&output).expect("read html");
-        assert!(content.contains("Welcome to gdown"), "Before-body content missing");
-        assert!(content.contains("Generated by gdown"), "After-body content missing");
+        assert!(
+            content.contains("Welcome to gdown"),
+            "Before-body content missing"
+        );
+        assert!(
+            content.contains("Generated by gdown"),
+            "After-body content missing"
+        );
     }
 
     #[test]
     fn test_integration_export_latex_with_geometry() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output_geo.tex");
@@ -1444,17 +1536,27 @@ That's the end of the test document.
             None,
         );
 
-        assert!(result.is_ok(), "LaTeX+geometry export failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "LaTeX+geometry export failed: {:?}",
+            result.err()
+        );
         let content = fs::read_to_string(&output).expect("read tex");
         assert!(content.contains("12pt"), "Font size not applied");
-        assert!(content.contains("letter") || content.contains("geometry"), "Paper/geometry not applied");
+        assert!(
+            content.contains("letter") || content.contains("geometry"),
+            "Paper/geometry not applied"
+        );
     }
 
     #[test]
     fn test_integration_export_with_extra_args() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output_extra.html");
@@ -1470,7 +1572,11 @@ That's the end of the test document.
             None,
         );
 
-        assert!(result.is_ok(), "HTML+extra_args export failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "HTML+extra_args export failed: {:?}",
+            result.err()
+        );
         assert!(output.exists());
     }
 
@@ -1478,7 +1584,10 @@ That's the end of the test document.
     fn test_integration_export_with_resource_path() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("output_res.html");
@@ -1493,7 +1602,11 @@ That's the end of the test document.
             Some(dir.path().to_str().unwrap()),
         );
 
-        assert!(result.is_ok(), "HTML+resource_path export failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "HTML+resource_path export failed: {:?}",
+            result.err()
+        );
         assert!(output.exists());
     }
 
@@ -1501,7 +1614,10 @@ That's the end of the test document.
     fn test_integration_all_formats_default_config() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
 
@@ -1553,7 +1669,10 @@ That's the end of the test document.
     fn test_integration_empty_markdown() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("empty.html");
@@ -1568,7 +1687,11 @@ That's the end of the test document.
             None,
         );
 
-        assert!(result.is_ok(), "Empty markdown export failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Empty markdown export failed: {:?}",
+            result.err()
+        );
         assert!(output.exists());
     }
 
@@ -1576,7 +1699,10 @@ That's the end of the test document.
     fn test_integration_unicode_content() {
         let pandoc_path = match pandoc_or_skip() {
             Some(p) => p,
-            None => { eprintln!("SKIP: pandoc not found"); return; }
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
         };
         let dir = tempfile::tempdir().expect("create temp dir");
         let output = dir.path().join("unicode.html");
@@ -1595,8 +1721,14 @@ That's the end of the test document.
 
         assert!(result.is_ok(), "Unicode export failed: {:?}", result.err());
         let content = fs::read_to_string(&output).expect("read html");
-        assert!(content.contains("\u{3053}\u{3093}\u{306b}\u{3061}\u{306f}\u{4e16}\u{754c}"), "Japanese text missing");
+        assert!(
+            content.contains("\u{3053}\u{3093}\u{306b}\u{3061}\u{306f}\u{4e16}\u{754c}"),
+            "Japanese text missing"
+        );
         assert!(content.contains("\u{1f389}"), "Emoji missing");
-        assert!(content.contains("\u{4e2d}\u{6587}\u{6d4b}\u{8bd5}"), "Chinese text missing");
+        assert!(
+            content.contains("\u{4e2d}\u{6587}\u{6d4b}\u{8bd5}"),
+            "Chinese text missing"
+        );
     }
 }

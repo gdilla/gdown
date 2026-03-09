@@ -208,10 +208,9 @@ pub fn run() {
                 MenuItemBuilder::with_id("toggle_source_mode", "Source Code Mode")
                     .accelerator("CmdOrCtrl+/")
                     .build(app)?;
-            let toggle_outline =
-                MenuItemBuilder::with_id("toggle_outline", "Outline")
-                    .accelerator("CmdOrCtrl+Shift+1")
-                    .build(app)?;
+            let toggle_outline = MenuItemBuilder::with_id("toggle_outline", "Outline")
+                .accelerator("CmdOrCtrl+Shift+1")
+                .build(app)?;
             let toggle_focus_mode = MenuItemBuilder::with_id("toggle_focus_mode", "Focus Mode")
                 .accelerator("F8")
                 .build(app)?;
@@ -228,8 +227,8 @@ pub fn run() {
             let open_preferences = MenuItemBuilder::with_id("open_preferences", "Preferences...")
                 .accelerator("CmdOrCtrl+,")
                 .build(app)?;
-            let clear_recent = MenuItemBuilder::with_id("clear_recent", "Clear Recent Files")
-                .build(app)?;
+            let clear_recent =
+                MenuItemBuilder::with_id("clear_recent", "Clear Recent Files").build(app)?;
 
             let open_recent_menu = SubmenuBuilder::new(app, "Open Recent")
                 .item(&clear_recent)
@@ -253,10 +252,16 @@ pub fn run() {
 
             let theme_light = CheckMenuItemBuilder::with_id("theme-light", "Light").build(app)?;
             let theme_dark = CheckMenuItemBuilder::with_id("theme-dark", "Dark").build(app)?;
-            let theme_system = CheckMenuItemBuilder::with_id("theme-system", "System (Auto)").build(app)?;
-            let theme_solarized_light = CheckMenuItemBuilder::with_id("theme-solarized-light", "Solarized Light").build(app)?;
-            let theme_solarized_dark = CheckMenuItemBuilder::with_id("theme-solarized-dark", "Solarized Dark").build(app)?;
-            let theme_github = CheckMenuItemBuilder::with_id("theme-github", "GitHub").build(app)?;
+            let theme_system =
+                CheckMenuItemBuilder::with_id("theme-system", "System (Auto)").build(app)?;
+            let theme_solarized_light =
+                CheckMenuItemBuilder::with_id("theme-solarized-light", "Solarized Light")
+                    .build(app)?;
+            let theme_solarized_dark =
+                CheckMenuItemBuilder::with_id("theme-solarized-dark", "Solarized Dark")
+                    .build(app)?;
+            let theme_github =
+                CheckMenuItemBuilder::with_id("theme-github", "GitHub").build(app)?;
 
             let themes_menu = SubmenuBuilder::new(app, "Themes")
                 .item(&theme_light)

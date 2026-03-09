@@ -16,15 +16,15 @@
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-export type MathOutputFormat = 'svg' | 'chtml';
+export type MathOutputFormat = 'svg' | 'chtml'
 
 export interface MathRenderOptions {
   /** Whether the expression is display-mode (block) or inline */
-  display?: boolean;
+  display?: boolean
   /** Output format – defaults to 'svg' */
-  format?: MathOutputFormat;
+  format?: MathOutputFormat
   /** Extra CSS class(es) to add to the wrapper element */
-  className?: string;
+  className?: string
 }
 
 /* ------------------------------------------------------------------ */
@@ -32,22 +32,18 @@ export interface MathRenderOptions {
 /* ------------------------------------------------------------------ */
 
 interface MathJaxState {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  adaptor: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  svgDocument: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  chtmlDocument: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  chtml: any;
+  adaptor: any
+  svgDocument: any
+  chtmlDocument: any
+  chtml: any
 }
 
-let _state: MathJaxState | null = null;
-let _statePromise: Promise<MathJaxState> | null = null;
+let _state: MathJaxState | null = null
+let _statePromise: Promise<MathJaxState> | null = null
 
 async function getState(): Promise<MathJaxState> {
-  if (_state) return _state;
-  if (_statePromise) return _statePromise;
+  if (_state) return _state
+  if (_statePromise) return _statePromise
 
   _statePromise = (async () => {
     const [
@@ -66,23 +62,23 @@ async function getState(): Promise<MathJaxState> {
       import('mathjax-full/js/adaptors/liteAdaptor.js'),
       import('mathjax-full/js/handlers/html.js'),
       import('mathjax-full/js/input/tex/AllPackages.js'),
-    ]);
+    ])
 
-    const adaptor = liteAdaptor();
-    RegisterHTMLHandler(adaptor);
+    const adaptor = liteAdaptor()
+    RegisterHTMLHandler(adaptor)
 
-    const tex = new TeX({ packages: AllPackages });
-    const svg = new SVG({ fontCache: 'local' });
-    const chtml = new CHTML({ fontURL: '' });
+    const tex = new TeX({ packages: AllPackages })
+    const svg = new SVG({ fontCache: 'local' })
+    const chtml = new CHTML({ fontURL: '' })
 
-    const svgDocument = mathjax.document('', { InputJax: tex, OutputJax: svg });
-    const chtmlDocument = mathjax.document('', { InputJax: tex, OutputJax: chtml });
+    const svgDocument = mathjax.document('', { InputJax: tex, OutputJax: svg })
+    const chtmlDocument = mathjax.document('', { InputJax: tex, OutputJax: chtml })
 
-    _state = { adaptor, svgDocument, chtmlDocument, chtml };
-    return _state;
-  })();
+    _state = { adaptor, svgDocument, chtmlDocument, chtml }
+    return _state
+  })()
 
-  return _statePromise;
+  return _statePromise
 }
 
 /* ------------------------------------------------------------------ */
@@ -108,27 +104,24 @@ async function getState(): Promise<MathJaxState> {
  * ```
  */
 export async function renderMath(latex: string, opts: MathRenderOptions = {}): Promise<string> {
-  const { display = false, format = 'svg', className } = opts;
+  const { display = false, format = 'svg', className } = opts
 
   try {
-    const { adaptor, svgDocument, chtmlDocument } = await getState();
-    const doc = format === 'svg' ? svgDocument : chtmlDocument;
-    const node = doc.convert(latex, { display });
-    let html = adaptor.outerHTML(node);
+    const { adaptor, svgDocument, chtmlDocument } = await getState()
+    const doc = format === 'svg' ? svgDocument : chtmlDocument
+    const node = doc.convert(latex, { display })
+    let html = adaptor.outerHTML(node)
 
     if (className) {
-      html = `<span class="${className}">${html}</span>`;
+      html = `<span class="${className}">${html}</span>`
     }
 
-    return html;
+    return html
   } catch (err) {
-    console.error('[mathRenderer] Failed to render LaTeX:', latex, err);
-    const escaped = latex
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    const mode = display ? 'math-error-block' : 'math-error-inline';
-    return `<span class="math-render-error ${mode}" title="Math render error">${escaped}</span>`;
+    console.error('[mathRenderer] Failed to render LaTeX:', latex, err)
+    const escaped = latex.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const mode = display ? 'math-error-block' : 'math-error-inline'
+    return `<span class="math-render-error ${mode}" title="Math render error">${escaped}</span>`
   }
 }
 
@@ -137,7 +130,7 @@ export async function renderMath(latex: string, opts: MathRenderOptions = {}): P
  * Convenience wrapper around {@link renderMath}.
  */
 export function renderInlineMath(latex: string): Promise<string> {
-  return renderMath(latex, { display: false, className: 'math-inline' });
+  return renderMath(latex, { display: false, className: 'math-inline' })
 }
 
 /**
@@ -145,7 +138,7 @@ export function renderInlineMath(latex: string): Promise<string> {
  * Convenience wrapper around {@link renderMath}.
  */
 export function renderBlockMath(latex: string): Promise<string> {
-  return renderMath(latex, { display: true, className: 'math-block' });
+  return renderMath(latex, { display: true, className: 'math-block' })
 }
 
 /**
@@ -154,10 +147,10 @@ export function renderBlockMath(latex: string): Promise<string> {
  */
 export async function getMathStylesheet(format: MathOutputFormat = 'svg'): Promise<string> {
   if (format === 'chtml') {
-    const { adaptor, chtml, chtmlDocument } = await getState();
-    return adaptor.textContent(chtml.styleSheet(chtmlDocument) as any);
+    const { adaptor, chtml, chtmlDocument } = await getState()
+    return adaptor.textContent(chtml.styleSheet(chtmlDocument) as any)
   }
-  return '';
+  return ''
 }
 
 /**
@@ -166,9 +159,9 @@ export async function getMathStylesheet(format: MathOutputFormat = 'svg'): Promi
  */
 export async function isMathJaxReady(): Promise<boolean> {
   try {
-    const result = await renderMath('x', { display: false, format: 'svg' });
-    return result.includes('<svg') || result.includes('<mjx-container');
+    const result = await renderMath('x', { display: false, format: 'svg' })
+    return result.includes('<svg') || result.includes('<mjx-container')
   } catch {
-    return false;
+    return false
   }
 }

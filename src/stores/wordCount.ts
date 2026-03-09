@@ -24,7 +24,7 @@ function countWords(text: string): number {
   if (!text || !text.trim()) return 0
 
   // Strip common markdown syntax for more accurate word counting
-  let cleaned = text
+  const cleaned = text
     // Remove code blocks (fenced)
     .replace(/```[\s\S]*?```/g, (match) => {
       // Count words inside code blocks
@@ -59,7 +59,8 @@ function countWords(text: string): number {
     .replace(/^---[\s\S]*?---\n?/m, '')
 
   // CJK character regex range
-  const cjkRegex = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g
+  const cjkRegex =
+    /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g
 
   // Count CJK characters (each is a word)
   const cjkMatches = cleaned.match(cjkRegex)
@@ -78,7 +79,7 @@ function countParagraphs(text: string): number {
 
   // A paragraph is a non-empty block of text separated by blank lines
   const blocks = text.split(/\n\s*\n/)
-  return blocks.filter(block => block.trim().length > 0).length
+  return blocks.filter((block) => block.trim().length > 0).length
 }
 
 export const useWordCountStore = defineStore('wordCount', () => {
@@ -148,14 +149,21 @@ export const useWordCountStore = defineStore('wordCount', () => {
   }
 
   // Watch active tab changes — update immediately
-  watch(() => tabsStore.activeTabId, () => {
-    updateStats()
-  }, { immediate: true })
+  watch(
+    () => tabsStore.activeTabId,
+    () => {
+      updateStats()
+    },
+    { immediate: true },
+  )
 
   // Watch markdown content changes — debounced
-  watch(() => tabsStore.activeTab?.editorState.markdown, () => {
-    scheduleUpdate()
-  })
+  watch(
+    () => tabsStore.activeTab?.editorState.markdown,
+    () => {
+      scheduleUpdate()
+    },
+  )
 
   return {
     stats,

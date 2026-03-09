@@ -27,7 +27,9 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
   const conflictDialog = ref<ConflictInfo | null>(null)
 
   /** Notification for save events (auto-cleared) */
-  const saveNotification = ref<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
+  const saveNotification = ref<{ message: string; type: 'success' | 'error' | 'warning' } | null>(
+    null,
+  )
 
   /** Tracks last known modified times for open files (filePath -> epoch ms) */
   const knownModifiedTimes = ref<Record<string, number>>({})
@@ -50,16 +52,22 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
       case 'saving':
         return 'Saving...'
       case 'error':
-        return errorMessage.value ? 'Save failed' : 'Save failed'
+      default:
+        return 'Save failed'
     }
   })
 
   const statusIcon = computed(() => {
     switch (status.value) {
-      case 'saved': return '✓'
-      case 'unsaved': return '●'
-      case 'saving': return '↻'
-      case 'error': return '✕'
+      case 'saved':
+        return '✓'
+      case 'unsaved':
+        return '●'
+      case 'saving':
+        return '↻'
+      case 'error':
+      default:
+        return '✕'
     }
   })
 
@@ -68,7 +76,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
    */
   function getTabMarkdown(tabId: string): string | null {
     const tabsStore = useTabsStore()
-    const tab = tabsStore.tabs.find(t => t.id === tabId)
+    const tab = tabsStore.tabs.find((t) => t.id === tabId)
     if (!tab) return null
     return tab.editorState.markdown ?? null
   }
@@ -100,11 +108,14 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
    */
   function showNotification(message: string, type: 'success' | 'error' | 'warning') {
     saveNotification.value = { message, type }
-    setTimeout(() => {
-      if (saveNotification.value?.message === message) {
-        saveNotification.value = null
-      }
-    }, type === 'error' ? 5000 : 3000)
+    setTimeout(
+      () => {
+        if (saveNotification.value?.message === message) {
+          saveNotification.value = null
+        }
+      },
+      type === 'error' ? 5000 : 3000,
+    )
   }
 
   /**
@@ -148,7 +159,10 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
    * If conflict is detected, shows a dialog and waits for user resolution.
    * Returns 'overwrite' to proceed, 'cancel' to abort.
    */
-  async function checkConflictBeforeSave(filePath: string, tabId: string): Promise<'overwrite' | 'cancel'> {
+  async function checkConflictBeforeSave(
+    filePath: string,
+    tabId: string,
+  ): Promise<'overwrite' | 'cancel'> {
     try {
       const currentModTime = await invoke<number>('get_file_modified_time', { path: filePath })
       const knownModTime = knownModifiedTimes.value[filePath]
@@ -181,19 +195,23 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
 
     if (action === 'reload') {
       // Load the disk version into the tab
-      const tab = tabsStore.tabs.find(t => t.id === tabId)
+      const tab = tabsStore.tabs.find((t) => t.id === tabId)
       if (tab) {
         tab.editorState.markdown = diskContent
         tab.editorState.doc = null
         tab.isModified = false
         // Push new content into the live running editor
-        window.dispatchEvent(new CustomEvent('gdown:file-reloaded', {
-          detail: { tabId, markdown: diskContent }
-        }))
+        window.dispatchEvent(
+          new CustomEvent('gdown:file-reloaded', {
+            detail: { tabId, markdown: diskContent },
+          }),
+        )
       }
       // Update known mod time
       invoke<number>('get_file_modified_time', { path: filePath })
-        .then(modTime => { knownModifiedTimes.value[filePath] = modTime })
+        .then((modTime) => {
+          knownModifiedTimes.value[filePath] = modTime
+        })
         .catch(() => {})
       conflictDialog.value = null
       if (conflictResolver) {
@@ -201,7 +219,10 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         conflictResolver = null
       }
       status.value = 'saved'
-      showNotification(`↻ Reloaded ${tabsStore.tabs.find(t => t.id === tabId)?.title ?? 'file'} from disk`, 'warning')
+      showNotification(
+        `↻ Reloaded ${tabsStore.tabs.find((t) => t.id === tabId)?.title ?? 'file'} from disk`,
+        'warning',
+      )
     } else if (action === 'overwrite') {
       conflictDialog.value = null
       if (conflictResolver) {
@@ -334,7 +355,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
    */
   async function saveTab(tabId: string): Promise<boolean> {
     const tabsStore = useTabsStore()
-    const tab = tabsStore.tabs.find(t => t.id === tabId)
+    const tab = tabsStore.tabs.find((t) => t.id === tabId)
     if (!tab || !tab.filePath || tab.isUntitled || !tab.isModified) return false
 
     const content = getTabMarkdown(tabId)
@@ -438,7 +459,9 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
       if (!knownModTime) continue
 
       try {
-        const currentModTime = await invoke<number>('get_file_modified_time', { path: tab.filePath })
+        const currentModTime = await invoke<number>('get_file_modified_time', {
+          path: tab.filePath,
+        })
         if (currentModTime > knownModTime) {
           if (tab.isModified) {
             // Conflict: local unsaved changes + external modification
@@ -461,9 +484,11 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
               tab.editorState.doc = null
               knownModifiedTimes.value[tab.filePath] = currentModTime
               // Push new content into the live running editor (if this tab is active)
-              window.dispatchEvent(new CustomEvent('gdown:file-reloaded', {
-                detail: { tabId: tab.id, markdown: diskContent }
-              }))
+              window.dispatchEvent(
+                new CustomEvent('gdown:file-reloaded', {
+                  detail: { tabId: tab.id, markdown: diskContent },
+                }),
+              )
               showNotification(`↻ ${tab.title} updated`, 'warning')
             } catch {
               // File may have been deleted
