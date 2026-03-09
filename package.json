@@ -1,5 +1,5 @@
 {
-  "name": "gdown-app",
+  "name": "leaf",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -46,6 +46,10 @@
     "@tiptap/extension-strike": "^3.20.1",
     "@tiptap/extension-subscript": "^3.20.1",
     "@tiptap/extension-superscript": "^3.20.1",
+    "@tiptap/extension-table": "^3.20.1",
+    "@tiptap/extension-table-cell": "^3.20.1",
+    "@tiptap/extension-table-header": "^3.20.1",
+    "@tiptap/extension-table-row": "^3.20.1",
     "@tiptap/extension-task-item": "^3.20.1",
     "@tiptap/extension-task-list": "^3.20.1",
     "@tiptap/extension-text": "^3.20.1",

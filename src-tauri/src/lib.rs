@@ -294,7 +294,7 @@ pub fn run() {
                 .build()?;
 
             // App menu (macOS standard: first menu = app name)
-            let app_menu = SubmenuBuilder::new(app, "gdown")
+            let app_menu = SubmenuBuilder::new(app, "Leaf")
                 .about(None)
                 .separator()
                 .item(&open_preferences)

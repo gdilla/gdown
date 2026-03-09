@@ -70,6 +70,7 @@ import { GdownCodeBlock } from "../extensions/GdownCodeBlock";
 import { GdownBulletList, GdownListItem } from "../extensions/GdownBulletList";
 import { GdownOrderedList } from "../extensions/GdownOrderedList";
 import { GdownTaskList, GdownTaskItem } from "../extensions/GdownTaskList";
+import { GdownTable, TableRow, TableCell, TableHeader } from "../extensions/GdownTable";
 import { MathInline } from "../extensions/MathInline";
 import { MathBlock } from "../extensions/MathBlock";
 import { MermaidBlock } from "../extensions/MermaidBlock";
@@ -149,6 +150,11 @@ const editor = useEditor({
     GdownListItem,
     GdownTaskList,
     GdownTaskItem,
+    // Table support (GFM tables)
+    GdownTable,
+    TableRow,
+    TableCell,
+    TableHeader,
     // Custom inline formatting marks with Typora-exact shortcuts & input rules
     GdownBold,
     GdownItalic,
@@ -1240,5 +1246,35 @@ onBeforeUnmount(() => {
 .gdown-editor .search-highlight.search-highlight-current {
   background-color: rgba(255, 152, 0, 0.6);
   box-shadow: 0 0 0 1px rgba(255, 152, 0, 0.5);
+}
+
+/* === TABLES (GFM-style) === */
+.gdown-editor table.gdown-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  overflow: hidden;
+}
+
+.gdown-editor table.gdown-table th,
+.gdown-editor table.gdown-table td {
+  border: 1px solid var(--sidebar-border, #e0e0e0);
+  padding: 6px 12px;
+  text-align: left;
+  vertical-align: top;
+  min-width: 80px;
+}
+
+.gdown-editor table.gdown-table th {
+  background: var(--sidebar-bg, #f5f5f5);
+  font-weight: 600;
+}
+
+.gdown-editor table.gdown-table tr:nth-child(even) td {
+  background: var(--tab-hover-bg, rgba(0,0,0,0.02));
+}
+
+.gdown-editor table.gdown-table .selectedCell {
+  background: var(--sidebar-selected-bg, rgba(0,122,255,0.08));
 }
 </style>

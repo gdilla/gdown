@@ -8,4 +8,16 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'mermaid': ['mermaid'],
+          'mathjax': ['mathjax-full'],
+          'codemirror-langs': ['@codemirror/language-data'],
+          'katex': ['katex'],
+        },
+      },
+    },
+  },
 })

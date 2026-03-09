@@ -1,85 +1,127 @@
 /**
  * MathJax rendering utilities for source mode preview.
  * Uses MathJax v3 (mathjax-full) to render LaTeX math expressions to SVG.
+ *
+ * MathJax is loaded lazily on the first render call so it does not block
+ * the initial app bundle parse/execute.
  */
-import { mathjax } from 'mathjax-full/js/mathjax'
-import { TeX } from 'mathjax-full/js/input/tex'
-import { SVG } from 'mathjax-full/js/output/svg'
-import { liteAdaptor } from 'mathjax-full/js/adaptors/liteAdaptor'
-import { RegisterHTMLHandler } from 'mathjax-full/js/handlers/html'
-import { AllPackages } from 'mathjax-full/js/input/tex/AllPackages'
 
-// Initialize MathJax once
-const adaptor = liteAdaptor()
-RegisterHTMLHandler(adaptor)
+/* ------------------------------------------------------------------ */
+/*  Lazy singleton                                                     */
+/* ------------------------------------------------------------------ */
 
-const tex = new TeX({
-  packages: AllPackages,
-  inlineMath: [['$', '$'], ['\\(', '\\)']],
-  displayMath: [['$$', '$$'], ['\\[', '\\]']],
-})
+interface MathJaxPreviewState {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  adaptor: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mathjaxDocument: any;
+}
 
-const svg = new SVG({
-  fontCache: 'local',
-})
+let _state: MathJaxPreviewState | null = null;
+let _statePromise: Promise<MathJaxPreviewState> | null = null;
 
-const mathjaxDocument = mathjax.document('', {
-  InputJax: tex,
-  OutputJax: svg,
-})
+async function getState(): Promise<MathJaxPreviewState> {
+  if (_state) return _state;
+  if (_statePromise) return _statePromise;
 
-// Cache rendered expressions for performance
-const renderCache = new Map<string, string>()
-const MAX_CACHE_SIZE = 500
+  _statePromise = (async () => {
+    const [
+      { mathjax },
+      { TeX },
+      { SVG },
+      { liteAdaptor },
+      { RegisterHTMLHandler },
+      { AllPackages },
+    ] = await Promise.all([
+      import('mathjax-full/js/mathjax'),
+      import('mathjax-full/js/input/tex'),
+      import('mathjax-full/js/output/svg'),
+      import('mathjax-full/js/adaptors/liteAdaptor'),
+      import('mathjax-full/js/handlers/html'),
+      import('mathjax-full/js/input/tex/AllPackages'),
+    ]);
+
+    const adaptor = liteAdaptor();
+    RegisterHTMLHandler(adaptor);
+
+    const tex = new TeX({
+      packages: AllPackages,
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      displayMath: [['$$', '$$'], ['\\[', '\\]']],
+    });
+
+    const svg = new SVG({ fontCache: 'local' });
+
+    const mathjaxDocument = mathjax.document('', {
+      InputJax: tex,
+      OutputJax: svg,
+    });
+
+    _state = { adaptor, mathjaxDocument };
+    return _state;
+  })();
+
+  return _statePromise;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Cache                                                              */
+/* ------------------------------------------------------------------ */
+
+const renderCache = new Map<string, string>();
+const MAX_CACHE_SIZE = 500;
+
+/* ------------------------------------------------------------------ */
+/*  Public API                                                        */
+/* ------------------------------------------------------------------ */
 
 /**
  * Render a LaTeX math expression to an SVG string.
  * @param expression - The LaTeX expression (without delimiters)
  * @param isBlock - Whether to render as display math
- * @returns SVG HTML string
+ * @returns Promise resolving to an SVG HTML string
  */
-export function renderMathToSvg(expression: string, isBlock: boolean): string {
-  const cacheKey = `${isBlock ? 'D' : 'I'}:${expression}`
+export async function renderMathToSvg(expression: string, isBlock: boolean): Promise<string> {
+  const cacheKey = `${isBlock ? 'D' : 'I'}:${expression}`;
 
   if (renderCache.has(cacheKey)) {
-    return renderCache.get(cacheKey)!
+    return renderCache.get(cacheKey)!;
   }
 
   try {
-    const node = mathjaxDocument.convert(expression, {
-      display: isBlock,
-    })
-    const svgHtml = adaptor.outerHTML(node)
+    const { adaptor, mathjaxDocument } = await getState();
+    const node = mathjaxDocument.convert(expression, { display: isBlock });
+    const svgHtml = adaptor.outerHTML(node);
 
-    // Manage cache size
+    // Manage cache size (LRU-lite: evict oldest entry)
     if (renderCache.size >= MAX_CACHE_SIZE) {
-      const firstKey = renderCache.keys().next().value
+      const firstKey = renderCache.keys().next().value;
       if (firstKey !== undefined) {
-        renderCache.delete(firstKey)
+        renderCache.delete(firstKey);
       }
     }
-    renderCache.set(cacheKey, svgHtml)
-    return svgHtml
+    renderCache.set(cacheKey, svgHtml);
+    return svgHtml;
   } catch (err) {
-    console.warn('MathJax render error:', err)
-    return `<span class="math-error" title="Math rendering error">${escapeHtml(expression)}</span>`
+    console.warn('MathJax render error:', err);
+    return `<span class="math-error" title="Math rendering error">${escapeHtml(expression)}</span>`;
   }
 }
 
 /**
  * Render a LaTeX math expression and return an HTML string with proper wrapping.
  */
-export function renderMathHtml(expression: string, isBlock: boolean): string {
-  const svg = renderMathToSvg(expression, isBlock)
-  const wrapperClass = isBlock ? 'math-rendered math-display' : 'math-rendered math-inline'
-  return `<span class="${wrapperClass}">${svg}</span>`
+export async function renderMathHtml(expression: string, isBlock: boolean): Promise<string> {
+  const svgHtml = await renderMathToSvg(expression, isBlock);
+  const wrapperClass = isBlock ? 'math-rendered math-display' : 'math-rendered math-inline';
+  return `<span class="${wrapperClass}">${svgHtml}</span>`;
 }
 
 /**
  * Clear the render cache (useful when changing settings).
  */
 export function clearMathCache(): void {
-  renderCache.clear()
+  renderCache.clear();
 }
 
 function escapeHtml(text: string): string {
@@ -87,5 +129,5 @@ function escapeHtml(text: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replace(/"/g, '&quot;');
 }
