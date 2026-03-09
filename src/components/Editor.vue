@@ -86,6 +86,7 @@ import InsertLinkDialog from "./InsertLinkDialog.vue";
 import FindReplace from "./FindReplace.vue";
 import SourceEditor from "./SourceEditor.vue";
 import { useFindReplaceStore } from "../stores/findReplace";
+import { useEditorSettingsStore } from "../stores/editorSettings";
 import { useTabsStore } from "../stores/tabs";
 import { htmlToMarkdown, markdownToHtml } from "../utils/markdownConverter";
 import { assembleFrontMatter, parseFrontMatter } from "../utils/frontmatter";
@@ -98,6 +99,7 @@ const outlineStore = useOutlineStore();
 const focusModeStore = useFocusModeStore();
 const typewriterModeStore = useTypewriterModeStore();
 const findReplaceStore = useFindReplaceStore();
+const editorSettings = useEditorSettingsStore();
 
 // Initialize auto-save service (editor ref is set up below, so we use a getter)
 let editorRef: { getHTML: () => string } | null = null;
@@ -202,13 +204,14 @@ const editor = useEditor({
       spellcheck: "true",
     },
     handleClick: (_view, _pos, event) => {
-      // Handle Cmd+click on links to open them
-      if (event.metaKey || event.ctrlKey) {
-        const target = event.target as HTMLElement;
-        const link = target.closest("a.gdown-link") as HTMLAnchorElement | null;
-        if (link) {
-          const href = link.getAttribute("href");
-          if (href) {
+      const target = event.target as HTMLElement;
+      const link = target.closest("a.gdown-link") as HTMLAnchorElement | null;
+      if (link) {
+        const href = link.getAttribute("href");
+        if (href) {
+          const isBrowseMode = editorSettings.linkMode === 'browse';
+          const isModClick = event.metaKey || event.ctrlKey;
+          if (isBrowseMode || isModClick) {
             openUrl(href).catch(() => window.open(href, "_blank"));
             event.preventDefault();
             return true;

@@ -87,6 +87,19 @@
       </Transition>
     </div>
     <div class="status-bar-right">
+      <!-- Link mode toggle: Browse (click opens) vs Edit (hover popup) -->
+      <button
+        class="mode-toggle-btn"
+        :class="{ active: editorSettings.linkMode === 'edit' }"
+        :title="editorSettings.linkMode === 'browse' ? 'Link mode: Browse (click opens URL) — click to switch to Edit mode' : 'Link mode: Edit (hover for options) — click to switch to Browse mode'"
+        @click="editorSettings.linkMode = editorSettings.linkMode === 'browse' ? 'edit' : 'browse'"
+      >
+        <svg class="mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+        </svg>
+        <span class="mode-label">{{ editorSettings.linkMode === 'browse' ? 'Browse' : 'Edit' }}</span>
+      </button>
       <button
         class="mode-toggle-btn"
         :class="{ active: editorModeStore.mode === 'source' }"
@@ -135,6 +148,7 @@ import { useTabsStore } from '../stores/tabs'
 import { useWordCountStore } from '../stores/wordCount'
 import { useSidebarStore } from '../stores/sidebar'
 import { useOutlineStore } from '../stores/outline'
+import { useEditorSettingsStore } from '../stores/editorSettings'
 
 const editorModeStore = useEditorModeStore()
 const autoSaveStore = useAutoSaveStore()
@@ -143,6 +157,7 @@ const tabsStore = useTabsStore()
 const wordCountStore = useWordCountStore()
 const sidebarStore = useSidebarStore()
 const outlineStore = useOutlineStore()
+const editorSettings = useEditorSettingsStore()
 
 const copied = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | null = null

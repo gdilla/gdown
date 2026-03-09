@@ -1,74 +1,70 @@
 <template>
-  <div
-    v-if="visible"
-    class="link-popup"
-    :style="{ left: position.x + 'px', top: position.y + 'px' }"
-    @mouseenter="cancelHide"
-    @mouseleave="scheduleHide"
-  >
-    <!-- View mode -->
-    <template v-if="!editing">
-      <div class="link-url-row">
-        <svg class="link-icon" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M6.354 5.5H4a3 3 0 0 0 0 6h3a3 3 0 0 0 2.83-4H9c-.086 0-.17.01-.25.031A2 2 0 0 1 7 9.5H4a2 2 0 0 1 0-4h1.535c.218-.376.495-.71.82-1z"/>
-          <path d="M9 5.5a3 3 0 0 0-2.83 4h1.098A2 2 0 0 1 9 6.5h3a2 2 0 0 1 0 4h-1.535a4 4 0 0 1-.82 1H12a3 3 0 1 0 0-6H9z"/>
-        </svg>
-        <span class="link-url-text" :title="href">{{ displayUrl }}</span>
-      </div>
-      <div class="link-actions">
-        <button class="link-btn link-btn-primary" @click="openLink">
-          Open ↗
-        </button>
-        <button class="link-btn" @click="copyLink">
-          {{ copied ? '✓ Copied' : 'Copy URL' }}
-        </button>
-        <button class="link-btn" @click="startEdit">
-          Edit
-        </button>
-        <div class="link-btn-divider" />
-        <button class="link-btn link-btn-remove" @click="removeLink" title="Remove link">
-          Unlink
-        </button>
-      </div>
-    </template>
-
-    <!-- Edit mode -->
-    <template v-else>
-      <div class="link-edit-form">
-        <label class="link-edit-label">URL</label>
-        <input
-          ref="urlInput"
-          v-model="editUrl"
-          class="link-edit-input"
-          type="url"
-          placeholder="https://example.com"
-          @keydown.enter="saveEdit"
-          @keydown.esc="cancelEdit"
-        />
-        <label class="link-edit-label">Display text</label>
-        <input
-          v-model="editText"
-          class="link-edit-input"
-          type="text"
-          placeholder="Link text"
-          @keydown.enter="saveEdit"
-          @keydown.esc="cancelEdit"
-        />
-        <div class="link-edit-actions">
-          <button class="link-btn" @click="cancelEdit">Cancel</button>
-          <button class="link-btn link-btn-primary" @click="saveEdit">Save</button>
+  <Teleport to="body">
+    <div
+      v-if="visible"
+      class="link-popup"
+      :style="{ left: position.x + 'px', top: position.y + 'px' }"
+      @mouseenter="cancelHide"
+      @mouseleave="scheduleHide"
+    >
+      <!-- View mode -->
+      <template v-if="!editing">
+        <div class="link-url-row">
+          <svg class="link-icon" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M6.354 5.5H4a3 3 0 0 0 0 6h3a3 3 0 0 0 2.83-4H9c-.086 0-.17.01-.25.031A2 2 0 0 1 7 9.5H4a2 2 0 0 1 0-4h1.535c.218-.376.495-.71.82-1z"/>
+            <path d="M9 5.5a3 3 0 0 0-2.83 4h1.098A2 2 0 0 1 9 6.5h3a2 2 0 0 1 0 4h-1.535a4 4 0 0 1-.82 1H12a3 3 0 1 0 0-6H9z"/>
+          </svg>
+          <span class="link-url-text" :title="href">{{ displayUrl }}</span>
         </div>
-      </div>
-    </template>
-  </div>
+        <div class="link-actions">
+          <button class="link-btn link-btn-primary" @click="openLink">Open ↗</button>
+          <button class="link-btn" @click="copyLink">{{ copied ? '✓ Copied' : 'Copy URL' }}</button>
+          <button class="link-btn" @click="startEdit">Edit</button>
+          <div class="link-btn-divider" />
+          <button class="link-btn link-btn-remove" @click="removeLink">Unlink</button>
+        </div>
+      </template>
+
+      <!-- Edit mode -->
+      <template v-else>
+        <div class="link-edit-form">
+          <label class="link-edit-label">URL</label>
+          <input
+            ref="urlInput"
+            v-model="editUrl"
+            class="link-edit-input"
+            type="url"
+            placeholder="https://example.com"
+            @keydown.enter="saveEdit"
+            @keydown.esc="cancelEdit"
+          />
+          <label class="link-edit-label">Display text</label>
+          <input
+            v-model="editText"
+            class="link-edit-input"
+            type="text"
+            placeholder="Link text"
+            @keydown.enter="saveEdit"
+            @keydown.esc="cancelEdit"
+          />
+          <div class="link-edit-actions">
+            <button class="link-btn" @click="cancelEdit">Cancel</button>
+            <button class="link-btn link-btn-primary" @click="saveEdit">Save</button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted } from "vue";
 import type { Editor } from "@tiptap/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { useEditorSettingsStore } from "../stores/editorSettings";
 
 const props = defineProps<{ editor: Editor }>();
+const editorSettings = useEditorSettingsStore();
 
 const visible = ref(false);
 const href = ref("");
@@ -81,7 +77,6 @@ const urlInput = ref<HTMLInputElement | null>(null);
 
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
-// Stores the selection range of the current link
 let linkFrom = 0;
 let linkTo = 0;
 
@@ -90,39 +85,41 @@ const displayUrl = computed(() => {
   return url.length > 52 ? url.substring(0, 49) + "…" : url;
 });
 
-// ── Show / hide ─────────────────────────────────────────────────────
+// ── Show / hide ──────────────────────────────────────────────────────
 
 function show(linkHref: string, anchorEl: HTMLElement) {
-  if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+  cancelHide();
   href.value = linkHref;
   editing.value = false;
 
-  // Position below the link element
+  // Use fixed viewport coords — works regardless of scroll position
   const linkRect = anchorEl.getBoundingClientRect();
-  const editorRect = props.editor.view.dom.getBoundingClientRect();
   position.value = {
-    x: Math.max(0, linkRect.left - editorRect.left),
-    y: linkRect.bottom - editorRect.top + 6,
+    x: Math.min(linkRect.left, window.innerWidth - 320),
+    y: linkRect.bottom + 6,
   };
   visible.value = true;
 }
 
 function scheduleHide() {
-  hideTimer = setTimeout(() => { visible.value = false; editing.value = false; }, 250);
+  cancelHide();
+  hideTimer = setTimeout(() => {
+    visible.value = false;
+    editing.value = false;
+  }, 300);
 }
 
 function cancelHide() {
   if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
 }
 
-// ── Actions ─────────────────────────────────────────────────────────
+// ── Actions ──────────────────────────────────────────────────────────
 
 async function openLink() {
   if (!href.value) return;
   try {
     await openUrl(href.value);
   } catch {
-    // Fallback for non-http schemes or dev mode without Tauri
     window.open(href.value, "_blank");
   }
 }
@@ -140,14 +137,11 @@ function removeLink() {
 }
 
 function startEdit() {
-  // Get current link text from the document
-  const state = props.editor.state;
-  const chain = props.editor.chain().extendMarkRange("link");
-  chain.run();
+  props.editor.chain().extendMarkRange("link").run();
   const { from, to } = props.editor.state.selection;
   linkFrom = from;
   linkTo = to;
-  editText.value = state.doc.textBetween(linkFrom, linkTo, " ");
+  editText.value = props.editor.state.doc.textBetween(linkFrom, linkTo, " ");
   editUrl.value = href.value;
   editing.value = true;
   nextTick(() => urlInput.value?.focus());
@@ -155,29 +149,25 @@ function startEdit() {
 
 function saveEdit() {
   if (!editUrl.value.trim()) return;
-  const chain = props.editor.chain().focus();
-
-  // Update URL on the existing mark range
-  chain
+  props.editor
+    .chain()
+    .focus()
     .setTextSelection({ from: linkFrom, to: linkTo })
     .extendMarkRange("link")
     .setLink({ href: editUrl.value.trim() })
     .run();
 
-  // If display text changed, replace the text too
   const currentText = props.editor.state.doc.textBetween(linkFrom, linkTo, " ");
   if (editText.value.trim() && editText.value.trim() !== currentText) {
     const { from, to } = props.editor.state.selection;
     props.editor
       .chain()
       .focus()
-      .insertContentAt({ from, to }, [
-        {
-          type: "text",
-          text: editText.value.trim(),
-          marks: [{ type: "link", attrs: { href: editUrl.value.trim() } }],
-        },
-      ])
+      .insertContentAt({ from, to }, [{
+        type: "text",
+        text: editText.value.trim(),
+        marks: [{ type: "link", attrs: { href: editUrl.value.trim() } }],
+      }])
       .run();
   }
 
@@ -190,61 +180,65 @@ function cancelEdit() {
   props.editor.commands.focus();
 }
 
-// ── Trigger on hover over link elements ──────────────────────────────
+// ── Hover detection ───────────────────────────────────────────────────
+// Only active in 'edit' link mode.
+
+function findLinkEl(target: HTMLElement | null): HTMLAnchorElement | null {
+  return target?.closest("a.gdown-link") as HTMLAnchorElement | null;
+}
 
 function handleMouseover(e: MouseEvent) {
-  const target = e.target as HTMLElement;
-  const linkEl = target.closest("a.gdown-link") as HTMLAnchorElement | null;
+  if (editorSettings.linkMode !== 'edit') return;
+  const linkEl = findLinkEl(e.target as HTMLElement);
   if (!linkEl) return;
   const linkHref = linkEl.getAttribute("href");
-  if (linkHref) {
-    cancelHide();
-    show(linkHref, linkEl);
-  }
+  if (linkHref) show(linkHref, linkEl);
 }
 
 function handleMouseout(e: MouseEvent) {
+  if (editorSettings.linkMode !== 'edit') return;
   const related = e.relatedTarget as HTMLElement | null;
-  // Don't hide if moving to the popup itself
-  if (related?.closest(".link-popup")) return;
+  // Stay open if moving to another link OR to the popup itself
+  if (findLinkEl(related) || related?.closest(".link-popup")) return;
   scheduleHide();
 }
 
 onMounted(() => {
-  const editorDom = props.editor.view.dom;
-  editorDom.addEventListener("mouseover", handleMouseover);
-  editorDom.addEventListener("mouseout", handleMouseout);
+  const dom = props.editor.view.dom;
+  dom.addEventListener("mouseover", handleMouseover);
+  dom.addEventListener("mouseout", handleMouseout);
 });
 
 onUnmounted(() => {
-  const editorDom = props.editor.view.dom;
-  editorDom.removeEventListener("mouseover", handleMouseover);
-  editorDom.removeEventListener("mouseout", handleMouseout);
+  const dom = props.editor.view.dom;
+  dom.removeEventListener("mouseover", handleMouseover);
+  dom.removeEventListener("mouseout", handleMouseout);
   if (hideTimer) clearTimeout(hideTimer);
   if (copiedTimer) clearTimeout(copiedTimer);
 });
 </script>
 
-<style scoped>
+<style>
+/* Not scoped — rendered via Teleport outside component tree */
 .link-popup {
-  position: absolute;
-  z-index: 200;
+  position: fixed;
+  z-index: 9999;
   background: var(--bg-primary, #fff);
   border: 1px solid var(--sidebar-border, #ddd);
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.14);
   padding: 8px;
   min-width: 240px;
-  max-width: 380px;
+  max-width: 360px;
   font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-/* URL row */
 .link-url-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 2px 6px;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--sidebar-border, #eee);
   margin-bottom: 6px;
 }
@@ -266,7 +260,6 @@ onUnmounted(() => {
   font-size: 11px;
 }
 
-/* Action row */
 .link-actions {
   display: flex;
   align-items: center;
@@ -280,7 +273,6 @@ onUnmounted(() => {
   margin: 0 2px;
 }
 
-/* Buttons */
 .link-btn {
   padding: 3px 8px;
   border-radius: 5px;
@@ -292,6 +284,7 @@ onUnmounted(() => {
   color: var(--text-primary, #333);
   white-space: nowrap;
   transition: background 0.12s;
+  font-family: inherit;
 }
 
 .link-btn:hover {
@@ -300,12 +293,12 @@ onUnmounted(() => {
 
 .link-btn-primary {
   background: var(--tab-active-indicator, #4a9eff);
-  color: #fff;
+  color: #fff !important;
 }
 
 .link-btn-primary:hover {
   opacity: 0.85;
-  background: var(--tab-active-indicator, #4a9eff);
+  background: var(--tab-active-indicator, #4a9eff) !important;
 }
 
 .link-btn-remove {
@@ -314,10 +307,9 @@ onUnmounted(() => {
 }
 
 .link-btn-remove:hover {
-  background: rgba(192, 57, 43, 0.08);
+  background: rgba(192, 57, 43, 0.08) !important;
 }
 
-/* Edit form */
 .link-edit-form {
   display: flex;
   flex-direction: column;
@@ -343,6 +335,7 @@ onUnmounted(() => {
   color: var(--text-primary, #333);
   outline: none;
   box-sizing: border-box;
+  font-family: inherit;
 }
 
 .link-edit-input:focus {

@@ -6,6 +6,7 @@ export type IndentSize = 2 | 4 | 8
 export type FontSize = number
 export type LineEnding = 'lf' | 'crlf'
 export type PairMatchMode = 'always' | 'never'
+export type LinkMode = 'browse' | 'edit'
 
 export interface EditorSettings {
   /** Default editing mode when opening files */
@@ -46,6 +47,8 @@ export interface EditorSettings {
   showFrontMatter: boolean
   /** Maximum editor width (px, 0 = unlimited) */
   maxEditorWidth: number
+  /** Link click behavior: browse = single click opens URL, edit = hover tooltip */
+  linkMode: LinkMode
 }
 
 const DEFAULT_SETTINGS: EditorSettings = {
@@ -68,6 +71,7 @@ const DEFAULT_SETTINGS: EditorSettings = {
   defaultFocusMode: false,
   showFrontMatter: true,
   maxEditorWidth: 860,
+  linkMode: 'browse' as LinkMode,
 }
 
 const STORAGE_KEY = 'gdown-editor-settings'
@@ -115,6 +119,7 @@ export const useEditorSettingsStore = defineStore('editorSettings', () => {
   const defaultFocusMode = ref(initial.defaultFocusMode)
   const showFrontMatter = ref(initial.showFrontMatter)
   const maxEditorWidth = ref(initial.maxEditorWidth)
+  const linkMode = ref<LinkMode>(initial.linkMode ?? 'browse')
 
   /** Get all current settings as a plain object */
   function getSettings(): EditorSettings {
@@ -138,6 +143,7 @@ export const useEditorSettingsStore = defineStore('editorSettings', () => {
       defaultFocusMode: defaultFocusMode.value,
       showFrontMatter: showFrontMatter.value,
       maxEditorWidth: maxEditorWidth.value,
+      linkMode: linkMode.value,
     }
   }
 
@@ -162,6 +168,7 @@ export const useEditorSettingsStore = defineStore('editorSettings', () => {
     defaultFocusMode.value = DEFAULT_SETTINGS.defaultFocusMode
     showFrontMatter.value = DEFAULT_SETTINGS.showFrontMatter
     maxEditorWidth.value = DEFAULT_SETTINGS.maxEditorWidth
+    linkMode.value = DEFAULT_SETTINGS.linkMode
   }
 
   // Auto-persist on any change
@@ -193,6 +200,7 @@ export const useEditorSettingsStore = defineStore('editorSettings', () => {
     defaultFocusMode,
     showFrontMatter,
     maxEditorWidth,
+    linkMode,
     getSettings,
     resetToDefaults,
   }
