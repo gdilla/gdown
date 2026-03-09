@@ -30,6 +30,7 @@
     "@codemirror/search": "^6.6.0",
     "@codemirror/state": "^6.5.4",
     "@codemirror/view": "^6.39.16",
+    "@crabnebula/tauri-plugin-drag": "^2.1.0",
     "@floating-ui/dom": "^1.7.6",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",

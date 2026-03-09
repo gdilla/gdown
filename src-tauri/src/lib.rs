@@ -157,6 +157,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_drag::init())
         .manage(PendingOpenFiles(Mutex::new(cli_file_paths)))
         .invoke_handler(tauri::generate_handler![
             greet,
