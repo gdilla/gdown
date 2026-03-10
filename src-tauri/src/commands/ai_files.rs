@@ -14,7 +14,7 @@ pub struct FileInfo {
 /// Convert an absolute project path to the Claude projects directory name.
 /// Claude uses the convention: replace `/` with `-`, strip leading `-`.
 fn project_path_to_claude_dir_name(project_path: &str) -> String {
-    project_path.replace('/', "-").trim_start_matches('-').to_string()
+    project_path.replace('/', "-")
 }
 
 /// Tauri command: Checks if a Claude project directory exists for the given project path.
