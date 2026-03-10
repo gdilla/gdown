@@ -80,23 +80,6 @@ describe('AiFilesPanel', () => {
     expect(rows).toHaveLength(2)
   })
 
-  it('renders sessions section', () => {
-    const aiFiles = useAiFilesStore()
-    aiFiles.sessions = [
-      {
-        name: 'session-abc.json',
-        path: '/dir/session-abc.json',
-        category: 'session',
-        modifiedAt: Math.floor(Date.now() / 1000) - 3600,
-      },
-    ]
-
-    const wrapper = mount(AiFilesPanel)
-
-    expect(wrapper.text()).toContain('Sessions')
-    expect(wrapper.text()).toContain('session-abc.json')
-  })
-
   it('renders memory section', () => {
     const aiFiles = useAiFilesStore()
     aiFiles.memoryFiles = [

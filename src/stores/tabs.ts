@@ -4,7 +4,6 @@ import { invoke } from '@tauri-apps/api/core'
 import type { Tab, EditorState } from '../types/tab'
 import { createDefaultEditorState } from '../types/tab'
 import { parseFrontMatter } from '../utils/frontmatter'
-import { isTranscriptFile } from '../utils/transcriptParser'
 
 let nextUntitledNumber = 1
 
@@ -241,14 +240,6 @@ export const useTabsStore = defineStore('tabs', () => {
 
     try {
       const content = await invoke<string>('read_file', { path: filePath })
-
-      // Detect transcript files (.jsonl Claude Code sessions)
-      if (filePath.endsWith('.jsonl') && isTranscriptFile(content)) {
-        const tab = createTab(filePath, content)
-        tab.fileType = 'transcript'
-
-        return tab
-      }
 
       // Parse YAML front-matter: separate metadata from body content
       const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)

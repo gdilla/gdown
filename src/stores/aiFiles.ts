@@ -13,7 +13,7 @@ export interface FileInfo {
 export interface AiFile {
   name: string
   path: string
-  category: 'instruction' | 'session' | 'memory'
+  category: 'instruction' | 'memory'
   modifiedAt?: number
 }
 
@@ -22,14 +22,10 @@ export const useAiFilesStore = defineStore('aiFiles', () => {
   const error = ref<string | null>(null)
   const claudeProjectPath = ref<string | null>(null)
   const instructions = ref<AiFile[]>([])
-  const sessions = ref<AiFile[]>([])
   const memoryFiles = ref<AiFile[]>([])
 
   /** Whether any AI files were discovered */
-  const hasAnyFiles = computed(
-    () =>
-      instructions.value.length > 0 || sessions.value.length > 0 || memoryFiles.value.length > 0,
-  )
+  const hasAnyFiles = computed(() => instructions.value.length > 0 || memoryFiles.value.length > 0)
 
   /**
    * Discover Claude-related files for a project root path.
@@ -63,15 +59,6 @@ export const useAiFilesStore = defineStore('aiFiles', () => {
           dirPath: projectDir,
         })
 
-        sessions.value = allFiles
-          .filter((f) => f.name.endsWith('.json') || f.name.endsWith('.jsonl'))
-          .map((f) => ({
-            name: f.name,
-            path: f.path,
-            category: 'session' as const,
-            modifiedAt: f.modified_at,
-          }))
-
         memoryFiles.value = allFiles
           .filter((f) => f.name.endsWith('.md'))
           .map((f) => ({
@@ -81,7 +68,6 @@ export const useAiFilesStore = defineStore('aiFiles', () => {
             modifiedAt: f.modified_at,
           }))
       } else {
-        sessions.value = []
         memoryFiles.value = []
       }
     } catch (e) {
@@ -98,7 +84,6 @@ export const useAiFilesStore = defineStore('aiFiles', () => {
     error.value = null
     claudeProjectPath.value = null
     instructions.value = []
-    sessions.value = []
     memoryFiles.value = []
   }
 
@@ -108,7 +93,6 @@ export const useAiFilesStore = defineStore('aiFiles', () => {
     error,
     claudeProjectPath,
     instructions,
-    sessions,
     memoryFiles,
 
     // Computed

@@ -26,6 +26,11 @@ pub fn read_file(path: String) -> Result<String, String> {
     fs::read_to_string(file_path).map_err(|e| format!("Failed to read file '{}': {}", path, e))
 }
 
+/// Tauri command: Reads a file, returning at most `max_bytes` from the end.
+///
+/// For large files (e.g., multi-MB JSONL transcripts), this avoids sending
+/// the full content through Tauri's JSON-based IPC which would freeze the UI.
+///
 /// Tauri command: Writes content to a file at the given path.
 /// Creates the file if it doesn't exist, overwrites if it does.
 /// Uses atomic write (write to temp then rename) to prevent data loss.

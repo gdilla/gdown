@@ -5,8 +5,7 @@
       <Sidebar />
       <main class="editor-area">
         <div v-if="tabsStore.activeTab" class="editor-content">
-          <TranscriptViewer v-if="tabsStore.activeTab.fileType === 'transcript'" />
-          <Editor v-else-if="editorModeStore.mode === 'wysiwyg'" ref="editorRef" />
+          <Editor v-if="editorModeStore.mode === 'wysiwyg'" ref="editorRef" />
           <SourceEditor v-else />
         </div>
         <div v-else class="no-tab-placeholder">
@@ -45,7 +44,6 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import TabBar from './components/tabs/TabBar.vue'
 import Editor from './components/Editor.vue'
-import TranscriptViewer from './components/transcript/TranscriptViewer.vue'
 import SourceEditor from './components/source/SourceEditor.vue'
 import Sidebar from './components/sidebar/Sidebar.vue'
 import OutlinePanel from './components/sidebar/OutlinePanel.vue'
