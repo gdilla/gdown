@@ -5,7 +5,8 @@
       <Sidebar />
       <main class="editor-area">
         <div v-if="tabsStore.activeTab" class="editor-content">
-          <Editor v-if="editorModeStore.mode === 'wysiwyg'" ref="editorRef" />
+          <TranscriptViewer v-if="tabsStore.activeTab.fileType === 'transcript'" />
+          <Editor v-else-if="editorModeStore.mode === 'wysiwyg'" ref="editorRef" />
           <SourceEditor v-else />
         </div>
         <div v-else class="no-tab-placeholder">
@@ -25,10 +26,7 @@
         </div>
       </main>
       <!-- Outline panel (right side, like Typora) -->
-      <aside
-        v-if="outlineStore.visible"
-        class="outline-aside"
-      >
+      <aside v-if="outlineStore.visible" class="outline-aside">
         <OutlinePanel @navigate="handleOutlineNavigate" />
       </aside>
     </div>
@@ -46,6 +44,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import TabBar from './components/tabs/TabBar.vue'
 import Editor from './components/Editor.vue'
+import TranscriptViewer from './components/transcript/TranscriptViewer.vue'
 import SourceEditor from './components/source/SourceEditor.vue'
 import Sidebar from './components/sidebar/Sidebar.vue'
 import OutlinePanel from './components/sidebar/OutlinePanel.vue'
@@ -426,7 +425,7 @@ watch(
   () => {
     autoSaveStore.cancelPending()
     autoSaveStore.syncStatus()
-  }
+  },
 )
 
 // Watch for active tab modification changes — trigger auto-save when content is modified
@@ -436,7 +435,7 @@ watch(
     if (isModified) {
       autoSaveStore.scheduleAutoSave()
     }
-  }
+  },
 )
 
 onUnmounted(() => {

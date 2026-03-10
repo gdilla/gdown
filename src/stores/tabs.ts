@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type { Tab, EditorState } from '../types/tab'
 import { createDefaultEditorState } from '../types/tab'
 import { parseFrontMatter } from '../utils/frontmatter'
+import { isTranscriptFile } from '../utils/transcriptParser'
 
 let nextUntitledNumber = 1
 
@@ -20,12 +21,12 @@ export const useTabsStore = defineStore('tabs', () => {
   const tabs = ref<Tab[]>([])
   const activeTabId = ref<string | null>(null)
 
-  const activeTab = computed<Tab | null>(() =>
-    tabs.value.find((t) => t.id === activeTabId.value) ?? null
+  const activeTab = computed<Tab | null>(
+    () => tabs.value.find((t) => t.id === activeTabId.value) ?? null,
   )
 
   const activeTabIndex = computed<number>(() =>
-    tabs.value.findIndex((t) => t.id === activeTabId.value)
+    tabs.value.findIndex((t) => t.id === activeTabId.value),
   )
 
   /**
@@ -35,7 +36,7 @@ export const useTabsStore = defineStore('tabs', () => {
   function createTab(filePath: string | null = null, content: string = ''): Tab {
     // Avoid opening duplicate tabs for same file
     if (filePath) {
-      const existing = tabs.value.find(t => t.filePath === filePath)
+      const existing = tabs.value.find((t) => t.filePath === filePath)
       if (existing) {
         activeTabId.value = existing.id
         return existing
@@ -43,9 +44,7 @@ export const useTabsStore = defineStore('tabs', () => {
     }
 
     const isUntitled = filePath === null
-    const title = isUntitled
-      ? `Untitled-${nextUntitledNumber++}`
-      : fileNameFromPath(filePath!)
+    const title = isUntitled ? `Untitled-${nextUntitledNumber++}` : fileNameFromPath(filePath!)
 
     const tab: Tab = {
       id: generateId(),
@@ -71,10 +70,12 @@ export const useTabsStore = defineStore('tabs', () => {
     // Untrack file modified time for conflict detection
     const closingTab = tabs.value[index]!
     if (closingTab.filePath) {
-      import('./autoSave').then(({ useAutoSaveStore }) => {
-        const autoSaveStore = useAutoSaveStore()
-        autoSaveStore.untrackFile(closingTab.filePath!)
-      }).catch(() => {})
+      import('./autoSave')
+        .then(({ useAutoSaveStore }) => {
+          const autoSaveStore = useAutoSaveStore()
+          autoSaveStore.untrackFile(closingTab.filePath!)
+        })
+        .catch(() => {})
     }
 
     const wasActive = activeTabId.value === tabId
@@ -147,7 +148,7 @@ export const useTabsStore = defineStore('tabs', () => {
    * Find a tab by its file path (to prevent duplicates).
    */
   function findTabByPath(filePath: string): Tab | undefined {
-    return tabs.value.find(t => t.filePath === filePath)
+    return tabs.value.find((t) => t.filePath === filePath)
   }
 
   /**
@@ -172,7 +173,7 @@ export const useTabsStore = defineStore('tabs', () => {
    * Move a tab by its id to a specific index.
    */
   function moveTab(tabId: string, toIndex: number): void {
-    const fromIndex = tabs.value.findIndex(t => t.id === tabId)
+    const fromIndex = tabs.value.findIndex((t) => t.id === tabId)
     if (fromIndex === -1) return
     reorderTab(fromIndex, toIndex)
   }
@@ -181,7 +182,7 @@ export const useTabsStore = defineStore('tabs', () => {
    * Close all tabs except the specified one.
    */
   function closeOtherTabs(tabId: string): void {
-    tabs.value = tabs.value.filter(t => t.id === tabId)
+    tabs.value = tabs.value.filter((t) => t.id === tabId)
     activeTabId.value = tabId
   }
 
@@ -189,11 +190,11 @@ export const useTabsStore = defineStore('tabs', () => {
    * Close all tabs to the right of the specified tab.
    */
   function closeTabsToRight(tabId: string): void {
-    const index = tabs.value.findIndex(t => t.id === tabId)
+    const index = tabs.value.findIndex((t) => t.id === tabId)
     if (index === -1) return
     tabs.value = tabs.value.slice(0, index + 1)
     // If active tab was among the closed ones, switch to this tab
-    if (!tabs.value.some(t => t.id === activeTabId.value)) {
+    if (!tabs.value.some((t) => t.id === activeTabId.value)) {
       activeTabId.value = tabId
     }
   }
@@ -232,7 +233,7 @@ export const useTabsStore = defineStore('tabs', () => {
    */
   async function openFile(filePath: string): Promise<Tab | null> {
     // Check for existing tab first
-    const existing = tabs.value.find(t => t.filePath === filePath)
+    const existing = tabs.value.find((t) => t.filePath === filePath)
     if (existing) {
       activeTabId.value = existing.id
       return existing
@@ -240,6 +241,14 @@ export const useTabsStore = defineStore('tabs', () => {
 
     try {
       const content = await invoke<string>('read_file', { path: filePath })
+
+      // Detect transcript files (.jsonl Claude Code sessions)
+      if (filePath.endsWith('.jsonl') && isTranscriptFile(content)) {
+        const tab = createTab(filePath, content)
+        tab.fileType = 'transcript'
+
+        return tab
+      }
 
       // Parse YAML front-matter: separate metadata from body content
       const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
@@ -254,10 +263,12 @@ export const useTabsStore = defineStore('tabs', () => {
       }
 
       // Track the file's modified time for conflict detection (lazy import to avoid circular deps)
-      import('./autoSave').then(({ useAutoSaveStore }) => {
-        const autoSaveStore = useAutoSaveStore()
-        autoSaveStore.trackFileModifiedTime(filePath)
-      }).catch(() => {})
+      import('./autoSave')
+        .then(({ useAutoSaveStore }) => {
+          const autoSaveStore = useAutoSaveStore()
+          autoSaveStore.trackFileModifiedTime(filePath)
+        })
+        .catch(() => {})
 
       return tab
     } catch (err) {
