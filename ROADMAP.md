@@ -520,6 +520,133 @@ Is this Google only? What about GitHub?
 
 ---
 
+## Feature 8: AI-Aware Sidebar with Pinned Folders
+
+| Dimension | Score |
+|---|---|
+| Confidence | 5 |
+| Complexity | S |
+| ROI | **Critical** |
+| IDE Overlap | **None** |
+
+### Intent
+
+The sidebar file tree is the navigation layer for everything else in this roadmap. Today it
+shows the current project directory. It should also surface AI-related files — transcripts,
+CLAUDE.md at every level, memory files — as a dedicated section, plus let users pin any
+directory (like `~/specs/` or a shared docs folder).
+
+### Job to Be Done
+
+*"I want to browse my Claude Code session transcripts, check my global CLAUDE.md, and open
+my project's memory files — without leaving Leaf or navigating to hidden dotfile directories
+in Finder."*
+
+### Why Not an IDE?
+
+VS Code's file explorer shows one workspace root. To see `~/.claude/`, you'd need a multi-root
+workspace (clunky, pollutes your project). VS Code also has no concept of "AI files" — it
+doesn't know that `~/.claude/projects/abc123/session.jsonl` is a transcript for your current
+project. Leaf can auto-discover this relationship and surface the right files automatically.
+
+### What It Does
+
+- **"AI" smart section** in the sidebar that auto-discovers and groups:
+  - `~/.claude/CLAUDE.md` — global AI instructions
+  - All `CLAUDE.md` / `AGENTS.md` files in the project tree (any depth)
+  - `~/.claude/projects/<current-project>/` — session transcripts for this project
+  - `~/.claude/projects/<current-project>/memory/` — auto-memory files
+- **Pinned folders** — user can pin any directory to the sidebar (persisted in preferences)
+  - Common use: `~/Documents/specs/`, a shared team docs folder, `~/.claude/`
+  - Pinned folders appear as collapsible sections above the project tree
+- **Smart project matching** — Leaf detects which `~/.claude/projects/<hash>/` directory
+  corresponds to the current project (by matching the project path in Claude's config)
+- **Quick access bar** — small icon row at the top: 📁 Project · 🤖 AI · 📌 Pinned · 📄 Outline
+
+### Wireframe Notes
+
+```
+┌──────────────────────────────┐
+│ 📁  🤖  📌  📄              │  ← section toggle icons
+├──────────────────────────────┤
+│ 🤖 AI Files                 │
+│  ├─ 📋 Sessions (12)        │  ← transcripts for this project
+│  │   ├─ Mar 10 — README...  │
+│  │   ├─ Mar 9 — line wrap..│
+│  │   └─ Mar 8 — copy mark..│
+│  ├─ 📝 Instructions         │
+│  │   ├─ CLAUDE.md (global)  │
+│  │   ├─ CLAUDE.md (project) │
+│  │   └─ src-tauri/CLAUDE.md │
+│  └─ 🧠 Memory               │
+│      └─ MEMORY.md            │
+├──────────────────────────────┤
+│ 📌 Pinned                   │
+│  └─ ~/Documents/specs/      │
+│      ├─ auth-spec.md        │
+│      └─ api-design.md       │
+├──────────────────────────────┤
+│ 📁 typora-clone/            │
+│  ├─ src/                    │
+│  ├─ ROADMAP.md              │
+│  ├─ README.md               │
+│  └─ ...                     │
+├──────────────────────────────┤
+│ 📄 Outline                  │
+│  ├─ # Leaf — Roadmap        │
+│  ├─ ## Feature 1            │
+│  └─ ## Feature 2            │
+└──────────────────────────────┘
+```
+
+### Workflow: Auto-Discovery
+
+```mermaid
+graph TD
+    A[Leaf opens a project] --> B[Read project root path]
+    B --> C[Scan ~/.claude/projects/ for matching hash]
+    C --> D{Found?}
+    D -->|Yes| E[Index transcripts + memory files]
+    D -->|No| F[Show empty AI section with setup hint]
+    E --> G[Populate AI section in sidebar]
+    B --> H[Scan project tree for CLAUDE.md / AGENTS.md]
+    H --> G
+
+    style A fill:#e1f5fe
+    style G fill:#c8e6c9
+```
+
+### Implementation Notes
+
+- **Project matching:** Claude Code stores project paths in `~/.claude/projects/` as directory
+  names that are hashed from the project path. Read Claude's `projects.json` or reverse-match
+  by scanning directory contents for path references.
+- **Sidebar architecture:** current sidebar has file tree + outline as panels. Add two new
+  panels: "AI" and "Pinned". Use the existing `Sidebar.vue` section pattern.
+- **Pinned folders:** store paths in Leaf preferences (`src/stores/preferences.ts`). Persist
+  via Tauri `fs` (already have preference persistence).
+- **Transcript listing:** read directory contents via Tauri `fs.readDir()`, sort by mtime,
+  show most recent first. Display first human message as preview text.
+- **CLAUDE.md discovery:** recursive glob for `**/CLAUDE.md` and `**/AGENTS.md` in project,
+  plus hardcoded `~/.claude/CLAUDE.md`.
+- **Quick access bar:** 4 icon buttons that toggle which section is expanded. Lightweight —
+  just toggles visibility of existing sections.
+- Complexity is S because it's mostly new Vue components using existing Tauri fs APIs and
+  the existing sidebar panel pattern. No new Tiptap extensions needed.
+
+### Synergies
+
+This feature is the **navigation backbone** for three other roadmap features:
+- **F1 (Transcript Viewer):** click a session in the AI section → opens in Transcript Viewer
+- **F6 (Flight Recorder):** the AI section's session list IS the lightweight version of the
+  flight recorder; F6 adds the aggregate dashboard
+- **F4 (AI Instruction Authoring):** click a CLAUDE.md in the AI section → opens in the
+  authoring studio
+
+Building this first makes F1, F4, and F6 more accessible and discoverable.
+
+---
+
 ## Features Considered and Cut
 
 These were in the original roadmap but overlap too heavily with IDE+plugin territory:
@@ -547,6 +674,9 @@ not a document editor.
                             │
        ┌────────────────────┼────────────────────┐
        │                    │                    │
+       │                    │  F8: AI Sidebar ★★ │
+       │                    │  (build FIRST)     │
+       │                    │                    │
        │                    │  F1: Transcript    │
        │                    │  Viewer ★          │
        │                    │                    │
@@ -570,16 +700,18 @@ Conf   ├────────────────────┼──�
                             │
                           Low ROI
 
-★ = Zero IDE overlap, critical ROI — build these first
+★  = Zero IDE overlap, critical ROI
+★★ = Navigation backbone — unlocks F1, F4, F6
 ```
 
 ## Recommended Build Order
 
 | Phase | Features | Rationale |
 |---|---|---|
-| **Phase 1: The moat** | F1 (Transcript Viewer), F2 (Rendered Diff) | Zero competition. These alone make Leaf worth using alongside an IDE. No other tool does either of these. |
+| **Phase 0: The backbone** | F8 (AI-Aware Sidebar) | S complexity, critical ROI. This is the navigation layer that makes F1, F4, and F6 discoverable. Build it first — everything else plugs into it. |
+| **Phase 1: The moat** | F1 (Transcript Viewer), F2 (Rendered Diff) | Zero competition. These alone make Leaf worth using alongside an IDE. No other tool does either of these. F1 plugs directly into F8's session list. |
 | **Phase 2: The workflow** | F5 (Visual External Edit), F3 (Publishing Pipeline) | Complete the "AI companion" story: see what changed (F5), share results (F3). F5 reuses F2's diff engine. |
-| **Phase 3: The studio** | F4 (AI Instruction Authoring), F6 (Flight Recorder) | Power features for serious AI-assisted dev. F4 is the PM-friendly entry point. F6 is the ops dashboard. |
+| **Phase 3: The studio** | F4 (AI Instruction Authoring), F6 (Flight Recorder) | Power features for serious AI-assisted dev. F4 is the PM-friendly entry point. F6 is the ops dashboard. Both navigate from F8's AI section. |
 | **Phase 4: Collaboration** | F7 (Margin Annotations) | High complexity, lower confidence. Build only after validating that people use Leaf for spec review. |
 
 ---
@@ -595,6 +727,7 @@ Conf   ├────────────────────┼──�
 | Visual External Edit Diff | VS Code (source diff only) | **Rendered WYSIWYG diff** — fundamentally different approach |
 | Flight Recorder | None | **100% novel.** No tool tracks AI session history at project level. |
 | Margin Annotations | Google Docs (not git-compatible) | **Git-native comments** in markdown — bridges Docs and code |
+| AI-Aware Sidebar | VS Code multi-root workspace (clunky) | **Auto-discovers AI files** for current project — zero config |
 
 ---
 
