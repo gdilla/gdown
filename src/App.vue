@@ -35,6 +35,7 @@
     <SaveNotification />
     <PreferencesWindow />
     <ExportDialog />
+    <ExportToast />
   </div>
 </template>
 
@@ -54,6 +55,7 @@ import ConflictDialog from './components/ConflictDialog.vue'
 import SaveNotification from './components/SaveNotification.vue'
 import PreferencesWindow from './components/preferences/PreferencesWindow.vue'
 import ExportDialog from './components/ExportDialog.vue'
+import ExportToast from './components/ExportToast.vue'
 import { useTabsStore } from './stores/tabs'
 import { useSidebarStore } from './stores/sidebar'
 import { useRecentFilesStore } from './stores/recentFiles'
@@ -66,6 +68,7 @@ import { useTypewriterModeStore } from './stores/typewriterMode'
 import { useFindReplaceStore } from './stores/findReplace'
 import { usePreferencesStore } from './stores/preferences'
 import { useExportStore } from './stores/export'
+import { usePublishStore } from './stores/publish'
 
 const tabsStore = useTabsStore()
 const sidebarStore = useSidebarStore()
@@ -79,6 +82,7 @@ const typewriterModeStore = useTypewriterModeStore()
 const findReplaceStore = useFindReplaceStore()
 const preferencesStore = usePreferencesStore()
 const exportStore = useExportStore()
+const publishStore = usePublishStore()
 const editorRef = ref<InstanceType<typeof Editor> | null>(null)
 
 /** Handle outline heading navigation */
@@ -106,6 +110,9 @@ let unlistenExport: UnlistenFn | null = null
 let unlistenCloseTab: UnlistenFn | null = null
 let unlistenNextTab: UnlistenFn | null = null
 let unlistenPrevTab: UnlistenFn | null = null
+let unlistenExportHtml: UnlistenFn | null = null
+let unlistenCopyRichText: UnlistenFn | null = null
+let unlistenPrintPdf: UnlistenFn | null = null
 
 /** Handle keyboard shortcuts */
 function handleKeydown(e: KeyboardEvent) {
@@ -353,6 +360,30 @@ onMounted(async () => {
       tabsStore.previousTab()
     })
 
+    // File > Export as HTML (Cmd+Shift+H)
+    unlistenExportHtml = await listen('menu-export-html', () => {
+      const editor = editorRef.value?.getEditor()
+      if (!editor) return
+      const tab = tabsStore.activeTab
+      const title = tab?.title?.replace(/\.[^.]+$/, '') ?? 'Untitled'
+      const fileName = `${title}.html`
+      publishStore.exportHtml(() => editor.getHTML(), title, fileName)
+    })
+
+    // Edit > Copy as Rich Text (Cmd+Shift+C)
+    unlistenCopyRichText = await listen('menu-copy-rich-text', () => {
+      const editor = editorRef.value?.getEditor()
+      if (!editor) return
+      const tab = tabsStore.activeTab
+      const title = tab?.title?.replace(/\.[^.]+$/, '') ?? 'Untitled'
+      publishStore.copyRichText(() => editor.getHTML(), title)
+    })
+
+    // File > Print / Export PDF (Cmd+P)
+    unlistenPrintPdf = await listen('menu-print-pdf', () => {
+      publishStore.printToPdf()
+    })
+
     // Clear recent files
     unlistenClearRecent = await listen('menu-clear-recent', () => {
       recentFilesStore.clearAll()
@@ -462,6 +493,9 @@ onUnmounted(() => {
   if (unlistenCloseTab) unlistenCloseTab()
   if (unlistenNextTab) unlistenNextTab()
   if (unlistenPrevTab) unlistenPrevTab()
+  if (unlistenExportHtml) unlistenExportHtml()
+  if (unlistenCopyRichText) unlistenCopyRichText()
+  if (unlistenPrintPdf) unlistenPrintPdf()
 })
 </script>
 
