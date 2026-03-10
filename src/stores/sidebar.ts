@@ -8,6 +8,9 @@ export const useSidebarStore = defineStore('sidebar', () => {
   /** Whether the sidebar is currently visible (hidden by default in single-file mode) */
   const visible = ref(false)
 
+  /** Which panel is active in the sidebar */
+  const activePanel = ref<'files' | 'ai'>('files')
+
   /** The root path of the currently opened folder */
   const rootPath = ref<string | null>(null)
 
@@ -29,6 +32,13 @@ export const useSidebarStore = defineStore('sidebar', () => {
     const parts = rootPath.value.split('/')
     return parts[parts.length - 1] || rootPath.value
   })
+
+  /**
+   * Set the active sidebar panel
+   */
+  function setActivePanel(panel: 'files' | 'ai') {
+    activePanel.value = panel
+  }
 
   /**
    * Toggle sidebar visibility
@@ -118,12 +128,14 @@ export const useSidebarStore = defineStore('sidebar', () => {
     fileTree,
     loading,
     error,
+    activePanel,
 
     // Computed
     hasFolderOpen,
     rootFolderName,
 
     // Actions
+    setActivePanel,
     toggleSidebar,
     showSidebar,
     hideSidebar,

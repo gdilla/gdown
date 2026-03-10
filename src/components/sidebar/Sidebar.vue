@@ -4,6 +4,7 @@ import { useSidebarStore } from '../../stores/sidebar'
 import { useTabsStore } from '../../stores/tabs'
 import { useRecentFilesStore } from '../../stores/recentFiles'
 import FileTreeNode from './FileTreeNode.vue'
+import AiFilesPanel from './AiFilesPanel.vue'
 
 const sidebar = useSidebarStore()
 const tabs = useTabsStore()
@@ -78,74 +79,100 @@ const sidebarStyle = computed(() => ({
         <div class="sidebar-actions">
           <!-- Refresh button -->
           <button
-            v-if="sidebar.hasFolderOpen"
+            v-if="sidebar.hasFolderOpen && sidebar.activePanel === 'files'"
             class="sidebar-btn"
             title="Refresh file tree"
             @click="sidebar.refreshTree()"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.418A6 6 0 1 1 8 2v1z"/>
-              <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+              <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.418A6 6 0 1 1 8 2v1z" />
+              <path
+                d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"
+              />
             </svg>
           </button>
           <!-- Close folder button -->
           <button
-            v-if="sidebar.hasFolderOpen"
+            v-if="sidebar.hasFolderOpen && sidebar.activePanel === 'files'"
             class="sidebar-btn"
             title="Close folder"
             @click="sidebar.closeFolder()"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+              <path
+                d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"
+              />
             </svg>
           </button>
         </div>
+      </div>
+
+      <!-- Panel tabs -->
+      <div class="sidebar-tabs">
+        <button
+          class="sidebar-tab"
+          :class="{ 'sidebar-tab-active': sidebar.activePanel === 'files' }"
+          @click="sidebar.setActivePanel('files')"
+        >
+          Files
+        </button>
+        <button
+          class="sidebar-tab"
+          :class="{ 'sidebar-tab-active': sidebar.activePanel === 'ai' }"
+          @click="sidebar.setActivePanel('ai')"
+        >
+          AI
+        </button>
       </div>
     </div>
 
     <!-- Sidebar content -->
     <div class="sidebar-content">
-      <!-- Loading state -->
-      <div v-if="sidebar.loading" class="sidebar-status">
-        <span class="loading-spinner"></span>
-        Loading...
-      </div>
+      <!-- AI Files panel -->
+      <AiFilesPanel v-if="sidebar.activePanel === 'ai'" />
 
-      <!-- Error state -->
-      <div v-else-if="sidebar.error" class="sidebar-status sidebar-error">
-        <p>{{ sidebar.error }}</p>
-        <button class="retry-btn" @click="sidebar.refreshTree()">Retry</button>
-      </div>
-
-      <!-- Empty state: no folder open -->
-      <div v-else-if="!sidebar.hasFolderOpen" class="sidebar-empty">
-        <p class="empty-message">No folder opened</p>
-        <button class="open-folder-btn" @click="sidebar.openFolderDialog()">
-          Open Folder
-        </button>
-        <p class="empty-hint">
-          Or use <kbd>&#x2318;</kbd><kbd>&#x21E7;</kbd><kbd>O</kbd> to open a folder
-        </p>
-      </div>
-
-      <!-- File tree -->
-      <div v-else-if="sidebar.fileTree" class="file-tree" role="tree">
-        <FileTreeNode
-          v-for="child in sidebar.fileTree.children || []"
-          :key="child.path"
-          :node="child"
-          :depth="0"
-          :selected-path="selectedFilePath"
-          @select-file="handleFileSelect"
-        />
-        <!-- Empty folder -->
-        <div
-          v-if="sidebar.fileTree.children && sidebar.fileTree.children.length === 0"
-          class="sidebar-empty"
-        >
-          <p class="empty-message">This folder is empty</p>
+      <!-- Files panel -->
+      <template v-else>
+        <!-- Loading state -->
+        <div v-if="sidebar.loading" class="sidebar-status">
+          <span class="loading-spinner"></span>
+          Loading...
         </div>
-      </div>
+
+        <!-- Error state -->
+        <div v-else-if="sidebar.error" class="sidebar-status sidebar-error">
+          <p>{{ sidebar.error }}</p>
+          <button class="retry-btn" @click="sidebar.refreshTree()">Retry</button>
+        </div>
+
+        <!-- Empty state: no folder open -->
+        <div v-else-if="!sidebar.hasFolderOpen" class="sidebar-empty">
+          <p class="empty-message">No folder opened</p>
+          <button class="open-folder-btn" @click="sidebar.openFolderDialog()">Open Folder</button>
+          <p class="empty-hint">
+            Or use <kbd>&#x2318;</kbd><kbd>&#x21E7;</kbd><kbd>O</kbd> to open a folder
+          </p>
+        </div>
+
+        <!-- File tree -->
+        <div v-else-if="sidebar.fileTree" class="file-tree" role="tree">
+          <FileTreeNode
+            v-for="child in sidebar.fileTree.children || []"
+            :key="child.path"
+            :node="child"
+            :depth="0"
+            :selected-path="selectedFilePath"
+            @select-file="handleFileSelect"
+          />
+          <!-- Empty folder -->
+          <div
+            v-if="sidebar.fileTree.children && sidebar.fileTree.children.length === 0"
+            class="sidebar-empty"
+          >
+            <p class="empty-message">This folder is empty</p>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- Sidebar resize handle (draggable) -->
@@ -226,7 +253,9 @@ const sidebarStyle = computed(() => ({
   border-radius: 4px;
   cursor: pointer;
   color: var(--sidebar-btn-color, #888);
-  transition: background-color 0.1s ease, color 0.1s ease;
+  transition:
+    background-color 0.1s ease,
+    color 0.1s ease;
 }
 
 .sidebar-btn:hover {
@@ -358,6 +387,39 @@ const sidebarStyle = computed(() => ({
   to {
     transform: rotate(360deg);
   }
+}
+
+.sidebar-tabs {
+  display: flex;
+  gap: 0;
+  margin-top: 6px;
+  border-bottom: 1px solid var(--sidebar-border, #e0e0e0);
+}
+
+.sidebar-tab {
+  flex: 1;
+  padding: 4px 8px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--sidebar-text-color, #888);
+  border-bottom: 2px solid transparent;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.sidebar-tab:hover {
+  color: var(--sidebar-btn-hover-color, #555);
+}
+
+.sidebar-tab-active {
+  color: var(--sidebar-selected-color, #007aff);
+  border-bottom-color: var(--sidebar-selected-color, #007aff);
 }
 
 .sidebar-resize-handle {
