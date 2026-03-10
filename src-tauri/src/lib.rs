@@ -105,6 +105,7 @@ async fn open_file_dialog(app: tauri::AppHandle) -> Result<Option<String>, Strin
         .set_title("Open File")
         .add_filter("Markdown", &["md", "markdown", "mdown", "mkd"])
         .add_filter("Text", &["txt", "text", "rst", "org"])
+        .add_filter("JSON Lines", &["jsonl"])
         .add_filter("All Files", &["*"])
         .blocking_pick_file();
     match file {
