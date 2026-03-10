@@ -116,15 +116,21 @@ async fn open_file_dialog(app: tauri::AppHandle) -> Result<Option<String>, Strin
 async fn save_file_dialog(
     app: tauri::AppHandle,
     default_name: Option<String>,
+    format: Option<String>,
 ) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
-    let mut dialog = app
-        .dialog()
-        .file()
-        .set_title("Save As")
-        .add_filter("Markdown", &["md", "markdown"])
-        .add_filter("Text", &["txt"])
-        .add_filter("All Files", &["*"]);
+    let is_html = format.as_deref() == Some("html");
+    let mut dialog = app.dialog().file().set_title("Save As");
+    if is_html {
+        dialog = dialog
+            .add_filter("HTML", &["html", "htm"])
+            .add_filter("All Files", &["*"]);
+    } else {
+        dialog = dialog
+            .add_filter("Markdown", &["md", "markdown"])
+            .add_filter("Text", &["txt"])
+            .add_filter("All Files", &["*"]);
+    }
     if let Some(name) = default_name {
         dialog = dialog.set_file_name(&name);
     }
@@ -133,7 +139,8 @@ async fn save_file_dialog(
         Some(path) => {
             let path_str = path.to_string();
             if !path_str.contains('.') {
-                Ok(Some(format!("{}.md", path_str)))
+                let ext = if is_html { "html" } else { "md" };
+                Ok(Some(format!("{}.{}", path_str, ext)))
             } else {
                 Ok(Some(path_str))
             }
@@ -199,6 +206,16 @@ pub fn run() {
             let export_item = MenuItemBuilder::with_id("export", "Export...")
                 .accelerator("CmdOrCtrl+Shift+E")
                 .build(app)?;
+            let export_html = MenuItemBuilder::with_id("export_html", "Export as HTML...")
+                .accelerator("CmdOrCtrl+Shift+H")
+                .build(app)?;
+            let copy_rich_text =
+                MenuItemBuilder::with_id("copy_rich_text", "Copy as Rich Text")
+                    .accelerator("CmdOrCtrl+Shift+C")
+                    .build(app)?;
+            let print_pdf = MenuItemBuilder::with_id("print_pdf", "Print / Export PDF...")
+                .accelerator("CmdOrCtrl+P")
+                .build(app)?;
             let toggle_sidebar = MenuItemBuilder::with_id("toggle_sidebar", "Toggle Sidebar")
                 .accelerator("CmdOrCtrl+\\")
                 .build(app)?;
@@ -247,6 +264,10 @@ pub fn run() {
                 .item(&save_as)
                 .separator()
                 .item(&export_item)
+                .item(&export_html)
+                .item(&copy_rich_text)
+                .separator()
+                .item(&print_pdf)
                 .separator()
                 .quit()
                 .build()?;
@@ -355,6 +376,21 @@ pub fn run() {
                     "export" => {
                         if let Some(window) = app_handle.get_webview_window("main") {
                             let _ = window.emit("menu-export", ());
+                        }
+                    }
+                    "export_html" => {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.emit("menu-export-html", ());
+                        }
+                    }
+                    "copy_rich_text" => {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.emit("menu-copy-rich-text", ());
+                        }
+                    }
+                    "print_pdf" => {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.emit("menu-print-pdf", ());
                         }
                     }
                     "close_tab" => {
