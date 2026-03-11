@@ -21,7 +21,6 @@ describe('useAiFilesStore', () => {
     expect(store.error).toBeNull()
     expect(store.claudeProjectPath).toBeNull()
     expect(store.instructions).toEqual([])
-    expect(store.sessions).toEqual([])
     expect(store.memoryFiles).toEqual([])
   })
 
@@ -37,16 +36,6 @@ describe('useAiFilesStore', () => {
 
       store.instructions = [
         { name: 'CLAUDE.md', path: '/project/CLAUDE.md', category: 'instruction' },
-      ]
-
-      expect(store.hasAnyFiles).toBe(true)
-    })
-
-    it('returns true when sessions exist', () => {
-      const store = useAiFilesStore()
-
-      store.sessions = [
-        { name: 'session.json', path: '/dir/session.json', category: 'session', modifiedAt: 1000 },
       ]
 
       expect(store.hasAnyFiles).toBe(true)
@@ -73,9 +62,6 @@ describe('useAiFilesStore', () => {
       store.instructions = [
         { name: 'CLAUDE.md', path: '/project/CLAUDE.md', category: 'instruction' },
       ]
-      store.sessions = [
-        { name: 'session.json', path: '/dir/session.json', category: 'session', modifiedAt: 1000 },
-      ]
       store.memoryFiles = [
         { name: 'MEMORY.md', path: '/dir/MEMORY.md', category: 'memory', modifiedAt: 1000 },
       ]
@@ -86,7 +72,6 @@ describe('useAiFilesStore', () => {
       expect(store.error).toBeNull()
       expect(store.claudeProjectPath).toBeNull()
       expect(store.instructions).toEqual([])
-      expect(store.sessions).toEqual([])
       expect(store.memoryFiles).toEqual([])
     })
   })
@@ -110,7 +95,7 @@ describe('useAiFilesStore', () => {
       expect(store.instructions[0]!.category).toBe('instruction')
     })
 
-    it('populates sessions and memory when claude project dir exists', async () => {
+    it('populates memory files when claude project dir exists', async () => {
       const store = useAiFilesStore()
 
       mockInvoke.mockImplementation((cmd: string) => {
@@ -119,9 +104,8 @@ describe('useAiFilesStore', () => {
         if (cmd === 'find_instruction_files') return Promise.resolve([])
         if (cmd === 'list_files_with_mtime')
           return Promise.resolve([
-            { name: 'session.json', path: '/dir/session.json', modified_at: 2000 },
             { name: 'MEMORY.md', path: '/dir/MEMORY.md', modified_at: 1000 },
-            { name: 'data.jsonl', path: '/dir/data.jsonl', modified_at: 3000 },
+            { name: 'notes.md', path: '/dir/notes.md', modified_at: 2000 },
           ])
         return Promise.resolve([])
       })
@@ -129,10 +113,7 @@ describe('useAiFilesStore', () => {
       await store.discoverFiles('/test/project')
 
       expect(store.claudeProjectPath).toBe('/home/user/.claude/projects/Users-test-project')
-      expect(store.sessions).toHaveLength(2)
-      expect(store.sessions[0]!.name).toBe('session.json')
-      expect(store.sessions[1]!.name).toBe('data.jsonl')
-      expect(store.memoryFiles).toHaveLength(1)
+      expect(store.memoryFiles).toHaveLength(2)
       expect(store.memoryFiles[0]!.name).toBe('MEMORY.md')
     })
 
@@ -147,12 +128,12 @@ describe('useAiFilesStore', () => {
       expect(store.error).toBe('Backend error')
     })
 
-    it('clears sessions and memory when no claude project dir', async () => {
+    it('clears memory when no claude project dir', async () => {
       const store = useAiFilesStore()
 
       // Pre-populate
-      store.sessions = [
-        { name: 'old.json', path: '/old/old.json', category: 'session', modifiedAt: 1 },
+      store.memoryFiles = [
+        { name: 'old.md', path: '/old/old.md', category: 'memory', modifiedAt: 1 },
       ]
 
       mockInvoke.mockImplementation((cmd: string) => {
@@ -163,7 +144,6 @@ describe('useAiFilesStore', () => {
 
       await store.discoverFiles('/project')
 
-      expect(store.sessions).toEqual([])
       expect(store.memoryFiles).toEqual([])
     })
   })

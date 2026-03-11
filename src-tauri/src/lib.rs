@@ -12,7 +12,7 @@ use commands::session::{load_session_state, save_session_state};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{Emitter, Manager, RunEvent};
+use tauri::{Emitter, Listener, Manager, RunEvent};
 
 /// Supported markdown/text file extensions for file-open events.
 const SUPPORTED_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdwn", "mdtxt", "txt"];
@@ -277,18 +277,28 @@ pub fn run() {
                 .quit()
                 .build()?;
 
-            let theme_light = CheckMenuItemBuilder::with_id("theme-light", "Light").build(app)?;
-            let theme_dark = CheckMenuItemBuilder::with_id("theme-dark", "Dark").build(app)?;
+            let theme_light = CheckMenuItemBuilder::with_id("theme-light", "Light")
+                .checked(false)
+                .build(app)?;
+            let theme_dark = CheckMenuItemBuilder::with_id("theme-dark", "Dark")
+                .checked(false)
+                .build(app)?;
             let theme_system =
-                CheckMenuItemBuilder::with_id("theme-system", "System (Auto)").build(app)?;
+                CheckMenuItemBuilder::with_id("theme-system", "System (Auto)")
+                    .checked(false)
+                    .build(app)?;
             let theme_solarized_light =
                 CheckMenuItemBuilder::with_id("theme-solarized-light", "Solarized Light")
+                    .checked(false)
                     .build(app)?;
             let theme_solarized_dark =
                 CheckMenuItemBuilder::with_id("theme-solarized-dark", "Solarized Dark")
+                    .checked(false)
                     .build(app)?;
             let theme_github =
-                CheckMenuItemBuilder::with_id("theme-github", "GitHub").build(app)?;
+                CheckMenuItemBuilder::with_id("theme-github", "GitHub")
+                    .checked(false)
+                    .build(app)?;
 
             let themes_menu = SubmenuBuilder::new(app, "Themes")
                 .item(&theme_light)
@@ -349,6 +359,29 @@ pub fn run() {
                 .build()?;
 
             app.set_menu(menu)?;
+
+            // Clone theme items for use in event handlers
+            let theme_items: Vec<tauri::menu::CheckMenuItem<tauri::Wry>> = vec![
+                theme_light.clone(),
+                theme_dark.clone(),
+                theme_system.clone(),
+                theme_solarized_light.clone(),
+                theme_solarized_dark.clone(),
+                theme_github.clone(),
+            ];
+            let theme_items_sync = theme_items.clone();
+
+            // Listen for frontend theme sync (initial load + preferences UI changes)
+            app.listen("sync-theme-menu", move |event: tauri::Event| {
+                let payload = event.payload();
+                // Payload arrives as JSON string e.g. "\"theme-system\""
+                let selected_id = payload
+                    .trim_matches('"')
+                    .trim();
+                for item in &theme_items_sync {
+                    let _ = item.set_checked(item.id().0.as_str() == selected_id);
+                }
+            });
 
             app.on_menu_event(move |app_handle, event| {
                 let id = event.id().0.as_str();
@@ -454,6 +487,10 @@ pub fn run() {
                             "system" => "auto",
                             other => other,
                         };
+                        // Update checkmarks: uncheck all, check selected
+                        for item in &theme_items {
+                            let _ = item.set_checked(item.id().0.as_str() == id);
+                        }
                         if let Some(window) = app_handle.get_webview_window("main") {
                             let _ = window.emit("menu-set-theme", theme_value);
                         }

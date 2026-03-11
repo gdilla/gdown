@@ -28,8 +28,6 @@ export interface Tab {
   isUntitled: boolean
   /** Persisted editor state for this tab */
   editorState: EditorState
-  /** File type: markdown (default) or transcript (.jsonl Claude Code sessions) */
-  fileType?: 'markdown' | 'transcript'
 }
 
 export function createDefaultEditorState(markdown: string = ''): EditorState {
