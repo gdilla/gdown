@@ -40,7 +40,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import TabBar from './components/tabs/TabBar.vue'
 import Editor from './components/Editor.vue'
@@ -434,6 +434,11 @@ onMounted(async () => {
   // Initialize preferences (apply theme, editor styles)
   preferencesStore.initialize()
 
+  // Sync theme checkmark in native menu
+  const themeMenuId =
+    preferencesStore.theme === 'auto' ? 'theme-system' : `theme-${preferencesStore.theme}`
+  emit('sync-theme-menu', themeMenuId).catch(() => {})
+
   // Start periodic conflict detection for external file changes
   autoSaveStore.startConflictDetection()
 
@@ -447,6 +452,15 @@ onMounted(async () => {
     tabsStore.createTab()
   }
 })
+
+// Sync native theme menu checkmark when theme changes (e.g. from Preferences UI)
+watch(
+  () => preferencesStore.theme,
+  (newTheme) => {
+    const menuId = newTheme === 'auto' ? 'theme-system' : `theme-${newTheme}`
+    emit('sync-theme-menu', menuId).catch(() => {})
+  },
+)
 
 // Watch for active tab changes — sync auto-save status and cancel pending saves
 watch(
