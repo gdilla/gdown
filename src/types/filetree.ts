@@ -12,3 +12,13 @@ export interface FileNode {
   /** Child nodes (only populated for directories) */
   children?: FileNode[]
 }
+
+/**
+ * A segment in the breadcrumb path bar.
+ */
+export interface BreadcrumbSegment {
+  /** Display name for the segment (folder name, or "~" for home) */
+  name: string
+  /** Absolute path this segment navigates to */
+  path: string
+}

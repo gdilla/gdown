@@ -91,13 +91,8 @@ const sidebarStyle = computed(() => ({
               />
             </svg>
           </button>
-          <!-- Close folder button -->
-          <button
-            v-if="sidebar.hasFolderOpen && sidebar.activePanel === 'files'"
-            class="sidebar-btn"
-            title="Close folder"
-            @click="sidebar.closeFolder()"
-          >
+          <!-- Hide sidebar button (does NOT clear folder) -->
+          <button class="sidebar-btn" title="Hide sidebar" @click="sidebar.hideSidebar()">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path
                 d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"
@@ -124,6 +119,39 @@ const sidebarStyle = computed(() => ({
           AI
         </button>
       </div>
+    </div>
+
+    <!-- Breadcrumb navigation -->
+    <div v-if="sidebar.hasFolderOpen && sidebar.activePanel === 'files'" class="breadcrumb-bar">
+      <div class="breadcrumb-segments">
+        <template v-for="(segment, index) in sidebar.breadcrumbSegments" :key="segment.path">
+          <span v-if="index > 0" class="breadcrumb-separator">/</span>
+          <button
+            v-if="index < sidebar.breadcrumbSegments.length - 1"
+            class="breadcrumb-btn"
+            :title="segment.path"
+            @click="sidebar.navigateToFolder(segment.path)"
+          >
+            {{ segment.name }}
+          </button>
+          <span v-else class="breadcrumb-current" :title="segment.path">
+            {{ segment.name }}
+          </span>
+        </template>
+      </div>
+      <!-- Close folder (eject) button -->
+      <button
+        class="sidebar-btn breadcrumb-close"
+        title="Close folder"
+        @click="sidebar.closeFolder()"
+      >
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+          <path
+            d="M8 1a.5.5 0 0 1 .5.5v4.793l2.146-2.147a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 1 1 .708-.708L7.5 6.293V1.5A.5.5 0 0 1 8 1z"
+          />
+          <path d="M3 13.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5z" />
+        </svg>
+      </button>
     </div>
 
     <!-- Sidebar content -->
@@ -261,6 +289,69 @@ const sidebarStyle = computed(() => ({
 .sidebar-btn:hover {
   background-color: var(--sidebar-hover-bg, rgba(0, 0, 0, 0.08));
   color: var(--sidebar-btn-hover-color, #333);
+}
+
+.breadcrumb-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--sidebar-border, #e0e0e0);
+  flex-shrink: 0;
+  min-height: 24px;
+}
+
+.breadcrumb-segments {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8em;
+  scrollbar-width: none;
+}
+
+.breadcrumb-segments::-webkit-scrollbar {
+  display: none;
+}
+
+.breadcrumb-separator {
+  color: var(--text-secondary, #999);
+  opacity: 0.6;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.breadcrumb-btn {
+  border: none;
+  background: none;
+  padding: 1px 2px;
+  cursor: pointer;
+  color: var(--text-secondary, #999);
+  font-size: inherit;
+  font-family: inherit;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.breadcrumb-btn:hover {
+  text-decoration: underline;
+  color: var(--sidebar-text-color, #666);
+}
+
+.breadcrumb-current {
+  color: var(--sidebar-text-color, #333);
+  font-weight: 600;
+  flex-shrink: 0;
+  padding: 1px 2px;
+}
+
+.breadcrumb-close {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 .sidebar-content {
