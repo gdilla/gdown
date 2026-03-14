@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { FileNode } from '../types/filetree'
+import type { FileNode, BreadcrumbSegment } from '../types/filetree'
 import { useRecentFilesStore } from './recentFiles'
 
 export const useSidebarStore = defineStore('sidebar', () => {
@@ -31,6 +31,53 @@ export const useSidebarStore = defineStore('sidebar', () => {
     if (!rootPath.value) return ''
     const parts = rootPath.value.split('/')
     return parts[parts.length - 1] || rootPath.value
+  })
+
+  /** Detect the home directory prefix (e.g. /Users/username or /home/username) */
+  const homeDir = computed(() => {
+    if (!rootPath.value) return null
+    // Match /Users/<name> (macOS) or /home/<name> (Linux)
+    const match = rootPath.value.match(/^(\/(?:Users|home)\/[^/]+)/)
+    return match ? match[1] : null
+  })
+
+  /** Breadcrumb segments parsed from rootPath, with ~ shorthand for home */
+  const breadcrumbSegments = computed<BreadcrumbSegment[]>(() => {
+    if (!rootPath.value) return []
+
+    const home = homeDir.value
+    let displayPath = rootPath.value
+    let basePath = ''
+
+    if (home && rootPath.value.startsWith(home)) {
+      // Replace home dir with ~
+      displayPath = '~' + rootPath.value.slice(home.length)
+      basePath = home
+    }
+
+    const parts = displayPath.split('/').filter(Boolean)
+    const segments: BreadcrumbSegment[] = []
+
+    if (home && rootPath.value.startsWith(home)) {
+      // First segment is "~" pointing to home dir
+      segments.push({ name: '~', path: basePath })
+      // Remaining segments after ~
+      const remaining = rootPath.value.slice(home.length).split('/').filter(Boolean)
+      let currentPath = basePath
+      for (const part of remaining) {
+        currentPath = currentPath + '/' + part
+        segments.push({ name: part, path: currentPath })
+      }
+    } else {
+      // Absolute path without home shorthand
+      let currentPath = ''
+      for (const part of parts) {
+        currentPath = currentPath + '/' + part
+        segments.push({ name: part, path: currentPath })
+      }
+    }
+
+    return segments
   })
 
   /**
@@ -65,12 +112,15 @@ export const useSidebarStore = defineStore('sidebar', () => {
    * Open a folder by path, invoking the Tauri backend to read the directory tree.
    * Automatically shows the sidebar when a folder is opened.
    */
-  async function openFolder(path: string): Promise<void> {
+  async function openFolder(path: string, maxDepth?: number): Promise<void> {
     loading.value = true
     error.value = null
 
     try {
-      const tree = await invoke<FileNode>('read_directory_tree', { path })
+      const tree = await invoke<FileNode>('read_directory_tree', {
+        path,
+        maxDepth: maxDepth ?? 10,
+      })
       fileTree.value = tree
       rootPath.value = path
       // Automatically show sidebar when opening a folder
@@ -95,14 +145,21 @@ export const useSidebarStore = defineStore('sidebar', () => {
   }
 
   /**
-   * Close the currently opened folder.
+   * Close the currently opened folder (clears tree and path but keeps sidebar visible).
    */
   function closeFolder() {
     fileTree.value = null
     rootPath.value = null
     error.value = null
-    // Auto-hide sidebar when closing folder (return to single-file mode)
-    visible.value = false
+  }
+
+  /**
+   * Navigate to a folder by path (used by breadcrumb clicks).
+   * Reloads the file tree for the target directory.
+   */
+  async function navigateToFolder(path: string): Promise<void> {
+    // Use a shallow depth limit for breadcrumb navigation to avoid scanning huge parent trees
+    await openFolder(path, 3)
   }
 
   /**
@@ -133,6 +190,7 @@ export const useSidebarStore = defineStore('sidebar', () => {
     // Computed
     hasFolderOpen,
     rootFolderName,
+    breadcrumbSegments,
 
     // Actions
     setActivePanel,
@@ -142,6 +200,7 @@ export const useSidebarStore = defineStore('sidebar', () => {
     openFolder,
     refreshTree,
     closeFolder,
+    navigateToFolder,
     openFolderDialog,
   }
 })
