@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useOutlineStore, type OutlineHeading } from '../../stores/outline'
 
 const outlineStore = useOutlineStore()
@@ -6,6 +7,18 @@ const outlineStore = useOutlineStore()
 const emit = defineEmits<{
   (e: 'navigate', heading: OutlineHeading): void
 }>()
+
+/** Track which item just had a successful copy, for "Copied!" feedback */
+const copiedKey = ref<string | null>(null)
+let copiedTimeout: ReturnType<typeof setTimeout> | null = null
+
+function showCopiedFeedback(key: string) {
+  copiedKey.value = key
+  if (copiedTimeout) clearTimeout(copiedTimeout)
+  copiedTimeout = setTimeout(() => {
+    copiedKey.value = null
+  }, 1200)
+}
 
 /** Indent level relative to the minimum heading level in the document */
 function indentLevel(heading: OutlineHeading): number {
@@ -24,12 +37,52 @@ function headingClass(heading: OutlineHeading): string[] {
 function handleClick(heading: OutlineHeading) {
   emit('navigate', heading)
 }
+
+async function copySectionAs(index: number, format: 'markdown' | 'richtext') {
+  const success = await outlineStore.copySection(index, format)
+  if (success) {
+    showCopiedFeedback(`section-${index}-${format}`)
+  }
+}
+
+async function copyWholeDoc(format: 'markdown' | 'richtext') {
+  const success = await outlineStore.copyWholeDocument(format)
+  if (success) {
+    showCopiedFeedback(`whole-${format}`)
+  }
+}
 </script>
 
 <template>
   <div class="outline-panel">
     <div class="outline-header">
       <span class="outline-title">OUTLINE</span>
+      <div class="outline-header-actions">
+        <button
+          class="outline-action-btn"
+          title="Copy document as Markdown"
+          @click="copyWholeDoc('markdown')"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="2" width="9" height="11" rx="1.5" />
+            <path d="M2 5v8.5A1.5 1.5 0 003.5 15H10" />
+          </svg>
+          <span class="action-label">MD</span>
+          <span v-if="copiedKey === 'whole-markdown'" class="copied-badge">Copied!</span>
+        </button>
+        <button
+          class="outline-action-btn"
+          title="Copy document as Rich Text"
+          @click="copyWholeDoc('richtext')"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="12" height="12" rx="1.5" />
+            <path d="M5 6h6M5 8.5h6M5 11h3" />
+          </svg>
+          <span class="action-label">Rich</span>
+          <span v-if="copiedKey === 'whole-richtext'" class="copied-badge">Copied!</span>
+        </button>
+      </div>
     </div>
 
     <div class="outline-content">
@@ -43,17 +96,47 @@ function handleClick(heading: OutlineHeading) {
 
       <!-- Heading list -->
       <nav v-else class="outline-list" role="navigation" aria-label="Document outline">
-        <button
-          v-for="heading in outlineStore.headings"
+        <div
+          v-for="(heading, index) in outlineStore.headings"
           :key="heading.id"
-          class="outline-item"
-          :class="headingClass(heading)"
-          :style="{ paddingLeft: `${12 + indentLevel(heading) * 16}px` }"
-          :title="heading.text"
-          @click="handleClick(heading)"
+          class="outline-item-wrapper"
         >
-          <span class="outline-item-text">{{ heading.text }}</span>
-        </button>
+          <button
+            class="outline-item"
+            :class="headingClass(heading)"
+            :style="{ paddingLeft: `${12 + indentLevel(heading) * 16}px` }"
+            :title="heading.text"
+            @click="handleClick(heading)"
+          >
+            <span class="outline-item-text">{{ heading.text }}</span>
+          </button>
+          <div class="outline-item-actions">
+            <button
+              class="outline-item-action-btn"
+              title="Copy section as Markdown"
+              @click.stop="copySectionAs(index, 'markdown')"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="5" y="2" width="9" height="11" rx="1.5" />
+                <path d="M2 5v8.5A1.5 1.5 0 003.5 15H10" />
+              </svg>
+            </button>
+            <button
+              class="outline-item-action-btn"
+              title="Copy section as Rich Text"
+              @click.stop="copySectionAs(index, 'richtext')"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="2" width="12" height="12" rx="1.5" />
+                <path d="M5 6h6M5 8.5h6M5 11h3" />
+              </svg>
+            </button>
+            <span
+              v-if="copiedKey === `section-${index}-markdown` || copiedKey === `section-${index}-richtext`"
+              class="copied-badge copied-badge-inline"
+            >Copied!</span>
+          </div>
+        </div>
       </nav>
     </div>
   </div>
@@ -71,6 +154,9 @@ function handleClick(heading: OutlineHeading) {
   padding: 12px 12px 8px;
   border-bottom: 1px solid var(--sidebar-border, #e0e0e0);
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .outline-title {
@@ -79,6 +165,38 @@ function handleClick(heading: OutlineHeading) {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--sidebar-title-color, #888);
+}
+
+.outline-header-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.outline-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-secondary, #888);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1;
+  position: relative;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.outline-action-btn:hover {
+  background-color: var(--sidebar-hover-bg, rgba(0, 0, 0, 0.06));
+  color: var(--sidebar-text-color, #333);
+}
+
+.action-label {
+  font-size: 10px;
+  font-weight: 500;
 }
 
 .outline-content {
@@ -110,11 +228,20 @@ function handleClick(heading: OutlineHeading) {
   flex-direction: column;
 }
 
+.outline-item-wrapper {
+  position: relative;
+}
+
+.outline-item-wrapper:hover .outline-item-actions {
+  opacity: 1;
+}
+
 .outline-item {
   display: block;
   width: 100%;
   text-align: left;
   padding: 4px 12px;
+  padding-right: 48px;
   border: none;
   background: none;
   cursor: pointer;
@@ -140,6 +267,64 @@ function handleClick(heading: OutlineHeading) {
 
 .outline-item-active:hover {
   background-color: var(--sidebar-selected-bg, rgba(0, 122, 255, 0.15));
+}
+
+.outline-item-actions {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.outline-item-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-secondary, #888);
+  border-radius: 3px;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.outline-item-action-btn:hover {
+  background-color: var(--sidebar-hover-bg, rgba(0, 0, 0, 0.08));
+  color: var(--sidebar-text-color, #333);
+}
+
+.copied-badge {
+  position: absolute;
+  top: -18px;
+  right: 0;
+  font-size: 10px;
+  color: var(--text-secondary, #4caf50);
+  background: var(--sidebar-bg, #f5f5f5);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: copied-fade 1.2s ease forwards;
+}
+
+.copied-badge-inline {
+  position: static;
+  margin-left: 2px;
+}
+
+@keyframes copied-fade {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 /* Heading level visual differentiation */
