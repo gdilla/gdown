@@ -1,5 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { useTabsStore } from './tabs'
+import { markdownToHtml } from '../utils/markdownConverter'
+import { copyAsRichText, copyAsPlainText, unescapeMarkdown } from '../utils/clipboardUtils'
 
 export interface OutlineHeading {
   /** Unique identifier (based on position in doc) */
@@ -167,6 +170,93 @@ export const useOutlineStore = defineStore('outline', () => {
     activeHeadingId.value = null
   }
 
+  /**
+   * Extract the markdown content for a specific section.
+   * A section starts at the heading line and extends until the next heading
+   * of equal or higher level (lower number), or end of document.
+   */
+  function getSectionContent(headingIndex: number): { markdown: string; html: string } | null {
+    const tabsStore = useTabsStore()
+    const markdown = tabsStore.activeTab?.editorState?.markdown
+    if (!markdown || headingIndex < 0 || headingIndex >= headings.value.length) {
+      return null
+    }
+
+    const lines = markdown.split('\n')
+    const headingRegex = /^(#{1,6})\s+/
+
+    // Build an array of { lineIndex, level } for all heading lines
+    const headingLines: { lineIndex: number; level: number }[] = []
+    for (let i = 0; i < lines.length; i++) {
+      const match = lines[i]!.match(headingRegex)
+      if (match) {
+        headingLines.push({ lineIndex: i, level: match[1]!.length })
+      }
+    }
+
+    if (headingIndex >= headingLines.length) {
+      return null
+    }
+
+    const target = headingLines[headingIndex]!
+    const startLine = target.lineIndex
+
+    // Find the end: next heading with level <= target level
+    let endLine = lines.length
+    for (let i = headingIndex + 1; i < headingLines.length; i++) {
+      if (headingLines[i]!.level <= target.level) {
+        endLine = headingLines[i]!.lineIndex
+        break
+      }
+    }
+
+    // Trim trailing empty lines
+    while (endLine > startLine + 1 && lines[endLine - 1]!.trim() === '') {
+      endLine--
+    }
+
+    const sectionMd = lines.slice(startLine, endLine).join('\n')
+    const cleanMd = unescapeMarkdown(sectionMd)
+    const sectionHtml = markdownToHtml(cleanMd)
+    return { markdown: cleanMd, html: sectionHtml }
+  }
+
+  /**
+   * Copy a specific section to the clipboard.
+   */
+  async function copySection(
+    headingIndex: number,
+    format: 'markdown' | 'richtext',
+  ): Promise<boolean> {
+    const content = getSectionContent(headingIndex)
+    if (!content) return false
+
+    if (format === 'markdown') {
+      await copyAsPlainText(content.markdown)
+    } else {
+      await copyAsRichText(content.html, content.markdown)
+    }
+    return true
+  }
+
+  /**
+   * Copy the whole document to the clipboard.
+   */
+  async function copyWholeDocument(format: 'markdown' | 'richtext'): Promise<boolean> {
+    const tabsStore = useTabsStore()
+    const markdown = tabsStore.activeTab?.editorState?.markdown
+    if (!markdown) return false
+
+    const cleanMd = unescapeMarkdown(markdown)
+    if (format === 'markdown') {
+      await copyAsPlainText(cleanMd)
+    } else {
+      const html = markdownToHtml(cleanMd)
+      await copyAsRichText(html, cleanMd)
+    }
+    return true
+  }
+
   return {
     visible,
     headings,
@@ -181,6 +271,9 @@ export const useOutlineStore = defineStore('outline', () => {
     updateFromMarkdown,
     setActiveHeading,
     clearHeadings,
+    getSectionContent,
+    copySection,
+    copyWholeDocument,
   }
 })
 

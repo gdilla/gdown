@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useOutlineStore } from '../../stores/outline'
+import { useTabsStore } from '../../stores/tabs'
 
 describe('useOutlineStore', () => {
   beforeEach(() => {
@@ -223,6 +224,131 @@ Some paragraph.
       store.updateFromMarkdown('# Title')
 
       expect(store.hasHeadings).toBe(true)
+    })
+  })
+
+  describe('getSectionContent', () => {
+    function setupWithMarkdown(markdown: string) {
+      const outlineStore = useOutlineStore()
+      const tabsStore = useTabsStore()
+
+      // Mock the active tab with the given markdown
+      tabsStore.$patch({
+        tabs: [
+          {
+            id: 'test-tab',
+            title: 'Test',
+            filePath: null,
+            isModified: false,
+            editorState: { markdown, html: '', scrollPos: 0, cursorPos: 0 },
+          },
+        ],
+        activeTabId: 'test-tab',
+      })
+
+      outlineStore.updateFromMarkdown(markdown)
+      return outlineStore
+    }
+
+    it('extracts section content between same-level headings', () => {
+      const md = `# Title\n\nFirst paragraph.\n\n## Section One\n\nContent of section one.\n\n## Section Two\n\nContent of section two.`
+      const store = setupWithMarkdown(md)
+
+      const section = store.getSectionContent(1) // "## Section One"
+      expect(section).not.toBeNull()
+      expect(section!.markdown).toBe('## Section One\n\nContent of section one.')
+    })
+
+    it('last section extends to end of document', () => {
+      const md = `# Title\n\n## Last Section\n\nThis is the end.`
+      const store = setupWithMarkdown(md)
+
+      const section = store.getSectionContent(1) // "## Last Section"
+      expect(section).not.toBeNull()
+      expect(section!.markdown).toBe('## Last Section\n\nThis is the end.')
+    })
+
+    it('nested headings are included in parent section', () => {
+      const md = `## Parent\n\nParent content.\n\n### Child\n\nChild content.\n\n### Another Child\n\nMore child content.\n\n## Next Section`
+      const store = setupWithMarkdown(md)
+
+      const section = store.getSectionContent(0) // "## Parent"
+      expect(section).not.toBeNull()
+      expect(section!.markdown).toContain('### Child')
+      expect(section!.markdown).toContain('### Another Child')
+      expect(section!.markdown).not.toContain('## Next Section')
+    })
+
+    it('single heading document returns entire content', () => {
+      const md = `# Only Heading\n\nAll the content here.\n\nMore content.`
+      const store = setupWithMarkdown(md)
+
+      const section = store.getSectionContent(0)
+      expect(section).not.toBeNull()
+      expect(section!.markdown).toBe('# Only Heading\n\nAll the content here.\n\nMore content.')
+    })
+
+    it('returns html along with markdown', () => {
+      const md = `# Title\n\nSome **bold** text.`
+      const store = setupWithMarkdown(md)
+
+      const section = store.getSectionContent(0)
+      expect(section).not.toBeNull()
+      expect(section!.html).toContain('<h1>')
+      expect(section!.html).toContain('<strong>bold</strong>')
+    })
+
+    it('returns null for invalid heading index', () => {
+      const md = `# Title`
+      const store = setupWithMarkdown(md)
+
+      expect(store.getSectionContent(-1)).toBeNull()
+      expect(store.getSectionContent(99)).toBeNull()
+    })
+
+    it('returns null when no active tab markdown', () => {
+      const store = useOutlineStore()
+      store.updateFromMarkdown('# Title')
+
+      // No tab set up — activeTab?.editorState?.markdown is undefined
+      expect(store.getSectionContent(0)).toBeNull()
+    })
+  })
+
+  describe('copySection', () => {
+    it('copies section markdown to clipboard', async () => {
+      const writeTextMock = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, {
+        clipboard: { write: vi.fn(), writeText: writeTextMock },
+      })
+
+      const outlineStore = useOutlineStore()
+      const tabsStore = useTabsStore()
+      const md = `# Title\n\nContent here.`
+
+      tabsStore.$patch({
+        tabs: [
+          {
+            id: 'test-tab',
+            title: 'Test',
+            filePath: null,
+            isModified: false,
+            editorState: { markdown: md, html: '', scrollPos: 0, cursorPos: 0 },
+          },
+        ],
+        activeTabId: 'test-tab',
+      })
+      outlineStore.updateFromMarkdown(md)
+
+      const result = await outlineStore.copySection(0, 'markdown')
+      expect(result).toBe(true)
+      expect(writeTextMock).toHaveBeenCalledWith('# Title\n\nContent here.')
+    })
+
+    it('returns false for invalid index', async () => {
+      const outlineStore = useOutlineStore()
+      const result = await outlineStore.copySection(99, 'markdown')
+      expect(result).toBe(false)
     })
   })
 })
