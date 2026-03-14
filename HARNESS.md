@@ -32,7 +32,7 @@ Without worktrees, you can only work on one branch at a time. If Claude is build
 ### The directory structure
 
 ```
-~/projects/typora-clone/
+~/projects/Leaf/
 ├── src/
 ├── src-tauri/
 ├── CLAUDE.md
@@ -43,14 +43,14 @@ Without worktrees, you can only work on one branch at a time. If Claude is build
 └── ...
 ```
 
-Worktrees live **inside** `typora-clone/worktrees/` — not as siblings in `~/projects/`. This keeps the parent folder clean when you have multiple apps there.
+Worktrees live **inside** `Leaf/worktrees/` — not as siblings in `~/projects/`. This keeps the parent folder clean when you have multiple apps there.
 
 Each worktree is a **full working copy** of the repo, checked out to its own branch. They share git history but have independent `node_modules`, working files, and editor state.
 
 ### Creating a worktree (what Claude does)
 
 ```bash
-# From typora-clone/ (the main worktree)
+# From Leaf/ (the main worktree)
 git fetch origin
 git worktree add worktrees/feat/my-feature -b feat/my-feature origin/main
 cd worktrees/feat/my-feature
@@ -68,7 +68,7 @@ Shows all active worktrees and which branch each is on.
 ### Cleaning up after merge
 
 ```bash
-# From the main worktree (typora-clone/)
+# From the main worktree (Leaf/)
 git worktree remove worktrees/feat/my-feature
 git branch -d feat/my-feature
 ```

@@ -39,7 +39,7 @@ pnpm test         # vitest run
 7. Create PR with summary and test plan
 8. After merge, clean up: `git worktree remove "worktrees/$BRANCH" && git branch -d "$BRANCH"`
 
-**Worktree rules:** Always create worktrees inside `typora-clone/worktrees/` — NEVER as siblings in `../` (that pollutes the parent projects folder). Run `pnpm install` in each new worktree. Multiple features can run in parallel in separate worktrees.
+**Worktree rules:** Always create worktrees inside `Leaf/worktrees/` — NEVER as siblings in `../` (that pollutes the parent projects folder). Run `pnpm install` in each new worktree. Multiple features can run in parallel in separate worktrees.
 
 ## Done Criteria
 
@@ -88,7 +88,7 @@ A PR is ready when:
 ## Project Structure
 
 ```
-typora-clone/
+Leaf/
 ├── src/
 │   ├── App.vue               — Root; keyboard shortcuts, Tauri event listeners, v-if Editor/SourceEditor
 │   ├── __tests__/            — Vitest tests (mirrors src/ structure)
