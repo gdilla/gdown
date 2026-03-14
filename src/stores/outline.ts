@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useTabsStore } from './tabs'
 import { markdownToHtml } from '../utils/markdownConverter'
-import { copyAsRichText, copyAsPlainText } from '../utils/clipboardUtils'
+import { copyAsRichText, copyAsPlainText, unescapeMarkdown } from '../utils/clipboardUtils'
 
 export interface OutlineHeading {
   /** Unique identifier (based on position in doc) */
@@ -216,8 +216,9 @@ export const useOutlineStore = defineStore('outline', () => {
     }
 
     const sectionMd = lines.slice(startLine, endLine).join('\n')
-    const sectionHtml = markdownToHtml(sectionMd)
-    return { markdown: sectionMd, html: sectionHtml }
+    const cleanMd = unescapeMarkdown(sectionMd)
+    const sectionHtml = markdownToHtml(cleanMd)
+    return { markdown: cleanMd, html: sectionHtml }
   }
 
   /**
@@ -246,11 +247,12 @@ export const useOutlineStore = defineStore('outline', () => {
     const markdown = tabsStore.activeTab?.editorState?.markdown
     if (!markdown) return false
 
+    const cleanMd = unescapeMarkdown(markdown)
     if (format === 'markdown') {
-      await copyAsPlainText(markdown)
+      await copyAsPlainText(cleanMd)
     } else {
-      const html = markdownToHtml(markdown)
-      await copyAsRichText(html, markdown)
+      const html = markdownToHtml(cleanMd)
+      await copyAsRichText(html, cleanMd)
     }
     return true
   }

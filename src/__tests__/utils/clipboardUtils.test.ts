@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { copyAsRichText, copyAsPlainText } from '../../utils/clipboardUtils'
+import { copyAsRichText, copyAsPlainText, unescapeMarkdown } from '../../utils/clipboardUtils'
 
 // Polyfill ClipboardItem for jsdom
 if (typeof globalThis.ClipboardItem === 'undefined') {
@@ -61,6 +61,35 @@ describe('clipboardUtils', () => {
 
       expect(writeTextMock).toHaveBeenCalledTimes(1)
       expect(writeTextMock).toHaveBeenCalledWith('# Hello World')
+    })
+
+    it('unescapes Turndown backslashes before copying', async () => {
+      const writeTextMock = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, {
+        clipboard: { write: vi.fn(), writeText: writeTextMock },
+      })
+
+      await copyAsPlainText('\\# Hello \\- World')
+
+      expect(writeTextMock).toHaveBeenCalledWith('# Hello - World')
+    })
+  })
+
+  describe('unescapeMarkdown', () => {
+    it('removes Turndown backslash escapes', () => {
+      expect(unescapeMarkdown('\\# Heading')).toBe('# Heading')
+      expect(unescapeMarkdown('\\- list item')).toBe('- list item')
+      expect(unescapeMarkdown('\\> blockquote')).toBe('> blockquote')
+      expect(unescapeMarkdown('\\[link\\](url)')).toBe('[link](url)')
+    })
+
+    it('preserves legitimate backslashes', () => {
+      expect(unescapeMarkdown('path\\to\\file')).toBe('path\\to\\file')
+      expect(unescapeMarkdown('no escapes here')).toBe('no escapes here')
+    })
+
+    it('handles double backslash (escaped backslash)', () => {
+      expect(unescapeMarkdown('\\\\')).toBe('\\')
     })
   })
 })
