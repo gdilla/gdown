@@ -112,12 +112,15 @@ export const useSidebarStore = defineStore('sidebar', () => {
    * Open a folder by path, invoking the Tauri backend to read the directory tree.
    * Automatically shows the sidebar when a folder is opened.
    */
-  async function openFolder(path: string): Promise<void> {
+  async function openFolder(path: string, maxDepth?: number): Promise<void> {
     loading.value = true
     error.value = null
 
     try {
-      const tree = await invoke<FileNode>('read_directory_tree', { path })
+      const tree = await invoke<FileNode>('read_directory_tree', {
+        path,
+        maxDepth: maxDepth ?? 10,
+      })
       fileTree.value = tree
       rootPath.value = path
       // Automatically show sidebar when opening a folder
@@ -155,7 +158,8 @@ export const useSidebarStore = defineStore('sidebar', () => {
    * Reloads the file tree for the target directory.
    */
   async function navigateToFolder(path: string): Promise<void> {
-    await openFolder(path)
+    // Use a shallow depth limit for breadcrumb navigation to avoid scanning huge parent trees
+    await openFolder(path, 3)
   }
 
   /**

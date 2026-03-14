@@ -191,6 +191,7 @@ describe('useSidebarStore', () => {
 
       expect(mockedInvoke).toHaveBeenCalledWith('read_directory_tree', {
         path: '/Users/test/projects',
+        maxDepth: 3,
       })
       expect(store.rootPath).toBe('/Users/test/projects')
       expect(store.fileTree).toEqual(mockTree)

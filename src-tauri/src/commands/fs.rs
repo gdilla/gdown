@@ -120,7 +120,7 @@ pub struct FileNode {
 ///
 /// Hidden files/folders (starting with `.`) are excluded by default.
 /// Only markdown and common text files are included; all directories are traversed.
-fn read_dir_recursive(dir_path: &Path) -> Result<Vec<FileNode>, String> {
+fn read_dir_recursive(dir_path: &Path, max_depth: u32) -> Result<Vec<FileNode>, String> {
     let entries = fs::read_dir(dir_path)
         .map_err(|e| format!("Failed to read directory '{}': {}", dir_path.display(), e))?;
 
@@ -141,7 +141,11 @@ fn read_dir_recursive(dir_path: &Path) -> Result<Vec<FileNode>, String> {
             .map_err(|e| format!("Failed to read metadata for '{}': {}", path.display(), e))?;
 
         if metadata.is_dir() {
-            let children = read_dir_recursive(&path)?;
+            let children = if max_depth > 0 {
+                read_dir_recursive(&path, max_depth - 1)?
+            } else {
+                Vec::new()
+            };
             nodes.push(FileNode {
                 name: file_name,
                 path: path.to_string_lossy().to_string(),
@@ -205,7 +209,7 @@ fn read_dir_recursive(dir_path: &Path) -> Result<Vec<FileNode>, String> {
 /// # Returns
 /// A `FileNode` representing the root folder with its full recursive tree.
 #[tauri::command]
-pub fn read_directory_tree(path: String) -> Result<FileNode, String> {
+pub fn read_directory_tree(path: String, max_depth: Option<u32>) -> Result<FileNode, String> {
     let dir_path = Path::new(&path);
 
     if !dir_path.exists() {
@@ -216,7 +220,8 @@ pub fn read_directory_tree(path: String) -> Result<FileNode, String> {
         return Err(format!("Path '{}' is not a directory", path));
     }
 
-    let children = read_dir_recursive(dir_path)?;
+    let depth = max_depth.unwrap_or(10);
+    let children = read_dir_recursive(dir_path, depth)?;
 
     let root_name = dir_path
         .file_name()
