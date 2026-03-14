@@ -1,7 +1,8 @@
-import Image from "@tiptap/extension-image";
-import { markdownImageInputRule } from "./MarkdownImageInputRule";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
-import { invoke } from "@tauri-apps/api/core";
+import Image from '@tiptap/extension-image'
+import { markdownImageInputRule } from './MarkdownImageInputRule'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { invoke, convertFileSrc } from '@tauri-apps/api/core'
+import { getDocumentDir } from '../utils/imagePathResolver'
 
 /**
  * Get the file path of the currently active document from the tabs store.
@@ -9,11 +10,11 @@ import { invoke } from "@tauri-apps/api/core";
  */
 async function getActiveDocumentPath(): Promise<string | null> {
   try {
-    const { useTabsStore } = await import("../stores/tabs");
-    const tabsStore = useTabsStore();
-    return tabsStore.activeTab?.filePath ?? null;
+    const { useTabsStore } = await import('../stores/tabs')
+    const tabsStore = useTabsStore()
+    return tabsStore.activeTab?.filePath ?? null
   } catch {
-    return null;
+    return null
   }
 }
 
@@ -25,25 +26,23 @@ async function getActiveDocumentPath(): Promise<string | null> {
  * - The current document hasn't been saved to disk yet (no filePath)
  * - The Tauri backend copy command fails
  */
-async function copyImageToAssets(
-  file: File
-): Promise<{ src: string; isRelative: boolean }> {
-  const documentPath = await getActiveDocumentPath();
+async function copyImageToAssets(file: File): Promise<{ src: string; isRelative: boolean }> {
+  const documentPath = await getActiveDocumentPath()
 
   // If the document hasn't been saved yet, we can't create a relative assets path.
   // Check if we have a native file path from drag-and-drop (webkitRelativePath or path property).
   if (!documentPath) {
     // Fallback: use base64 data URL
     return new Promise((resolve) => {
-      const reader = new FileReader();
+      const reader = new FileReader()
       reader.onload = (e) => {
-        resolve({ src: e.target?.result as string, isRelative: false });
-      };
+        resolve({ src: e.target?.result as string, isRelative: false })
+      }
       reader.onerror = () => {
-        resolve({ src: "", isRelative: false });
-      };
-      reader.readAsDataURL(file);
-    });
+        resolve({ src: '', isRelative: false })
+      }
+      reader.readAsDataURL(file)
+    })
   }
 
   // For dropped files, the browser provides the file object but not the native path.
@@ -53,43 +52,56 @@ async function copyImageToAssets(
   // Strategy: For drag-and-drop from Finder on macOS, the file object has a `.path`
   // property (non-standard, available in Tauri/Electron). If not available,
   // we write the file bytes to a temp location first, then copy to assets.
-  const nativePath = (file as any).path as string | undefined;
+  const nativePath = (file as any).path as string | undefined
 
   if (nativePath) {
     try {
-      const relativePath = await invoke<string>("copy_image_to_assets", {
+      const relativePath = await invoke<string>('copy_image_to_assets', {
         imagePath: nativePath,
         documentPath,
-      });
-      return { src: relativePath, isRelative: true };
+      })
+      return { src: relativePath, isRelative: true }
     } catch (err) {
-      console.warn("Failed to copy image to assets via native path:", err);
+      console.warn('Failed to copy image to assets via native path:', err)
     }
   }
 
   // Fallback: Read file as raw bytes and write to assets via write_image_to_assets command
   try {
-    const arrayBuffer = await file.arrayBuffer();
-    const imageBytes = Array.from(new Uint8Array(arrayBuffer));
-    const relativePath = await invoke<string>("write_image_to_assets", {
+    const arrayBuffer = await file.arrayBuffer()
+    const imageBytes = Array.from(new Uint8Array(arrayBuffer))
+    const relativePath = await invoke<string>('write_image_to_assets', {
       imageBytes,
       fileName: file.name,
       documentPath,
-    });
-    return { src: relativePath, isRelative: true };
+    })
+    return { src: relativePath, isRelative: true }
   } catch {
     // Final fallback: base64 data URL
     return new Promise((resolve) => {
-      const reader = new FileReader();
+      const reader = new FileReader()
       reader.onload = (e) => {
-        resolve({ src: e.target?.result as string, isRelative: false });
-      };
+        resolve({ src: e.target?.result as string, isRelative: false })
+      }
       reader.onerror = () => {
-        resolve({ src: "", isRelative: false });
-      };
-      reader.readAsDataURL(file);
-    });
+        resolve({ src: '', isRelative: false })
+      }
+      reader.readAsDataURL(file)
+    })
   }
+}
+
+/**
+ * Resolve a relative image src to an asset:// URL for webview display.
+ * If the src is already absolute (http, data, blob), returns it as-is.
+ */
+async function resolveInsertedSrc(src: string, isRelative: boolean): Promise<string> {
+  if (!isRelative || !src) return src
+  const docPath = await getActiveDocumentPath()
+  if (!docPath) return src
+  const docDir = getDocumentDir(docPath)
+  if (!docDir) return src
+  return convertFileSrc(`${docDir}/${src}`)
 }
 
 /**
@@ -112,15 +124,15 @@ export const GdownImage = Image.extend({
       allowBase64: true,
       resize: false as const,
       HTMLAttributes: {
-        class: "gdown-image",
-        loading: "lazy",
+        class: 'gdown-image',
+        loading: 'lazy',
       },
-    };
+    }
   },
 
   // Override to be inline like Typora
   inline: true,
-  group: "inline",
+  group: 'inline',
   draggable: true,
 
   addAttributes() {
@@ -128,176 +140,179 @@ export const GdownImage = Image.extend({
       ...this.parent?.(),
       src: {
         default: null,
-        parseHTML: (element: HTMLElement) => element.getAttribute("src"),
+        parseHTML: (element: HTMLElement) => element.getAttribute('src'),
       },
       alt: {
         default: null,
-        parseHTML: (element: HTMLElement) => element.getAttribute("alt"),
+        parseHTML: (element: HTMLElement) => element.getAttribute('alt'),
       },
       title: {
         default: null,
-        parseHTML: (element: HTMLElement) => element.getAttribute("title"),
+        parseHTML: (element: HTMLElement) => element.getAttribute('title'),
       },
       width: {
         default: null,
-        parseHTML: (element: HTMLElement) => element.getAttribute("width"),
+        parseHTML: (element: HTMLElement) => element.getAttribute('width'),
       },
       height: {
         default: null,
-        parseHTML: (element: HTMLElement) => element.getAttribute("height"),
+        parseHTML: (element: HTMLElement) => element.getAttribute('height'),
       },
       loading: {
-        default: "lazy",
+        default: 'lazy',
       },
-    };
+    }
   },
 
   addInputRules() {
-    return [markdownImageInputRule(this.type)];
+    return [markdownImageInputRule(this.type)]
   },
 
   addKeyboardShortcuts() {
     return {
-      "Mod-Shift-i": () => {
+      'Mod-Shift-i': () => {
         // Typora shortcut: Cmd+Shift+I to insert image
-        window.dispatchEvent(new CustomEvent("gdown:insert-image"));
-        return true;
+        window.dispatchEvent(new CustomEvent('gdown:insert-image'))
+        return true
       },
-    };
+    }
   },
 
   addProseMirrorPlugins() {
-    const plugins = this.parent?.() || [];
+    const plugins = this.parent?.() || []
 
     // Plugin for image loading states and click handling
     plugins.push(
       new Plugin({
-        key: new PluginKey("gdownImageHandler"),
+        key: new PluginKey('gdownImageHandler'),
         props: {
           handleDOMEvents: {
             // Handle Cmd+click on images to show image info
             click: (_view, event) => {
-              const target = event.target as HTMLElement;
-              if (target.tagName === "IMG" && target.classList.contains("gdown-image")) {
+              const target = event.target as HTMLElement
+              if (target.tagName === 'IMG' && target.classList.contains('gdown-image')) {
                 if (event.metaKey || event.ctrlKey) {
                   // Cmd+click: open image in external viewer/browser
-                  const src = target.getAttribute("src");
-                  if (src && (src.startsWith("http://") || src.startsWith("https://"))) {
-                    window.open(src, "_blank");
+                  const src = target.getAttribute('src')
+                  if (src && (src.startsWith('http://') || src.startsWith('https://'))) {
+                    window.open(src, '_blank')
                   }
-                  event.preventDefault();
-                  return true;
+                  event.preventDefault()
+                  return true
                 }
               }
-              return false;
+              return false
             },
           },
         },
-      })
-    );
+      }),
+    )
 
     // Plugin for drag-and-drop and paste image insertion
     // Copies images to ./assets folder relative to current document
     plugins.push(
       new Plugin({
-        key: new PluginKey("gdownImageDrop"),
+        key: new PluginKey('gdownImageDrop'),
         props: {
           handleDrop: (view, event) => {
-            const files = event.dataTransfer?.files;
-            if (!files || files.length === 0) return false;
+            const files = event.dataTransfer?.files
+            if (!files || files.length === 0) return false
 
-            const images = Array.from(files).filter((file) =>
-              file.type.startsWith("image/")
-            );
-            if (images.length === 0) return false;
+            const images = Array.from(files).filter((file) => file.type.startsWith('image/'))
+            if (images.length === 0) return false
 
-            event.preventDefault();
+            event.preventDefault()
             const pos = view.posAtCoords({
               left: event.clientX,
               top: event.clientY,
-            });
-            if (!pos) return false;
+            })
+            if (!pos) return false
 
             // Process each dropped image asynchronously
             images.forEach((imageFile) => {
-              copyImageToAssets(imageFile).then(({ src }) => {
-                if (!src) return;
-                const node = view.state.schema.nodes.image!.create({
-                  src,
-                  alt: imageFile.name.replace(/\.[^/.]+$/, ""), // Strip extension for alt text
-                });
-                const tr = view.state.tr.insert(pos.pos, node);
-                view.dispatch(tr);
-              }).catch((err) => {
-                console.error("Failed to process dropped image:", err);
-                // Fallback: insert with base64 data URL
-                const reader = new FileReader();
-                reader.onload = (readerEvent) => {
-                  const fallbackSrc = readerEvent.target?.result as string;
+              copyImageToAssets(imageFile)
+                .then(async ({ src, isRelative }) => {
+                  if (!src) return
+                  const resolvedSrc = await resolveInsertedSrc(src, isRelative)
                   const node = view.state.schema.nodes.image!.create({
-                    src: fallbackSrc,
-                    alt: imageFile.name,
-                  });
-                  const tr = view.state.tr.insert(pos.pos, node);
-                  view.dispatch(tr);
-                };
-                reader.readAsDataURL(imageFile);
-              });
-            });
-            return true;
+                    src: resolvedSrc,
+                    alt: imageFile.name.replace(/\.[^/.]+$/, ''), // Strip extension for alt text
+                  })
+                  const tr = view.state.tr.insert(pos.pos, node)
+                  view.dispatch(tr)
+                })
+                .catch((err) => {
+                  console.error('Failed to process dropped image:', err)
+                  // Fallback: insert with base64 data URL
+                  const reader = new FileReader()
+                  reader.onload = (readerEvent) => {
+                    const fallbackSrc = readerEvent.target?.result as string
+                    const node = view.state.schema.nodes.image!.create({
+                      src: fallbackSrc,
+                      alt: imageFile.name,
+                    })
+                    const tr = view.state.tr.insert(pos.pos, node)
+                    view.dispatch(tr)
+                  }
+                  reader.readAsDataURL(imageFile)
+                })
+            })
+            return true
           },
           handlePaste: (view, event) => {
-            const items = event.clipboardData?.items;
-            if (!items) return false;
+            const items = event.clipboardData?.items
+            if (!items) return false
 
-            const images = Array.from(items).filter((item) =>
-              item.type.startsWith("image/")
-            );
-            if (images.length === 0) return false;
+            const images = Array.from(items).filter((item) => item.type.startsWith('image/'))
+            if (images.length === 0) return false
 
-            event.preventDefault();
+            event.preventDefault()
             images.forEach((item) => {
-              const file = item.getAsFile();
-              if (!file) return;
+              const file = item.getAsFile()
+              if (!file) return
 
               // Generate a reasonable filename for pasted images (they often lack names)
-              const pasteFileName = file.name && file.name !== "image.png"
-                ? file.name
-                : `pasted-image-${Date.now()}.${file.type.split("/")[1] || "png"}`;
+              const pasteFileName =
+                file.name && file.name !== 'image.png'
+                  ? file.name
+                  : `pasted-image-${Date.now()}.${file.type.split('/')[1] || 'png'}`
 
               // Create a new File with the generated name if needed
-              const namedFile = new File([file], pasteFileName, { type: file.type });
+              const namedFile = new File([file], pasteFileName, { type: file.type })
 
-              copyImageToAssets(namedFile).then(({ src }) => {
-                if (!src) return;
-                const node = view.state.schema.nodes.image!.create({
-                  src,
-                  alt: pasteFileName.replace(/\.[^/.]+$/, ""),
-                });
-                const tr = view.state.tr.replaceSelectionWith(node);
-                view.dispatch(tr);
-              }).catch((err) => {
-                console.error("Failed to process pasted image:", err);
-                // Fallback: insert with base64 data URL
-                const reader = new FileReader();
-                reader.onload = (readerEvent) => {
-                  const fallbackSrc = readerEvent.target?.result as string;
+              copyImageToAssets(namedFile)
+                .then(async ({ src, isRelative }) => {
+                  if (!src) return
+                  const resolvedSrc = await resolveInsertedSrc(src, isRelative)
                   const node = view.state.schema.nodes.image!.create({
-                    src: fallbackSrc,
-                    alt: file.name,
-                  });
-                  const tr = view.state.tr.replaceSelectionWith(node);
-                  view.dispatch(tr);
-                };
-                reader.readAsDataURL(file);
-              });
-            });
-            return true;
+                    src: resolvedSrc,
+                    alt: pasteFileName.replace(/\.[^/.]+$/, ''),
+                  })
+                  const tr = view.state.tr.replaceSelectionWith(node)
+                  view.dispatch(tr)
+                })
+                .catch((err) => {
+                  console.error('Failed to process pasted image:', err)
+                  // Fallback: insert with base64 data URL
+                  const reader = new FileReader()
+                  reader.onload = (readerEvent) => {
+                    const fallbackSrc = readerEvent.target?.result as string
+                    const node = view.state.schema.nodes.image!.create({
+                      src: fallbackSrc,
+                      alt: file.name,
+                    })
+                    const tr = view.state.tr.replaceSelectionWith(node)
+                    view.dispatch(tr)
+                  }
+                  reader.readAsDataURL(file)
+                })
+            })
+            return true
           },
         },
-      })
-    );
+      }),
+    )
 
-    return plugins;
+    return plugins
   },
-});
+})

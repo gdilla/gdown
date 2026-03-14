@@ -3,6 +3,7 @@ import { vi } from 'vitest'
 // Mock @tauri-apps/api/core
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(''),
+  convertFileSrc: vi.fn((path: string) => `http://asset.localhost/${path}`),
 }))
 
 // Mock @tauri-apps/plugin-dialog

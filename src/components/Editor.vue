@@ -1,10 +1,17 @@
 <template>
-  <div class="editor-wrapper" :class="{ 'focus-mode': focusModeStore.enabled, 'typewriter-mode': typewriterModeStore.enabled }" ref="editorWrapper">
+  <div
+    ref="editorWrapper"
+    class="editor-wrapper"
+    :class="{
+      'focus-mode': focusModeStore.enabled,
+      'typewriter-mode': typewriterModeStore.enabled,
+    }"
+  >
     <!-- WYSIWYG mode (TipTap) -->
     <div
       v-show="editorModeStore.isWysiwyg"
-      class="editor-container"
       ref="editorContainer"
+      class="editor-container"
       @scroll.passive="handleScroll"
     >
       <editor-content :editor="editor" class="editor-content" />
@@ -23,7 +30,9 @@
     <!-- Mode indicator overlay (brief flash on toggle) -->
     <Transition name="mode-indicator">
       <div v-if="showModeIndicator" class="mode-indicator-overlay">
-        <span class="mode-indicator-text">{{ editorModeStore.isWysiwyg ? 'WYSIWYG' : 'Source' }}</span>
+        <span class="mode-indicator-text">{{
+          editorModeStore.isWysiwyg ? 'WYSIWYG' : 'Source'
+        }}</span>
       </div>
     </Transition>
 
@@ -38,24 +47,24 @@
     />
 
     <!-- Mode toggle button in bottom-right -->
-    <div class="editor-mode-indicator" @click="handleToggleMode" title="Toggle Source/WYSIWYG (⌘/)">
+    <div class="editor-mode-indicator" title="Toggle Source/WYSIWYG (⌘/)" @click="handleToggleMode">
       <span class="mode-icon">{{ editorModeStore.isWysiwyg ? '&lt;/&gt;' : '◉' }}</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch, nextTick } from "vue";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEditorModeStore } from "../stores/editorMode";
-import { useOutlineStore } from "../stores/outline";
-import { useFocusModeStore } from "../stores/focusMode";
-import { useTypewriterModeStore } from "../stores/typewriterMode";
-import { useEditor, EditorContent } from "@tiptap/vue-3";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import { GdownLink } from "../extensions/GdownLink";
-import { GdownImage } from "../extensions/GdownImage";
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { openUrl } from '@tauri-apps/plugin-opener'
+import { useEditorModeStore } from '../stores/editorMode'
+import { useOutlineStore } from '../stores/outline'
+import { useFocusModeStore } from '../stores/focusMode'
+import { useTypewriterModeStore } from '../stores/typewriterMode'
+import { useEditor, EditorContent } from '@tiptap/vue-3'
+import StarterKit from '@tiptap/starter-kit'
+import Placeholder from '@tiptap/extension-placeholder'
+import { GdownLink } from '../extensions/GdownLink'
+import { GdownImage } from '../extensions/GdownImage'
 import {
   GdownBold,
   GdownItalic,
@@ -63,65 +72,86 @@ import {
   GdownCode,
   GdownUnderline,
   GdownHighlight,
-} from "../extensions/InlineFormatting";
-import { GdownHeading } from "../extensions/GdownHeading";
-import { GdownBlockquote } from "../extensions/GdownBlockquote";
-import { GdownHorizontalRule } from "../extensions/GdownHorizontalRule";
-import { GdownCodeBlock } from "../extensions/GdownCodeBlock";
-import { GdownBulletList, GdownListItem } from "../extensions/GdownBulletList";
-import { GdownOrderedList } from "../extensions/GdownOrderedList";
-import { GdownTaskList, GdownTaskItem } from "../extensions/GdownTaskList";
-import { GdownTable, TableRow, TableCell, TableHeader } from "../extensions/GdownTable";
-import { MathInline } from "../extensions/MathInline";
-import { MathBlock } from "../extensions/MathBlock";
-import { MermaidBlock } from "../extensions/MermaidBlock";
-import { FrontMatter } from "../extensions/FrontMatter";
-import { FocusMode } from "../extensions/FocusMode";
-import { TypewriterMode } from "../extensions/TypewriterMode";
-import { SearchHighlight, getSearchState } from "../extensions/SearchHighlight";
-import Subscript from "@tiptap/extension-subscript";
-import Superscript from "@tiptap/extension-superscript";
-import LinkTooltip from "./LinkTooltip.vue";
-import InsertLinkDialog from "./InsertLinkDialog.vue";
-import FindReplace from "./FindReplace.vue";
-import SourceEditor from "./SourceEditor.vue";
-import { useFindReplaceStore } from "../stores/findReplace";
-import { useEditorSettingsStore } from "../stores/editorSettings";
-import { useTabsStore } from "../stores/tabs";
-import { htmlToMarkdown, markdownToHtml } from "../utils/markdownConverter";
-import { assembleFrontMatter, parseFrontMatter } from "../utils/frontmatter";
-import { useAutoSave } from "../services/autoSave";
-import type { EditorState } from "../types/tab";
+} from '../extensions/InlineFormatting'
+import { GdownHeading } from '../extensions/GdownHeading'
+import { GdownBlockquote } from '../extensions/GdownBlockquote'
+import { GdownHorizontalRule } from '../extensions/GdownHorizontalRule'
+import { GdownCodeBlock } from '../extensions/GdownCodeBlock'
+import { GdownBulletList, GdownListItem } from '../extensions/GdownBulletList'
+import { GdownOrderedList } from '../extensions/GdownOrderedList'
+import { GdownTaskList, GdownTaskItem } from '../extensions/GdownTaskList'
+import { GdownTable, TableRow, TableCell, TableHeader } from '../extensions/GdownTable'
+import { MathInline } from '../extensions/MathInline'
+import { MathBlock } from '../extensions/MathBlock'
+import { MermaidBlock } from '../extensions/MermaidBlock'
+import { FrontMatter } from '../extensions/FrontMatter'
+import { FocusMode } from '../extensions/FocusMode'
+import { TypewriterMode } from '../extensions/TypewriterMode'
+import { SearchHighlight, getSearchState } from '../extensions/SearchHighlight'
+import Subscript from '@tiptap/extension-subscript'
+import Superscript from '@tiptap/extension-superscript'
+import LinkTooltip from './LinkTooltip.vue'
+import InsertLinkDialog from './InsertLinkDialog.vue'
+import FindReplace from './FindReplace.vue'
+import SourceEditor from './SourceEditor.vue'
+import { useFindReplaceStore } from '../stores/findReplace'
+import { useEditorSettingsStore } from '../stores/editorSettings'
+import { useTabsStore } from '../stores/tabs'
+import { htmlToMarkdown, markdownToHtml } from '../utils/markdownConverter'
+import { resolveImagePaths, unresolveImagePaths, getDocumentDir } from '../utils/imagePathResolver'
+import { assembleFrontMatter, parseFrontMatter } from '../utils/frontmatter'
+import { useAutoSave } from '../services/autoSave'
+import type { EditorState } from '../types/tab'
 
-const tabsStore = useTabsStore();
-const editorModeStore = useEditorModeStore();
-const outlineStore = useOutlineStore();
-const focusModeStore = useFocusModeStore();
-const typewriterModeStore = useTypewriterModeStore();
-const findReplaceStore = useFindReplaceStore();
-const editorSettings = useEditorSettingsStore();
+const tabsStore = useTabsStore()
+const editorModeStore = useEditorModeStore()
+const outlineStore = useOutlineStore()
+const focusModeStore = useFocusModeStore()
+const typewriterModeStore = useTypewriterModeStore()
+const findReplaceStore = useFindReplaceStore()
+const editorSettings = useEditorSettingsStore()
 
 // Initialize auto-save service (editor ref is set up below, so we use a getter)
-let editorRef: { getHTML: () => string } | null = null;
-const autoSave = useAutoSave(
-  () => editorRef,
-  { delay: 2000, enabled: true }
-);
+let editorRef: { getHTML: () => string } | null = null
+const autoSave = useAutoSave(() => editorRef, { delay: 2000, enabled: true })
 
-const editorContainer = ref<HTMLElement | null>(null);
-const sourceEditorRef = ref<InstanceType<typeof SourceEditor> | null>(null);
+const editorContainer = ref<HTMLElement | null>(null)
+const sourceEditorRef = ref<InstanceType<typeof SourceEditor> | null>(null)
 
 // Mode indicator flash on toggle
-const showModeIndicator = ref(false);
-let modeIndicatorTimer: ReturnType<typeof setTimeout> | null = null;
+const showModeIndicator = ref(false)
+let modeIndicatorTimer: ReturnType<typeof setTimeout> | null = null
 
 // Source mode content (synced with CodeMirror via v-model)
-const sourceContent = ref('');
+const sourceContent = ref('')
 
 // Flag to suppress modification tracking during content restore
-let isRestoringContent = false;
+let isRestoringContent = false
 // Flag to prevent feedback loops during mode switching
-let isSwitchingMode = false;
+let isSwitchingMode = false
+
+// ──────────────────────────────────────────────────────
+// Image path resolution helpers
+// ──────────────────────────────────────────────────────
+
+/** Get the directory of the active document for resolving relative image paths. */
+function activeDocDir(): string | null {
+  return getDocumentDir(tabsStore.activeTab?.filePath ?? null)
+}
+
+/** Convert markdown to HTML with local image paths resolved to asset:// URLs. */
+function mdToHtml(md: string): string {
+  const html = markdownToHtml(md)
+  const dir = activeDocDir()
+  return dir ? resolveImagePaths(html, dir) : html
+}
+
+/** Convert HTML to markdown, unresolving asset:// URLs back to relative paths first. */
+function htmlToMd(html: string): string {
+  const dir = activeDocDir()
+  const cleanHtml = dir ? unresolveImagePaths(html, dir) : html
+  return htmlToMarkdown(cleanHtml)
+}
 
 const editor = useEditor({
   content: '',
@@ -193,79 +223,79 @@ const editor = useEditor({
       allowBase64: true,
     }),
     Placeholder.configure({
-      placeholder: "Start writing with Markdown...",
+      placeholder: 'Start writing with Markdown...',
     }),
     // Search highlighting — ProseMirror decorations for find/replace
     SearchHighlight,
   ],
   editorProps: {
     attributes: {
-      class: "gdown-editor",
-      spellcheck: "true",
+      class: 'gdown-editor',
+      spellcheck: 'true',
     },
     handleClick: (_view, _pos, event) => {
-      const target = event.target as HTMLElement;
-      const link = target.closest("a.gdown-link") as HTMLAnchorElement | null;
+      const target = event.target as HTMLElement
+      const link = target.closest('a.gdown-link') as HTMLAnchorElement | null
       if (link) {
-        const href = link.getAttribute("href");
+        const href = link.getAttribute('href')
         if (href) {
-          const isBrowseMode = editorSettings.linkMode === 'browse';
-          const isModClick = event.metaKey || event.ctrlKey;
+          const isBrowseMode = editorSettings.linkMode === 'browse'
+          const isModClick = event.metaKey || event.ctrlKey
           if (isBrowseMode || isModClick) {
-            openUrl(href).catch(() => window.open(href, "_blank"));
-            event.preventDefault();
-            return true;
+            openUrl(href).catch(() => window.open(href, '_blank'))
+            event.preventDefault()
+            return true
           }
         }
       }
-      return false;
+      return false
     },
     handleDOMEvents: {
       // Show pointer cursor on links when Cmd is held
       mouseover: (_view, event) => {
-        const target = event.target as HTMLElement;
-        if (target.tagName === "A" && target.classList.contains("gdown-link")) {
-          target.style.cursor = "pointer";
+        const target = event.target as HTMLElement
+        if (target.tagName === 'A' && target.classList.contains('gdown-link')) {
+          target.style.cursor = 'pointer'
         }
-        return false;
+        return false
       },
     },
   },
   onUpdate: ({ editor: ed }) => {
     // Don't mark as modified during content restoration or mode switching
-    if (isRestoringContent || isSwitchingMode) return;
+    if (isRestoringContent || isSwitchingMode) return
 
-    const tabId = tabsStore.activeTabId;
+    const tabId = tabsStore.activeTabId
     if (tabId) {
-      tabsStore.setModified(tabId, true);
+      tabsStore.setModified(tabId, true)
       // Persist document content AND markdown to the tab's editor state.
       // Markdown is needed for auto-save to disk.
-      const markdownStr = htmlToMarkdown(ed.getHTML());
+      const markdownStr = htmlToMd(ed.getHTML())
       tabsStore.saveEditorState(tabId, {
         doc: ed.getJSON(),
         markdown: markdownStr,
-      });
+      })
     }
 
     // Update outline headings whenever document changes
-    outlineStore.updateFromEditor(ed);
+    outlineStore.updateFromEditor(ed)
   },
   onSelectionUpdate: ({ editor: ed }) => {
-    if (isRestoringContent || isSwitchingMode) return;
+    if (isRestoringContent || isSwitchingMode) return
 
-    const tabId = tabsStore.activeTabId;
+    const tabId = tabsStore.activeTabId
     if (tabId) {
-      const { from, to } = ed.state.selection;
+      const { from, to } = ed.state.selection
       tabsStore.saveEditorState(tabId, {
         selection: { from, to },
-      });
+      })
     }
 
     // Update active heading in outline based on cursor position
-    const { from } = ed.state.selection;
-    outlineStore.setActiveHeading(from);
+    const { from } = ed.state.selection
+    outlineStore.setActiveHeading(from)
   },
-});
+})
 
 // ──────────────────────────────────────────────────────
 // Mode toggling: synchronize document state between modes
@@ -278,82 +308,82 @@ const editor = useEditor({
  *   Source → WYSIWYG: parse Markdown to HTML via markdown-it, load into TipTap
  */
 function handleToggleMode(): void {
-  isSwitchingMode = true;
+  isSwitchingMode = true
 
   try {
     // Show mode indicator briefly
-    showModeIndicator.value = true;
-    if (modeIndicatorTimer) clearTimeout(modeIndicatorTimer);
+    showModeIndicator.value = true
+    if (modeIndicatorTimer) clearTimeout(modeIndicatorTimer)
     modeIndicatorTimer = setTimeout(() => {
-      showModeIndicator.value = false;
-    }, 800);
+      showModeIndicator.value = false
+    }, 800)
 
     if (editorModeStore.isWysiwyg) {
       // ─── Switching TO Source mode ───
       // Serialize TipTap HTML → Markdown, with fallback to tab state
       let bodyMd = ''
       if (editor.value) {
-        const html = editor.value.getHTML();
-        bodyMd = htmlToMarkdown(html);
+        const html = editor.value.getHTML()
+        bodyMd = htmlToMd(html)
       } else {
         // Editor ref not available — fall back to what onUpdate already persisted
         bodyMd = tabsStore.activeTab?.editorState.markdown ?? ''
       }
 
-      const tab = tabsStore.activeTab;
-      const fm = tab?.editorState.frontmatter ?? null;
-      sourceContent.value = assembleFrontMatter(fm, bodyMd);
+      const tab = tabsStore.activeTab
+      const fm = tab?.editorState.frontmatter ?? null
+      sourceContent.value = assembleFrontMatter(fm, bodyMd)
 
       // Explicitly persist to tab state before mode change so source/SourceEditor.vue
       // reads the correct content on mount regardless of captureState ordering.
-      const tabId = tabsStore.activeTabId;
+      const tabId = tabsStore.activeTabId
       if (tabId) {
-        tabsStore.saveEditorState(tabId, { markdown: bodyMd });
+        tabsStore.saveEditorState(tabId, { markdown: bodyMd })
       }
 
-      editorModeStore.setMode('source');
+      editorModeStore.setMode('source')
 
       // Focus the source editor after DOM updates
       nextTick(() => {
-        sourceEditorRef.value?.focus();
-      });
+        sourceEditorRef.value?.focus()
+      })
     } else {
       // ─── Switching TO WYSIWYG mode ───
       // Parse front-matter out of source content before loading into TipTap
-      const fullSource = sourceContent.value;
-      const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(fullSource);
+      const fullSource = sourceContent.value
+      const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(fullSource)
 
-      const html = markdownToHtml(body);
+      const html = mdToHtml(body)
 
-      editorModeStore.setMode('wysiwyg');
+      editorModeStore.setMode('wysiwyg')
 
       if (editor.value) {
-        isRestoringContent = true;
+        isRestoringContent = true
         try {
-          editor.value.commands.setContent(html, { emitUpdate: false });
+          editor.value.commands.setContent(html, { emitUpdate: false })
         } finally {
-          isRestoringContent = false;
+          isRestoringContent = false
         }
 
         // Persist the updated state to the tab (body-only markdown + front-matter)
-        const tabId = tabsStore.activeTabId;
+        const tabId = tabsStore.activeTabId
         if (tabId) {
           tabsStore.saveEditorState(tabId, {
             doc: editor.value.getJSON(),
             markdown: body,
             frontmatter: hasFrontMatter ? rawYaml : null,
             frontmatterAttributes: hasFrontMatter ? attributes : {},
-          });
+          })
         }
       }
 
       // Focus the WYSIWYG editor after DOM updates
       nextTick(() => {
-        editor.value?.commands.focus();
-      });
+        editor.value?.commands.focus()
+      })
     }
   } finally {
-    isSwitchingMode = false;
+    isSwitchingMode = false
   }
 }
 
@@ -364,19 +394,19 @@ function handleToggleMode(): void {
  * the body and front-matter are stored separately in the tab state.
  */
 function onSourceChange(value: string): void {
-  if (isSwitchingMode) return;
+  if (isSwitchingMode) return
 
-  const tabId = tabsStore.activeTabId;
+  const tabId = tabsStore.activeTabId
   if (tabId) {
     // Parse front-matter from the full source content
-    const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(value);
+    const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(value)
 
-    tabsStore.setModified(tabId, true);
+    tabsStore.setModified(tabId, true)
     tabsStore.saveEditorState(tabId, {
       markdown: body,
       frontmatter: hasFrontMatter ? rawYaml : null,
       frontmatterAttributes: hasFrontMatter ? attributes : {},
-    });
+    })
   }
 }
 
@@ -389,35 +419,35 @@ function onSourceChange(value: string): void {
  */
 function captureState(tabId: string): void {
   if (editorModeStore.isWysiwyg) {
-    if (!editor.value) return;
+    if (!editor.value) return
 
-    const { from, to } = editor.value.state.selection;
-    const scrollTop = editorContainer.value?.scrollTop ?? 0;
+    const { from, to } = editor.value.state.selection
+    const scrollTop = editorContainer.value?.scrollTop ?? 0
 
     // Also generate markdown for round-trip fidelity
-    const markdownStr = htmlToMarkdown(editor.value.getHTML());
+    const markdownStr = htmlToMd(editor.value.getHTML())
 
     tabsStore.saveEditorState(tabId, {
       doc: editor.value.getJSON(),
       markdown: markdownStr,
       scrollTop,
       selection: { from, to },
-    });
+    })
   } else {
     // In source mode, parse front-matter out and save body + front-matter separately.
     // Guard: only overwrite markdown if sourceContent is non-empty. If it's empty
     // (e.g. mode was toggled via status bar without going through handleToggleMode),
     // the onUpdate-persisted markdown in tab state is already correct — don't clobber it.
-    const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(sourceContent.value);
+    const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(sourceContent.value)
     const update: Partial<import('../types/tab').EditorState> = {
       scrollTop: sourceEditorRef.value?.getScrollTop() ?? 0,
-    };
-    if (body.trim() || hasFrontMatter) {
-      update.markdown = body;
-      update.frontmatter = hasFrontMatter ? rawYaml : null;
-      update.frontmatterAttributes = hasFrontMatter ? attributes : {};
     }
-    tabsStore.saveEditorState(tabId, update);
+    if (body.trim() || hasFrontMatter) {
+      update.markdown = body
+      update.frontmatter = hasFrontMatter ? rawYaml : null
+      update.frontmatterAttributes = hasFrontMatter ? attributes : {}
+    }
+    tabsStore.saveEditorState(tabId, update)
   }
 }
 
@@ -426,9 +456,9 @@ function captureState(tabId: string): void {
  */
 function restoreState(state: EditorState): void {
   if (editorModeStore.isWysiwyg) {
-    restoreWysiwygState(state);
+    restoreWysiwygState(state)
   } else {
-    restoreSourceState(state);
+    restoreSourceState(state)
   }
 }
 
@@ -436,43 +466,43 @@ function restoreState(state: EditorState): void {
  * Restore WYSIWYG (TipTap) editor state.
  */
 function restoreWysiwygState(state: EditorState): void {
-  if (!editor.value) return;
+  if (!editor.value) return
 
-  isRestoringContent = true;
+  isRestoringContent = true
 
   try {
     if (state.doc) {
-      editor.value.commands.setContent(state.doc, { emitUpdate: false });
+      editor.value.commands.setContent(state.doc, { emitUpdate: false })
     } else if (state.markdown) {
-      const html = markdownToHtml(state.markdown);
-      editor.value.commands.setContent(html, { emitUpdate: false });
+      const html = mdToHtml(state.markdown)
+      editor.value.commands.setContent(html, { emitUpdate: false })
     } else {
-      editor.value.commands.setContent('', { emitUpdate: false });
+      editor.value.commands.setContent('', { emitUpdate: false })
     }
   } finally {
-    isRestoringContent = false;
+    isRestoringContent = false
   }
 
   // Update outline after content restore
   if (editor.value) {
-    outlineStore.updateFromEditor(editor.value);
+    outlineStore.updateFromEditor(editor.value)
   }
 
   // Restore cursor and scroll after DOM settles
   nextTick(() => {
-    if (!editor.value) return;
+    if (!editor.value) return
 
     // Restore cursor/selection
     try {
-      const docSize = editor.value.state.doc.content.size;
-      const from = Math.min(state.selection.from, docSize);
-      const to = Math.min(state.selection.to, docSize);
+      const docSize = editor.value.state.doc.content.size
+      const from = Math.min(state.selection.from, docSize)
+      const to = Math.min(state.selection.to, docSize)
       if (from >= 0 && to >= 0) {
-        editor.value.commands.setTextSelection({ from, to });
+        editor.value.commands.setTextSelection({ from, to })
       }
     } catch {
       try {
-        editor.value.commands.setTextSelection(0);
+        editor.value.commands.setTextSelection(0)
       } catch {
         // ignore
       }
@@ -480,12 +510,12 @@ function restoreWysiwygState(state: EditorState): void {
 
     // Restore scroll position
     if (editorContainer.value) {
-      editorContainer.value.scrollTop = state.scrollTop;
+      editorContainer.value.scrollTop = state.scrollTop
     }
 
     // Focus the editor
-    editor.value.commands.focus();
-  });
+    editor.value.commands.focus()
+  })
 }
 
 /**
@@ -493,40 +523,40 @@ function restoreWysiwygState(state: EditorState): void {
  * Includes front-matter (if present) so it's visible and editable in source mode.
  */
 function restoreSourceState(state: EditorState): void {
-  let bodyMd = '';
+  let bodyMd = ''
 
   // Prefer stored markdown; otherwise serialize from doc
   if (state.markdown) {
-    bodyMd = state.markdown;
+    bodyMd = state.markdown
   } else if (state.doc && editor.value) {
     // Temporarily load the doc into TipTap to serialize it to markdown
-    isRestoringContent = true;
+    isRestoringContent = true
     try {
-      editor.value.commands.setContent(state.doc, { emitUpdate: false });
-      bodyMd = htmlToMarkdown(editor.value.getHTML());
+      editor.value.commands.setContent(state.doc, { emitUpdate: false })
+      bodyMd = htmlToMd(editor.value.getHTML())
     } finally {
-      isRestoringContent = false;
+      isRestoringContent = false
     }
   }
 
   // Prepend front-matter if present
-  sourceContent.value = assembleFrontMatter(state.frontmatter, bodyMd);
+  sourceContent.value = assembleFrontMatter(state.frontmatter, bodyMd)
 
   nextTick(() => {
-    sourceEditorRef.value?.setScrollTop(state.scrollTop);
-    sourceEditorRef.value?.focus();
-  });
+    sourceEditorRef.value?.setScrollTop(state.scrollTop)
+    sourceEditorRef.value?.focus()
+  })
 }
 
 /**
  * Persist scroll position on WYSIWYG scroll events.
  */
 function handleScroll(): void {
-  const tabId = tabsStore.activeTabId;
+  const tabId = tabsStore.activeTabId
   if (tabId && editorContainer.value) {
     tabsStore.saveEditorState(tabId, {
       scrollTop: editorContainer.value.scrollTop,
-    });
+    })
   }
 }
 
@@ -536,11 +566,11 @@ function handleScroll(): void {
 watch(
   () => focusModeStore.enabled,
   (enabled) => {
-    if (!editor.value) return;
+    if (!editor.value) return
     // Dispatch a transaction with meta to toggle ProseMirror focus mode decorations
-    editor.value.commands.setFocusMode(enabled);
-  }
-);
+    editor.value.commands.setFocusMode(enabled)
+  },
+)
 
 // ──────────────────────────────────────────────────────
 // Typewriter mode: sync store state → ProseMirror extension
@@ -548,10 +578,10 @@ watch(
 watch(
   () => typewriterModeStore.enabled,
   (enabled) => {
-    if (!editor.value) return;
-    editor.value.commands.setTypewriterMode(enabled);
-  }
-);
+    if (!editor.value) return
+    editor.value.commands.setTypewriterMode(enabled)
+  },
+)
 
 // ──────────────────────────────────────────────────────
 // Tab switching: save outgoing tab state, restore incoming
@@ -559,54 +589,50 @@ watch(
 watch(
   () => tabsStore.activeTabId,
   (newTabId, oldTabId) => {
-    if (newTabId === oldTabId) return;
+    if (newTabId === oldTabId) return
 
     // Save state from the tab we're leaving
     if (oldTabId) {
-      captureState(oldTabId);
+      captureState(oldTabId)
     }
 
     // Restore state for the newly active tab
     if (newTabId) {
-      const tab = tabsStore.tabs.find(t => t.id === newTabId);
+      const tab = tabsStore.tabs.find((t) => t.id === newTabId)
       if (tab) {
-        restoreState(tab.editorState);
+        restoreState(tab.editorState)
       }
     }
-  }
-);
+  },
+)
 
 // Handle external file reload — push new content into live TipTap editor
 function handleFileReloaded(e: Event) {
-  const { tabId, markdown } = (e as CustomEvent<{ tabId: string; markdown: string }>).detail;
-  if (tabId !== tabsStore.activeTabId || !editor.value) return;
-  const html = markdownToHtml(markdown);
-  isRestoringContent = true;
+  const { tabId, markdown } = (e as CustomEvent<{ tabId: string; markdown: string }>).detail
+  if (tabId !== tabsStore.activeTabId || !editor.value) return
+  const html = mdToHtml(markdown)
+  isRestoringContent = true
   try {
-    editor.value.commands.setContent(html, { emitUpdate: false });
+    editor.value.commands.setContent(html, { emitUpdate: false })
   } finally {
-    isRestoringContent = false;
+    isRestoringContent = false
   }
-  outlineStore.updateFromEditor(editor.value);
+  outlineStore.updateFromEditor(editor.value)
 }
 
 // Handle insert-image event
 function handleInsertImage() {
-  const url = prompt("Enter image URL or local path:");
+  const url = prompt('Enter image URL or local path:')
   if (url && editor.value) {
-    editor.value
-      .chain()
-      .focus()
-      .setImage({ src: url, alt: "Image" })
-      .run();
+    editor.value.chain().focus().setImage({ src: url, alt: 'Image' }).run()
   }
 }
 
 // Handle keyboard shortcut for mode toggle (Cmd+/ — Typora's shortcut)
 function handleKeydown(e: KeyboardEvent): void {
   if (e.metaKey && e.key === '/') {
-    e.preventDefault();
-    handleToggleMode();
+    e.preventDefault()
+    handleToggleMode()
   }
 }
 
@@ -621,10 +647,10 @@ function handleKeydown(e: KeyboardEvent): void {
  * Called after any search command to keep the UI in sync.
  */
 function syncSearchState(): void {
-  if (!editor.value) return;
-  const pluginState = getSearchState(editor.value.state);
+  if (!editor.value) return
+  const pluginState = getSearchState(editor.value.state)
   if (pluginState) {
-    findReplaceStore.setMatchInfo(pluginState.results.length, pluginState.currentIndex);
+    findReplaceStore.setMatchInfo(pluginState.results.length, pluginState.currentIndex)
   }
 }
 
@@ -633,70 +659,71 @@ function syncSearchState(): void {
  * to the current match position and calling scrollIntoView.
  */
 function scrollToCurrentMatch(): void {
-  if (!editor.value) return;
-  const pluginState = getSearchState(editor.value.state);
-  if (!pluginState || pluginState.results.length === 0 || pluginState.currentIndex < 0) return;
+  if (!editor.value) return
+  const pluginState = getSearchState(editor.value.state)
+  if (!pluginState || pluginState.results.length === 0 || pluginState.currentIndex < 0) return
 
-  const match = pluginState.results[pluginState.currentIndex];
+  const match = pluginState.results[pluginState.currentIndex]
   if (match) {
     // Use setTextSelection to move cursor to match, then scroll into view
-    editor.value.commands.setTextSelection({ from: match.from, to: match.to });
-    editor.value.commands.scrollIntoView();
+    editor.value.commands.setTextSelection({ from: match.from, to: match.to })
+    editor.value.commands.scrollIntoView()
   }
 }
 
 function handleFindSearch(query: string, caseSensitive: boolean, useRegex: boolean): void {
-  if (!editor.value) return;
+  if (!editor.value) return
   // Dispatch setSearchTerm command which recomputes all matches and decorations
-  editor.value.commands.setSearchTerm(query, caseSensitive, useRegex);
-  syncSearchState();
-  scrollToCurrentMatch();
+  editor.value.commands.setSearchTerm(query, caseSensitive, useRegex)
+  syncSearchState()
+  scrollToCurrentMatch()
 }
 
 function handleFindNext(): void {
-  if (!editor.value) return;
-  const pluginState = getSearchState(editor.value.state);
-  if (!pluginState || pluginState.results.length === 0) return;
+  if (!editor.value) return
+  const pluginState = getSearchState(editor.value.state)
+  if (!pluginState || pluginState.results.length === 0) return
 
-  const nextIndex = (pluginState.currentIndex + 1) % pluginState.results.length;
-  editor.value.commands.setSearchIndex(nextIndex);
-  syncSearchState();
-  scrollToCurrentMatch();
+  const nextIndex = (pluginState.currentIndex + 1) % pluginState.results.length
+  editor.value.commands.setSearchIndex(nextIndex)
+  syncSearchState()
+  scrollToCurrentMatch()
 }
 
 function handleFindPrev(): void {
-  if (!editor.value) return;
-  const pluginState = getSearchState(editor.value.state);
-  if (!pluginState || pluginState.results.length === 0) return;
+  if (!editor.value) return
+  const pluginState = getSearchState(editor.value.state)
+  if (!pluginState || pluginState.results.length === 0) return
 
-  const prevIndex = (pluginState.currentIndex - 1 + pluginState.results.length) % pluginState.results.length;
-  editor.value.commands.setSearchIndex(prevIndex);
-  syncSearchState();
-  scrollToCurrentMatch();
+  const prevIndex =
+    (pluginState.currentIndex - 1 + pluginState.results.length) % pluginState.results.length
+  editor.value.commands.setSearchIndex(prevIndex)
+  syncSearchState()
+  scrollToCurrentMatch()
 }
 
 function handleFindReplace(replacement: string): void {
-  if (!editor.value) return;
-  editor.value.commands.replaceCurrent(replacement);
-  syncSearchState();
-  scrollToCurrentMatch();
+  if (!editor.value) return
+  editor.value.commands.replaceCurrent(replacement)
+  syncSearchState()
+  scrollToCurrentMatch()
 }
 
 function handleFindReplaceAll(replacement: string): void {
-  if (!editor.value) return;
-  editor.value.commands.replaceAll(replacement);
-  syncSearchState();
+  if (!editor.value) return
+  editor.value.commands.replaceAll(replacement)
+  syncSearchState()
 }
 
 function handleFindClose(): void {
-  if (!editor.value) return;
+  if (!editor.value) return
   // Clear all search decorations
-  editor.value.commands.clearSearch();
-  syncSearchState();
+  editor.value.commands.clearSearch()
+  syncSearchState()
   // Collapse selection and refocus
-  const { from } = editor.value.state.selection;
-  editor.value.commands.setTextSelection(from);
-  editor.value.commands.focus();
+  const { from } = editor.value.state.selection
+  editor.value.commands.setTextSelection(from)
+  editor.value.commands.focus()
 }
 
 /**
@@ -704,40 +731,39 @@ function handleFindClose(): void {
  * Used by the Outline panel to scroll to and focus a heading.
  */
 function navigateToHeading(pos: number): void {
-  if (!editor.value || !editorContainer.value) return;
+  if (!editor.value || !editorContainer.value) return
 
   try {
-    const docSize = editor.value.state.doc.content.size;
-    const safePos = Math.min(pos, docSize);
+    const docSize = editor.value.state.doc.content.size
+    const safePos = Math.min(pos, docSize)
 
     // Set cursor at the beginning of the heading
-    editor.value.commands.setTextSelection(safePos + 1);
-    editor.value.commands.focus();
+    editor.value.commands.setTextSelection(safePos + 1)
+    editor.value.commands.focus()
 
     // Scroll the heading into view
     nextTick(() => {
       // Use ProseMirror's coordsAtPos to find the DOM position
       try {
-        const coords = editor.value!.view.coordsAtPos(safePos + 1);
-        const containerRect = editorContainer.value!.getBoundingClientRect();
-        const scrollOffset = coords.top - containerRect.top - 60; // 60px offset from top
-        editorContainer.value!.scrollTop += scrollOffset;
+        const coords = editor.value!.view.coordsAtPos(safePos + 1)
+        const containerRect = editorContainer.value!.getBoundingClientRect()
+        const scrollOffset = coords.top - containerRect.top - 60 // 60px offset from top
+        editorContainer.value!.scrollTop += scrollOffset
       } catch {
         // Fallback: use scrollIntoView on the resolved DOM node
-        const domNode = editor.value!.view.domAtPos(safePos + 1);
+        const domNode = editor.value!.view.domAtPos(safePos + 1)
         if (domNode?.node) {
-          const element = domNode.node instanceof HTMLElement
-            ? domNode.node
-            : domNode.node.parentElement;
-          element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          const element =
+            domNode.node instanceof HTMLElement ? domNode.node : domNode.node.parentElement
+          element?.scrollIntoView({ behavior: 'smooth', block: 'start' })
         }
       }
-    });
+    })
 
     // Update active heading
-    outlineStore.setActiveHeading(safePos);
+    outlineStore.setActiveHeading(safePos)
   } catch (e) {
-    console.warn('Failed to navigate to heading:', e);
+    console.warn('Failed to navigate to heading:', e)
   }
 }
 
@@ -745,44 +771,44 @@ function navigateToHeading(pos: number): void {
 defineExpose({
   navigateToHeading,
   getEditor: () => editor.value,
-});
+})
 
 onMounted(() => {
   // Load active tab's content into editor on mount
   if (tabsStore.activeTab) {
-    restoreState(tabsStore.activeTab.editorState);
+    restoreState(tabsStore.activeTab.editorState)
   }
 
   // Wire up the editor reference for auto-save serialization
-  editorRef = editor.value ?? null;
+  editorRef = editor.value ?? null
 
   // Initial outline extraction
   if (editor.value) {
-    outlineStore.updateFromEditor(editor.value);
+    outlineStore.updateFromEditor(editor.value)
   }
 
-  window.addEventListener("gdown:insert-image", handleInsertImage);
-  window.addEventListener("gdown:toggle-mode", handleToggleMode as EventListener);
-  window.addEventListener("gdown:file-reloaded", handleFileReloaded);
-  window.addEventListener("keydown", handleKeydown);
-});
+  window.addEventListener('gdown:insert-image', handleInsertImage)
+  window.addEventListener('gdown:toggle-mode', handleToggleMode as EventListener)
+  window.addEventListener('gdown:file-reloaded', handleFileReloaded)
+  window.addEventListener('keydown', handleKeydown)
+})
 
 onBeforeUnmount(() => {
   // Save current tab state before unmount
   if (tabsStore.activeTabId) {
-    captureState(tabsStore.activeTabId);
+    captureState(tabsStore.activeTabId)
   }
 
   // Clean up auto-save service
-  autoSave.dispose();
-  editorRef = null;
+  autoSave.dispose()
+  editorRef = null
 
-  if (modeIndicatorTimer) clearTimeout(modeIndicatorTimer);
-  window.removeEventListener("gdown:insert-image", handleInsertImage);
-  window.removeEventListener("gdown:toggle-mode", handleToggleMode as EventListener);
-  window.removeEventListener("gdown:file-reloaded", handleFileReloaded);
-  window.removeEventListener("keydown", handleKeydown);
-});
+  if (modeIndicatorTimer) clearTimeout(modeIndicatorTimer)
+  window.removeEventListener('gdown:insert-image', handleInsertImage)
+  window.removeEventListener('gdown:toggle-mode', handleToggleMode as EventListener)
+  window.removeEventListener('gdown:file-reloaded', handleFileReloaded)
+  window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <style>
@@ -905,7 +931,7 @@ onBeforeUnmount(() => {
 }
 
 /* Image loading/error states */
-.gdown-editor img[src=""],
+.gdown-editor img[src=''],
 .gdown-editor img:not([src]) {
   min-height: 60px;
   min-width: 200px;
@@ -915,7 +941,7 @@ onBeforeUnmount(() => {
 }
 
 /* Image with alt text caption effect */
-.gdown-editor img[alt]:not([alt=""]) {
+.gdown-editor img[alt]:not([alt='']) {
   cursor: default;
 }
 
@@ -924,7 +950,7 @@ onBeforeUnmount(() => {
   background: #f5f5f5;
   padding: 2px 6px;
   border-radius: 3px;
-  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, monospace;
   font-size: 0.9em;
   color: #e96900;
 }
@@ -1032,7 +1058,6 @@ onBeforeUnmount(() => {
   margin: 0.25em 0;
 }
 
-
 /* Nested lists — tighter spacing */
 .gdown-editor li > ul,
 .gdown-editor li > ol {
@@ -1053,25 +1078,25 @@ onBeforeUnmount(() => {
 }
 
 /* === TASK LIST — Typora-like checkbox styling === */
-.gdown-editor ul[data-type="taskList"] {
+.gdown-editor ul[data-type='taskList'] {
   list-style: none;
   padding-left: 0;
 }
 
-.gdown-editor ul[data-type="taskList"] li {
+.gdown-editor ul[data-type='taskList'] li {
   display: flex;
   align-items: flex-start;
   gap: 0.5em;
   margin: 0.25em 0;
 }
 
-.gdown-editor ul[data-type="taskList"] li > label {
+.gdown-editor ul[data-type='taskList'] li > label {
   flex-shrink: 0;
   user-select: none;
   margin-top: 0.3em;
 }
 
-.gdown-editor ul[data-type="taskList"] li > label input[type="checkbox"] {
+.gdown-editor ul[data-type='taskList'] li > label input[type='checkbox'] {
   cursor: pointer;
   width: 16px;
   height: 16px;
@@ -1079,19 +1104,19 @@ onBeforeUnmount(() => {
   border-radius: 3px;
 }
 
-.gdown-editor ul[data-type="taskList"] li > div {
+.gdown-editor ul[data-type='taskList'] li > div {
   flex: 1;
   min-width: 0;
 }
 
 /* Checked task item — strikethrough + dim text like Typora */
-.gdown-editor ul[data-type="taskList"] li[data-checked="true"] > div {
+.gdown-editor ul[data-type='taskList'] li[data-checked='true'] > div {
   text-decoration: line-through;
   color: #999;
 }
 
 /* Nested task lists */
-.gdown-editor ul[data-type="taskList"] ul[data-type="taskList"] {
+.gdown-editor ul[data-type='taskList'] ul[data-type='taskList'] {
   padding-left: 1.5em;
 }
 /* === BLOCKQUOTES (Typora-like) === */
@@ -1185,9 +1210,11 @@ onBeforeUnmount(() => {
   background: rgba(0, 0, 0, 0.06);
   color: #888;
   font-size: 12px;
-  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
   user-select: none;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1210,7 +1237,9 @@ onBeforeUnmount(() => {
 
 /* All top-level blocks in the editor get a base transition */
 .focus-mode .gdown-editor > * {
-  transition: opacity 0.25s ease, filter 0.25s ease;
+  transition:
+    opacity 0.25s ease,
+    filter 0.25s ease;
 }
 
 /* Dimmed blocks — reduced opacity */
@@ -1291,10 +1320,10 @@ onBeforeUnmount(() => {
 }
 
 .gdown-editor table.gdown-table tr:nth-child(even) td {
-  background: var(--tab-hover-bg, rgba(0,0,0,0.02));
+  background: var(--tab-hover-bg, rgba(0, 0, 0, 0.02));
 }
 
 .gdown-editor table.gdown-table .selectedCell {
-  background: var(--sidebar-selected-bg, rgba(0,122,255,0.08));
+  background: var(--sidebar-selected-bg, rgba(0, 122, 255, 0.08));
 }
 </style>
