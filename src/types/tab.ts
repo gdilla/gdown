@@ -26,6 +26,8 @@ export interface Tab {
   isModified: boolean
   /** Whether the tab has never been saved */
   isUntitled: boolean
+  /** Whether this tab displays an image file (not a text editor) */
+  isImage: boolean
   /** Persisted editor state for this tab */
   editorState: EditorState
 }
