@@ -51,6 +51,7 @@ export const useTabsStore = defineStore('tabs', () => {
       filePath,
       isModified: false,
       isUntitled,
+      isImage: false,
       editorState: createDefaultEditorState(content),
     }
 
@@ -269,6 +270,32 @@ export const useTabsStore = defineStore('tabs', () => {
   }
 
   /**
+   * Open an image file in a preview tab (no text content loaded).
+   */
+  function openImageFile(filePath: string): Tab {
+    // Check for existing tab
+    const existing = tabs.value.find((t) => t.filePath === filePath)
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing
+    }
+
+    const tab: Tab = {
+      id: generateId(),
+      title: fileNameFromPath(filePath),
+      filePath,
+      isModified: false,
+      isUntitled: false,
+      isImage: true,
+      editorState: createDefaultEditorState(),
+    }
+
+    tabs.value.push(tab)
+    activeTabId.value = tab.id
+    return tab
+  }
+
+  /**
    * Show a native file picker dialog and open the selected file.
    */
   async function openFileDialog(): Promise<Tab | null> {
@@ -305,6 +332,7 @@ export const useTabsStore = defineStore('tabs', () => {
     nextTab,
     previousTab,
     openFile,
+    openImageFile,
     openFileDialog,
   }
 })
