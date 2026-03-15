@@ -155,7 +155,7 @@ fn read_dir_recursive(dir_path: &Path, max_depth: u32) -> Result<Vec<FileNode>, 
         } else if metadata.is_file() {
             let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
 
-            // Include markdown files and common text files
+            // Include markdown files, common text files, and images
             let include = matches!(
                 ext.as_deref(),
                 Some("md")
@@ -178,6 +178,16 @@ fn read_dir_recursive(dir_path: &Path, max_depth: u32) -> Result<Vec<FileNode>, 
                     | Some("ts")
                     | Some("xml")
                     | Some("csv")
+                    | Some("png")
+                    | Some("jpg")
+                    | Some("jpeg")
+                    | Some("gif")
+                    | Some("bmp")
+                    | Some("svg")
+                    | Some("webp")
+                    | Some("ico")
+                    | Some("tiff")
+                    | Some("tif")
             );
 
             if include {
