@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { openPath } from '@tauri-apps/plugin-opener'
 import { useSidebarStore } from '../../stores/sidebar'
 import { useTabsStore } from '../../stores/tabs'
 import { useRecentFilesStore } from '../../stores/recentFiles'
@@ -10,6 +11,26 @@ const sidebar = useSidebarStore()
 const tabs = useTabsStore()
 const recentFiles = useRecentFilesStore()
 
+/** Image file extensions that should open with the system viewer instead of as a tab */
+const IMAGE_EXTENSIONS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'bmp',
+  'svg',
+  'webp',
+  'ico',
+  'tiff',
+  'tif',
+])
+
+/** Check if a file path is an image based on its extension */
+function isImageFile(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase() ?? ''
+  return IMAGE_EXTENSIONS.has(ext)
+}
+
 /** The currently selected file path (from the active tab) */
 const selectedFilePath = computed(() => {
   return tabs.activeTab?.filePath ?? null
@@ -17,6 +38,12 @@ const selectedFilePath = computed(() => {
 
 /** Handle file selection in the tree — reads file from disk and opens in tab */
 async function handleFileSelect(path: string) {
+  // Image files open with the system viewer (e.g. Preview.app on macOS)
+  if (isImageFile(path)) {
+    await openPath(path)
+    return
+  }
+
   // openFile handles deduplication: switches to existing tab or reads from disk
   const tab = await tabs.openFile(path)
   if (tab) {
