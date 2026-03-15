@@ -5,7 +5,8 @@
       <Sidebar />
       <main class="editor-area">
         <div v-if="tabsStore.activeTab" class="editor-content">
-          <Editor v-if="editorModeStore.mode === 'wysiwyg'" ref="editorRef" />
+          <ImageViewer v-if="tabsStore.activeTab.isImage" />
+          <Editor v-else-if="editorModeStore.mode === 'wysiwyg'" ref="editorRef" />
           <SourceEditor v-else />
         </div>
         <div v-else class="no-tab-placeholder">
@@ -45,6 +46,7 @@ import { invoke } from '@tauri-apps/api/core'
 import TabBar from './components/tabs/TabBar.vue'
 import Editor from './components/Editor.vue'
 import SourceEditor from './components/source/SourceEditor.vue'
+import ImageViewer from './components/ImageViewer.vue'
 import Sidebar from './components/sidebar/Sidebar.vue'
 import OutlinePanel from './components/sidebar/OutlinePanel.vue'
 import StatusBar from './components/StatusBar.vue'

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { openPath } from '@tauri-apps/plugin-opener'
 import { useSidebarStore } from '../../stores/sidebar'
 import { useTabsStore } from '../../stores/tabs'
 import { useRecentFilesStore } from '../../stores/recentFiles'
@@ -38,9 +37,10 @@ const selectedFilePath = computed(() => {
 
 /** Handle file selection in the tree — reads file from disk and opens in tab */
 async function handleFileSelect(path: string) {
-  // Image files open with the system viewer (e.g. Preview.app on macOS)
+  // Image files open in the built-in image viewer tab
   if (isImageFile(path)) {
-    await openPath(path)
+    tabs.openImageFile(path)
+    recentFiles.addRecentFile(path)
     return
   }
 
