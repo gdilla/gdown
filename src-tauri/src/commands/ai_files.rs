@@ -132,9 +132,7 @@ fn walk_for_instruction_files(dir: &Path, results: &mut Vec<String>) -> Result<(
                 continue;
             }
             walk_for_instruction_files(&path, results)?;
-        } else if metadata.is_file()
-            && (file_name == "CLAUDE.md" || file_name == "AGENTS.md")
-        {
+        } else if metadata.is_file() && (file_name == "CLAUDE.md" || file_name == "AGENTS.md") {
             results.push(path.to_string_lossy().to_string());
         }
     }
@@ -236,8 +234,12 @@ mod tests {
             .collect();
 
         assert_eq!(project_files.len(), 3);
-        assert!(project_files.iter().any(|p| p.ends_with("CLAUDE.md") && !p.contains("src")));
+        assert!(project_files
+            .iter()
+            .any(|p| p.ends_with("CLAUDE.md") && !p.contains("src")));
         assert!(project_files.iter().any(|p| p.ends_with("AGENTS.md")));
-        assert!(project_files.iter().any(|p| p.contains("src") && p.ends_with("CLAUDE.md")));
+        assert!(project_files
+            .iter()
+            .any(|p| p.contains("src") && p.ends_with("CLAUDE.md")));
     }
 }

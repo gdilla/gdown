@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::fs;
 use std::io::Write as IoWrite;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 /// Tauri command: Reads a file's contents as a UTF-8 string.
@@ -486,6 +486,56 @@ pub fn write_image_to_assets(
     Ok(format!("assets/{}", target_name))
 }
 
+/// Result of resolving a file path.
+#[derive(Debug, Clone, Serialize)]
+pub struct ResolveResult {
+    pub canonical_path: String,
+    pub exists: bool,
+    pub is_file: bool,
+}
+
+#[tauri::command]
+pub fn resolve_file_path(path: String, base_dir: Option<String>) -> Result<ResolveResult, String> {
+    if path.trim().is_empty() {
+        return Err("Path cannot be empty".to_string());
+    }
+
+    let expanded = if path.starts_with('~') {
+        let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+        if path == "~" {
+            home
+        } else {
+            home.join(&path[2..])
+        }
+    } else {
+        let p = PathBuf::from(&path);
+        if p.is_absolute() {
+            p
+        } else {
+            let base = base_dir
+                .map(PathBuf::from)
+                .or_else(dirs::home_dir)
+                .unwrap_or_else(|| PathBuf::from("/"));
+            base.join(&path)
+        }
+    };
+
+    let exists = expanded.exists();
+    let is_file = expanded.is_file();
+
+    let canonical = if exists {
+        expanded.canonicalize().unwrap_or(expanded)
+    } else {
+        expanded
+    };
+
+    Ok(ResolveResult {
+        canonical_path: canonical.to_string_lossy().to_string(),
+        exists,
+        is_file,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -522,7 +572,7 @@ mod tests {
             .write_all(b"png")
             .unwrap();
 
-        let result = read_directory_tree(root.to_string_lossy().to_string()).unwrap();
+        let result = read_directory_tree(root.to_string_lossy().to_string(), None).unwrap();
 
         assert!(result.is_dir);
         let children = result.children.unwrap();
@@ -542,7 +592,7 @@ mod tests {
 
     #[test]
     fn test_read_directory_tree_nonexistent() {
-        let result = read_directory_tree("/nonexistent/path/12345".to_string());
+        let result = read_directory_tree("/nonexistent/path/12345".to_string(), None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("does not exist"));
     }
@@ -553,7 +603,7 @@ mod tests {
         let file_path = dir.path().join("test.md");
         fs::File::create(&file_path).unwrap();
 
-        let result = read_directory_tree(file_path.to_string_lossy().to_string());
+        let result = read_directory_tree(file_path.to_string_lossy().to_string(), None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not a directory"));
     }
@@ -585,7 +635,7 @@ mod tests {
         fs::File::create(root.join("apple.md")).unwrap();
         fs::create_dir(root.join("beta")).unwrap();
 
-        let result = read_directory_tree(root.to_string_lossy().to_string()).unwrap();
+        let result = read_directory_tree(root.to_string_lossy().to_string(), None).unwrap();
         let children = result.children.unwrap();
 
         // Dirs first (alpha, beta), then files (apple.md, zebra.md)
@@ -803,5 +853,66 @@ mod tests {
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not a file"));
+    }
+
+    // --- resolve_file_path tests ---
+
+    #[test]
+    fn test_resolve_file_path_absolute() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.md");
+        fs::File::create(&file).unwrap();
+
+        let result = resolve_file_path(file.to_string_lossy().to_string(), None).unwrap();
+        assert!(result.exists);
+        assert!(result.is_file);
+        assert_eq!(
+            result.canonical_path,
+            file.canonicalize().unwrap().to_string_lossy().to_string()
+        );
+    }
+
+    #[test]
+    fn test_resolve_file_path_nonexistent() {
+        let result = resolve_file_path("/nonexistent/file.md".to_string(), None).unwrap();
+        assert!(!result.exists);
+        assert!(!result.is_file);
+    }
+
+    #[test]
+    fn test_resolve_file_path_directory() {
+        let dir = tempdir().unwrap();
+        let result = resolve_file_path(dir.path().to_string_lossy().to_string(), None).unwrap();
+        assert!(result.exists);
+        assert!(!result.is_file);
+    }
+
+    #[test]
+    fn test_resolve_file_path_empty() {
+        let result = resolve_file_path("".to_string(), None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn test_resolve_file_path_tilde() {
+        let result = resolve_file_path("~".to_string(), None).unwrap();
+        assert!(result.exists);
+        assert!(!result.is_file);
+    }
+
+    #[test]
+    fn test_resolve_file_path_relative_with_base() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("doc.md");
+        fs::File::create(&file).unwrap();
+
+        let result = resolve_file_path(
+            "doc.md".to_string(),
+            Some(dir.path().to_string_lossy().to_string()),
+        )
+        .unwrap();
+        assert!(result.exists);
+        assert!(result.is_file);
     }
 }
