@@ -33,6 +33,24 @@ interface ResolveResult {
   is_file: boolean
 }
 
+const IMAGE_EXTENSIONS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'bmp',
+  'svg',
+  'webp',
+  'ico',
+  'tiff',
+  'tif',
+])
+
+function isImageFile(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase() ?? ''
+  return IMAGE_EXTENSIONS.has(ext)
+}
+
 const tabsStore = useTabsStore()
 const sidebarStore = useSidebarStore()
 
@@ -78,7 +96,11 @@ async function submit() {
       return
     }
 
-    await tabsStore.openFile(result.canonical_path)
+    if (isImageFile(result.canonical_path)) {
+      tabsStore.openImageFile(result.canonical_path)
+    } else {
+      await tabsStore.openFile(result.canonical_path)
+    }
     close()
   } catch (err) {
     error.value = String(err)
