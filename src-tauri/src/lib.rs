@@ -1,12 +1,12 @@
 mod commands;
 
+use commands::ai_files::{find_claude_project_dir, find_instruction_files, list_files_with_mtime};
 use commands::export::{
     check_pandoc, export_document, export_save_dialog, get_export_config, get_export_formats,
 };
-use commands::ai_files::{find_claude_project_dir, find_instruction_files, list_files_with_mtime};
 use commands::fs::{
     copy_image_to_assets, get_file_modified_time, read_directory_shallow, read_directory_tree,
-    read_file, write_file, write_image_to_assets,
+    read_file, resolve_file_path, write_file, write_image_to_assets,
 };
 use commands::session::{load_session_state, save_session_state};
 use std::path::PathBuf;
@@ -183,6 +183,7 @@ pub fn run() {
             load_session_state,
             copy_image_to_assets,
             write_image_to_assets,
+            resolve_file_path,
             check_pandoc,
             get_export_formats,
             get_export_config,
@@ -202,6 +203,9 @@ pub fn run() {
             let open_folder = MenuItemBuilder::with_id("open_folder", "Open Folder...")
                 .accelerator("CmdOrCtrl+Shift+O")
                 .build(app)?;
+            let open_by_path = MenuItemBuilder::with_id("open_by_path", "Open by Path...")
+                .accelerator("CmdOrCtrl+Shift+G")
+                .build(app)?;
             let save_file = MenuItemBuilder::with_id("save_file", "Save")
                 .accelerator("CmdOrCtrl+S")
                 .build(app)?;
@@ -214,10 +218,9 @@ pub fn run() {
             let export_html = MenuItemBuilder::with_id("export_html", "Export as HTML...")
                 .accelerator("CmdOrCtrl+Shift+H")
                 .build(app)?;
-            let copy_rich_text =
-                MenuItemBuilder::with_id("copy_rich_text", "Copy as Rich Text")
-                    .accelerator("CmdOrCtrl+Shift+C")
-                    .build(app)?;
+            let copy_rich_text = MenuItemBuilder::with_id("copy_rich_text", "Copy as Rich Text")
+                .accelerator("CmdOrCtrl+Shift+C")
+                .build(app)?;
             let print_pdf = MenuItemBuilder::with_id("print_pdf", "Print / Export PDF...")
                 .accelerator("CmdOrCtrl+P")
                 .build(app)?;
@@ -261,6 +264,7 @@ pub fn run() {
                 .item(&new_file)
                 .item(&open_file)
                 .item(&open_folder)
+                .item(&open_by_path)
                 .item(&open_recent_menu)
                 .separator()
                 .item(&close_tab)
@@ -283,10 +287,9 @@ pub fn run() {
             let theme_dark = CheckMenuItemBuilder::with_id("theme-dark", "Dark")
                 .checked(false)
                 .build(app)?;
-            let theme_system =
-                CheckMenuItemBuilder::with_id("theme-system", "System (Auto)")
-                    .checked(false)
-                    .build(app)?;
+            let theme_system = CheckMenuItemBuilder::with_id("theme-system", "System (Auto)")
+                .checked(false)
+                .build(app)?;
             let theme_solarized_light =
                 CheckMenuItemBuilder::with_id("theme-solarized-light", "Solarized Light")
                     .checked(false)
@@ -295,10 +298,9 @@ pub fn run() {
                 CheckMenuItemBuilder::with_id("theme-solarized-dark", "Solarized Dark")
                     .checked(false)
                     .build(app)?;
-            let theme_github =
-                CheckMenuItemBuilder::with_id("theme-github", "GitHub")
-                    .checked(false)
-                    .build(app)?;
+            let theme_github = CheckMenuItemBuilder::with_id("theme-github", "GitHub")
+                .checked(false)
+                .build(app)?;
 
             let themes_menu = SubmenuBuilder::new(app, "Themes")
                 .item(&theme_light)
@@ -375,9 +377,7 @@ pub fn run() {
             app.listen("sync-theme-menu", move |event: tauri::Event| {
                 let payload = event.payload();
                 // Payload arrives as JSON string e.g. "\"theme-system\""
-                let selected_id = payload
-                    .trim_matches('"')
-                    .trim();
+                let selected_id = payload.trim_matches('"').trim();
                 for item in &theme_items_sync {
                     let _ = item.set_checked(item.id().0.as_str() == selected_id);
                 }
@@ -399,6 +399,11 @@ pub fn run() {
                     "open_folder" => {
                         if let Some(window) = app_handle.get_webview_window("main") {
                             let _ = window.emit("menu-open-folder", ());
+                        }
+                    }
+                    "open_by_path" => {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.emit("menu-open-by-path", ());
                         }
                     }
                     "save_file" => {

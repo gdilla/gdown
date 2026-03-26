@@ -36,6 +36,7 @@
     <PreferencesWindow />
     <ExportDialog />
     <ExportToast />
+    <QuickOpenDialog />
   </div>
 </template>
 
@@ -56,6 +57,7 @@ import SaveNotification from './components/SaveNotification.vue'
 import PreferencesWindow from './components/preferences/PreferencesWindow.vue'
 import ExportDialog from './components/ExportDialog.vue'
 import ExportToast from './components/ExportToast.vue'
+import QuickOpenDialog from './components/QuickOpenDialog.vue'
 import { useTabsStore } from './stores/tabs'
 import { useSidebarStore } from './stores/sidebar'
 import { useRecentFilesStore } from './stores/recentFiles'
@@ -113,6 +115,7 @@ let unlistenPrevTab: UnlistenFn | null = null
 let unlistenExportHtml: UnlistenFn | null = null
 let unlistenCopyRichText: UnlistenFn | null = null
 let unlistenPrintPdf: UnlistenFn | null = null
+let unlistenOpenByPath: UnlistenFn | null = null
 
 /** Handle keyboard shortcuts */
 function handleKeydown(e: KeyboardEvent) {
@@ -141,6 +144,13 @@ function handleKeydown(e: KeyboardEvent) {
   if (e.metaKey && e.shiftKey && (e.key === 'o' || e.key === 'O')) {
     e.preventDefault()
     sidebarStore.openFolderDialog()
+    return
+  }
+
+  // Cmd+Shift+G: Open by path (macOS Finder "Go to Folder" shortcut)
+  if (e.metaKey && e.shiftKey && (e.key === 'g' || e.key === 'G')) {
+    e.preventDefault()
+    window.dispatchEvent(new CustomEvent('gdown:quick-open'))
     return
   }
 
@@ -296,6 +306,11 @@ onMounted(async () => {
     // File > Open Folder (Cmd+Shift+O)
     unlistenOpenFolder = await listen('menu-open-folder', () => {
       sidebarStore.openFolderDialog()
+    })
+
+    // File > Open by Path (Cmd+Shift+G)
+    unlistenOpenByPath = await listen('menu-open-by-path', () => {
+      window.dispatchEvent(new CustomEvent('gdown:quick-open'))
     })
 
     // File > Save (Cmd+S) — save active tab to disk
@@ -510,6 +525,7 @@ onUnmounted(() => {
   if (unlistenExportHtml) unlistenExportHtml()
   if (unlistenCopyRichText) unlistenCopyRichText()
   if (unlistenPrintPdf) unlistenPrintPdf()
+  unlistenOpenByPath?.()
 })
 </script>
 
