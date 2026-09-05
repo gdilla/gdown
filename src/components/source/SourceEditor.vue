@@ -39,6 +39,7 @@ import {
 import { parseFrontMatter, assembleFrontMatter } from '../../utils/frontmatter'
 import { useTabsStore } from '../../stores/tabs'
 import { useEditorModeStore } from '../../stores/editorMode'
+import type { Tab } from '../../types/tab'
 
 const tabsStore = useTabsStore()
 const editorModeStore = useEditorModeStore()
@@ -50,6 +51,9 @@ const cmView = shallowRef<EditorView | null>(null)
 
 // Flag to suppress modification tracking during content restoration
 let isRestoringContent = false
+// The tab represented by this mounted editor. activeTabId can move before
+// Vue unmounts the editor when switching to an image tab.
+let renderedTabId: string | null = null
 
 /**
  * Build the full set of CodeMirror extensions
@@ -73,7 +77,7 @@ function buildExtensions(): Extension[] {
     keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
     EditorView.updateListener.of((update) => {
       if (update.docChanged && !isRestoringContent) {
-        const tabId = tabsStore.activeTabId
+        const tabId = renderedTabId
         if (tabId) {
           const content = update.state.doc.toString()
           // Parse front-matter out so body and front-matter are stored separately
@@ -232,6 +236,44 @@ function restoreContent(content: string) {
   }
 }
 
+/** Capture raw content and navigation state before a tab or mode change. */
+function captureEditorState(tabId: string): void {
+  if (!cmView.value) return
+  const content = cmView.value.state.doc.toString()
+  const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
+  const { from, to } = cmView.value.state.selection.main
+  tabsStore.saveEditorState(tabId, {
+    markdown: body,
+    doc: null,
+    frontmatter: hasFrontMatter ? rawYaml : null,
+    frontmatterAttributes: hasFrontMatter ? attributes : {},
+    scrollTop: cmView.value.scrollDOM.scrollTop,
+    selection: { from, to },
+  })
+}
+
+function restoreNavigation(tab: Tab): void {
+  if (!cmView.value) return
+  const length = cmView.value.state.doc.length
+  const from = Math.max(0, Math.min(tab.editorState.selection.from, length))
+  const to = Math.max(from, Math.min(tab.editorState.selection.to, length))
+  cmView.value.dispatch({ selection: { anchor: from, head: to } })
+  cmView.value.scrollDOM.scrollTop = tab.editorState.scrollTop
+}
+
+function restoreTab(tab: Tab): void {
+  restoreContent(assembleFrontMatter(tab.editorState.frontmatter, tab.editorState.markdown || ''))
+  nextTick(() => {
+    if (renderedTabId !== tab.id || tabsStore.activeTabId !== tab.id || editorModeStore.isWysiwyg) {
+      return
+    }
+    restoreNavigation(tab)
+    if (!document.activeElement?.closest('[role="tab"], [role="tablist"]')) {
+      cmView.value?.focus()
+    }
+  })
+}
+
 /**
  * Toggle math preview panel.
  */
@@ -251,17 +293,24 @@ watch(
   () => tabsStore.activeTabId,
   (newTabId, oldTabId) => {
     if (newTabId === oldTabId) return
+    if (renderedTabId) captureEditorState(renderedTabId)
     if (newTabId) {
       const tab = tabsStore.tabs.find((t) => t.id === newTabId)
-      if (tab) {
+      // Image tabs (and a null active tab) unmount this editor. Keep the
+      // rendered id until onBeforeUnmount captures it.
+      if (tab && !tab.isImage) {
+        renderedTabId = newTabId
         nextTick(() => {
-          const fullContent = assembleFrontMatter(
-            tab.editorState.frontmatter,
-            tab.editorState.markdown || '',
-          )
-          restoreContent(fullContent)
+          if (
+            renderedTabId !== newTabId ||
+            tabsStore.activeTabId !== newTabId ||
+            editorModeStore.isWysiwyg
+          ) {
+            return
+          }
+          restoreTab(tab)
           if (mathPreviewVisible.value) {
-            updateMathPreview(fullContent)
+            updateMathPreview(cmView.value?.state.doc.toString() || '')
           }
         })
       }
@@ -272,10 +321,18 @@ watch(
 // Handle external file reload — push new content into live CodeMirror editor
 function handleFileReloaded(e: Event) {
   const { tabId, markdown } = (e as CustomEvent<{ tabId: string; markdown: string }>).detail
-  if (tabId !== tabsStore.activeTabId) return
-  const tab = tabsStore.activeTab
-  const fullContent = assembleFrontMatter(tab?.editorState.frontmatter ?? null, markdown)
+  if (tabId !== renderedTabId) return
+  const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+  if (!tab) return
+  const fullContent = assembleFrontMatter(tab.editorState.frontmatter, markdown)
   restoreContent(fullContent)
+  nextTick(() => {
+    if (renderedTabId === tabId && tabsStore.activeTabId === tabId) restoreNavigation(tab)
+  })
+}
+
+function handleCaptureState() {
+  if (renderedTabId) captureEditorState(renderedTabId)
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -283,19 +340,31 @@ function handleKeydown(e: KeyboardEvent) {
   if (e.metaKey && !e.shiftKey && e.key === '/') {
     e.preventDefault()
     e.stopImmediatePropagation() // prevent any other window keydown listeners
+    if (renderedTabId) captureEditorState(renderedTabId)
     editorModeStore.setMode('wysiwyg')
   }
 }
 
 onMounted(() => {
+  const tab = tabsStore.activeTab
+  if (tab && !tab.isImage) renderedTabId = tab.id
   initEditor()
+  if (tab && !tab.isImage && cmView.value) {
+    restoreNavigation(tab)
+    if (!document.activeElement?.closest('[role="tab"], [role="tablist"]')) {
+      cmView.value.focus()
+    }
+  }
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('gdown:file-reloaded', handleFileReloaded)
+  window.addEventListener('gdown:capture-state', handleCaptureState)
 })
 
 onBeforeUnmount(() => {
+  if (renderedTabId) captureEditorState(renderedTabId)
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('gdown:file-reloaded', handleFileReloaded)
+  window.removeEventListener('gdown:capture-state', handleCaptureState)
   if (cmView.value) {
     cmView.value.destroy()
     cmView.value = null

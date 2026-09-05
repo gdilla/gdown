@@ -153,10 +153,52 @@ async fn save_file_dialog(
 
 struct PendingOpenFiles(Mutex<Vec<String>>);
 
+#[derive(Default)]
+struct ExitState(Mutex<ExitStatus>);
+
+#[derive(Default)]
+struct ExitStatus {
+    pending: bool,
+    allowed: bool,
+}
+
 #[tauri::command]
 fn get_pending_open_files(state: tauri::State<'_, PendingOpenFiles>) -> Vec<String> {
     let mut pending = state.0.lock().unwrap();
     std::mem::take(&mut *pending)
+}
+
+/// Ask the frontend to resolve dirty documents before allowing the process to exit.
+fn request_frontend_exit(app_handle: &tauri::AppHandle) {
+    let Some(state) = app_handle.try_state::<ExitState>() else {
+        return;
+    };
+    let mut exit = state.0.lock().unwrap();
+    if exit.pending {
+        return;
+    }
+    exit.pending = true;
+    drop(exit);
+
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.emit("app-exit-requested", ());
+    }
+}
+
+#[tauri::command]
+fn allow_exit(app: tauri::AppHandle, state: tauri::State<'_, ExitState>) {
+    let mut exit = state.0.lock().unwrap();
+    exit.allowed = true;
+    exit.pending = false;
+    drop(exit);
+    app.exit(0);
+}
+
+#[tauri::command]
+fn cancel_exit(state: tauri::State<'_, ExitState>) {
+    let mut exit = state.0.lock().unwrap();
+    exit.allowed = false;
+    exit.pending = false;
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -168,6 +210,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_drag::init())
         .manage(PendingOpenFiles(Mutex::new(cli_file_paths)))
+        .manage(ExitState::default())
         .invoke_handler(tauri::generate_handler![
             greet,
             read_directory_tree,
@@ -192,6 +235,8 @@ pub fn run() {
             find_claude_project_dir,
             list_files_with_mtime,
             find_instruction_files,
+            allow_exit,
+            cancel_exit,
         ])
         .setup(|app| {
             let new_file = MenuItemBuilder::with_id("new_file", "New")
@@ -509,9 +554,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|app_handle, event| {
-        if let RunEvent::Opened { urls } = &event {
-            let paths = extract_file_paths_from_urls(urls);
+    app.run(|app_handle, event| match event {
+        RunEvent::Opened { urls } => {
+            let paths = extract_file_paths_from_urls(&urls);
             if !paths.is_empty() {
                 emit_open_files(app_handle, paths.clone());
                 if let Some(state) = app_handle.try_state::<PendingOpenFiles>() {
@@ -520,6 +565,25 @@ pub fn run() {
                 }
             }
         }
+        RunEvent::ExitRequested { api, .. } => {
+            let allowed = app_handle
+                .try_state::<ExitState>()
+                .map(|state| state.0.lock().unwrap().allowed)
+                .unwrap_or(false);
+            if !allowed {
+                api.prevent_exit();
+                request_frontend_exit(app_handle);
+            }
+        }
+        RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::CloseRequested { api, .. },
+            ..
+        } if label == "main" => {
+            api.prevent_close();
+            request_frontend_exit(app_handle);
+        }
+        _ => {}
     });
 }
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { markdownToHtml, htmlToMarkdown } from '../../utils/markdownConverter'
+import { parseFrontMatter } from '../../utils/frontmatter'
 
 describe('markdownToHtml', () => {
   it('returns empty string for empty input', () => {
@@ -202,5 +203,23 @@ describe('htmlToMarkdown', () => {
     expect(md).toContain('---')
     expect(md).toContain('title: Test')
     expect(md).toContain('Body')
+  })
+
+  it('preserves the body/frontmatter contract across a mode handoff fixture', () => {
+    const source = `---
+title: Handoff
+author: Leaf
+---
+# Body
+
+Text after the metadata.`
+
+    const serialized = htmlToMarkdown(markdownToHtml(source))
+    const parsed = parseFrontMatter(serialized)
+
+    expect(parsed.hasFrontMatter).toBe(true)
+    expect(parsed.rawYaml).toBe('title: Handoff\nauthor: Leaf')
+    expect(parsed.body).toContain('# Body')
+    expect(parsed.body).not.toContain('title: Handoff')
   })
 })

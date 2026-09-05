@@ -17,12 +17,17 @@ export interface SessionTab {
   title: string
   /** Whether the tab was unsaved/untitled */
   isUntitled: boolean
+  /** Whether the persisted editor snapshot contains unsaved changes. */
+  isModified: boolean
   /** Scroll position in pixels from top */
   scrollTop: number
   /** Cursor selection */
   selection: { from: number; to: number }
   /** Raw markdown content — persisted for untitled tabs to preserve unsaved work */
   markdown: string
+  /** Body-adjacent front-matter snapshot for dirty recovery. */
+  frontmatter: string | null
+  frontmatterAttributes: Record<string, string>
 }
 
 /**
@@ -43,7 +48,7 @@ export interface SessionState {
   sidebarVisible: boolean
 }
 
-const SESSION_VERSION = 1
+const SESSION_VERSION = 2
 const AUTO_SAVE_INTERVAL_MS = 30_000 // 30 seconds
 
 export const useSessionStore = defineStore('session', () => {
@@ -55,6 +60,8 @@ export const useSessionStore = defineStore('session', () => {
 
   /** Auto-save interval handle */
   let autoSaveTimer: ReturnType<typeof setInterval> | null = null
+  let savePromise: Promise<void> | null = null
+  let queuedState: SessionState | null = null
 
   /**
    * Capture the current session state from tabs and sidebar stores.
@@ -67,9 +74,12 @@ export const useSessionStore = defineStore('session', () => {
       filePath: tab.filePath,
       title: tab.title,
       isUntitled: tab.isUntitled,
+      isModified: tab.isModified,
       scrollTop: tab.editorState.scrollTop,
       selection: { ...tab.editorState.selection },
       markdown: tab.editorState.markdown,
+      frontmatter: tab.editorState.frontmatter,
+      frontmatterAttributes: { ...tab.editorState.frontmatterAttributes },
     }))
 
     return {
@@ -87,18 +97,30 @@ export const useSessionStore = defineStore('session', () => {
    * Debounced to prevent excessive writes.
    */
   async function saveSession(): Promise<void> {
-    if (saving.value) return
+    const state = captureSessionState()
+    if (savePromise) {
+      // Keep the newest snapshot for the write already in progress.
+      queuedState = state
+      return savePromise
+    }
 
     saving.value = true
-    try {
-      const state = captureSessionState()
-      const json = JSON.stringify(state, null, 2)
-      await invoke('save_session_state', { state: json })
-    } catch (err) {
-      console.error('Failed to save session state:', err)
-    } finally {
+    savePromise = (async () => {
+      let nextState: SessionState | null = state
+      while (nextState) {
+        queuedState = null
+        try {
+          await invoke('save_session_state', { state: JSON.stringify(nextState, null, 2) })
+        } catch (err) {
+          console.error('Failed to save session state:', err)
+        }
+        nextState = queuedState
+      }
+    })().finally(() => {
       saving.value = false
-    }
+      savePromise = null
+    })
+    return savePromise
   }
 
   /**
@@ -131,8 +153,8 @@ export const useSessionStore = defineStore('session', () => {
 
   /**
    * Restore session: re-open tabs, restore sidebar folder, and set active tab.
-   * Restores both file-backed tabs (re-read from disk) and untitled tabs
-   * (restored from persisted markdown content).
+   * Restores clean file-backed tabs from disk and dirty tabs from their
+   * persisted snapshots so a restart cannot discard local edits.
    * Returns true if a session was successfully restored.
    */
   async function restoreSession(): Promise<boolean> {
@@ -172,13 +194,20 @@ export const useSessionStore = defineStore('session', () => {
       const sessionTab = state.tabs[i]
       if (!sessionTab) continue
 
+      const isModified = sessionTab.isModified === true
+      const frontmatter = sessionTab.frontmatter ?? null
+      const frontmatterAttributes = sessionTab.frontmatterAttributes ?? {}
+
       if (sessionTab.isUntitled || !sessionTab.filePath) {
         // Untitled tab: restore from persisted markdown content
         const markdown = sessionTab.markdown || ''
-        // Only restore untitled tabs that have content (skip empty untitled tabs)
-        if (markdown.length > 0) {
+        // Skip untouched empty tabs while retaining an explicitly dirty blank tab.
+        if (markdown.length > 0 || frontmatter || isModified) {
           const tab = tabsStore.createTab(null, markdown)
           indexToTabId.set(i, tab.id)
+          tabsStore.saveEditorState(tab.id, { frontmatter, frontmatterAttributes })
+          tabsStore.setModified(tab.id, isModified)
+          tabsStore.updateTabTitle(tab.id, sessionTab.title)
           // Restore scroll position and selection
           tabsStore.saveEditorState(tab.id, {
             scrollTop: sessionTab.scrollTop,
@@ -186,12 +215,30 @@ export const useSessionStore = defineStore('session', () => {
           })
         }
       } else {
-        // File-backed tab: re-read content from disk for freshness
+        if (isModified) {
+          // Dirty named files must use the recovery snapshot, not disk.
+          const tab = tabsStore.createTab(sessionTab.filePath, sessionTab.markdown || '')
+          indexToTabId.set(i, tab.id)
+          tabsStore.saveEditorState(tab.id, { frontmatter, frontmatterAttributes })
+          tabsStore.setModified(tab.id, true)
+          tabsStore.updateTabTitle(tab.id, sessionTab.title)
+          tabsStore.saveEditorState(tab.id, {
+            scrollTop: sessionTab.scrollTop,
+            selection: sessionTab.selection,
+          })
+          // The session has no trustworthy disk baseline. Require an
+          // explicit conflict decision before this recovered snapshot can
+          // overwrite a file changed while the app was closed.
+          const { useAutoSaveStore } = await import('./autoSave')
+          useAutoSaveStore().markRecoveryTab(tab.id)
+          continue
+        }
+
+        // Clean file-backed tab: re-read content from disk for freshness.
         try {
           const tab = await tabsStore.openFile(sessionTab.filePath)
           if (tab) {
             indexToTabId.set(i, tab.id)
-            // Restore scroll position and selection
             tabsStore.saveEditorState(tab.id, {
               scrollTop: sessionTab.scrollTop,
               selection: sessionTab.selection,
@@ -239,8 +286,9 @@ export const useSessionStore = defineStore('session', () => {
    * Initialize session management: restore session and start auto-save.
    * Should be called once during app startup.
    */
-  async function initialize(): Promise<boolean> {
-    const wasRestored = await restoreSession()
+  async function initialize(restore = true): Promise<boolean> {
+    const wasRestored = restore ? await restoreSession() : false
+    if (!restore) restored.value = true
     startAutoSave()
     return wasRestored
   }

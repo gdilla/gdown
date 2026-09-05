@@ -28,6 +28,8 @@ export interface Tab {
   isUntitled: boolean
   /** Whether this tab displays an image file (not a text editor) */
   isImage: boolean
+  /** Monotonic revision for content changes used by the save owner. */
+  contentRevision: number
   /** Persisted editor state for this tab */
   editorState: EditorState
 }
