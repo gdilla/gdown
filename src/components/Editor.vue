@@ -212,7 +212,7 @@ const editor = useEditor({
   editorProps: {
     attributes: {
       class: 'gdown-editor',
-      spellcheck: 'true',
+      spellcheck: String(editorSettings.spellCheck),
     },
     handleClick: (_view, _pos, event) => {
       const target = event.target as HTMLElement
@@ -284,6 +284,15 @@ const editor = useEditor({
     outlineStore.setActiveHeading(from)
   },
 })
+
+// TipTap's editorProps are initialized once. Keep the live contenteditable
+// attribute in sync without recreating the editor or disturbing its history.
+watch(
+  () => editorSettings.spellCheck,
+  (enabled) => {
+    editor.value?.view.dom.setAttribute('spellcheck', String(enabled))
+  },
+)
 
 // ──────────────────────────────────────────────────────
 // Mode toggling: synchronize document state between modes
@@ -716,19 +725,20 @@ onBeforeUnmount(() => {
 .editor-container {
   flex: 1;
   overflow-y: auto;
-  padding: 40px 60px;
+  padding: 40px clamp(16px, 5vw, 60px);
 }
 
 .editor-content {
-  max-width: 860px;
+  max-width: min(100%, var(--editor-max-width, 860px));
   margin: 0 auto;
 }
 
 /* TipTap/ProseMirror editor styles */
 .gdown-editor {
   outline: none;
-  font-size: 16px;
-  line-height: 1.7;
+  font-family: var(--editor-font-family, inherit);
+  font-size: var(--editor-font-size, 16px);
+  line-height: var(--editor-line-height, 1.6);
   color: var(--text-primary, #333);
 }
 

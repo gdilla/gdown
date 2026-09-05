@@ -13,14 +13,8 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, nextTick, shallowRef } from 'vue'
-import {
-  EditorView,
-  keymap,
-  lineNumbers,
-  highlightActiveLine,
-  highlightActiveLineGutter,
-} from '@codemirror/view'
-import { EditorState, type Extension } from '@codemirror/state'
+import { Compartment, EditorState, type Extension } from '@codemirror/state'
+import { EditorView, keymap, highlightActiveLine } from '@codemirror/view'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
@@ -39,15 +33,19 @@ import {
 import { parseFrontMatter, assembleFrontMatter } from '../../utils/frontmatter'
 import { useTabsStore } from '../../stores/tabs'
 import { useEditorModeStore } from '../../stores/editorMode'
+import { useEditorSettingsStore } from '../../stores/editorSettings'
+import { buildSourceEditorSettings } from '../../codemirror/source-editor-settings'
 import type { Tab } from '../../types/tab'
 
 const tabsStore = useTabsStore()
 const editorModeStore = useEditorModeStore()
+const editorSettings = useEditorSettingsStore()
 
 const editorContainer = ref<HTMLElement | null>(null)
 const mathPreviewVisible = ref(false)
 const mathPreviewHtml = ref('')
 const cmView = shallowRef<EditorView | null>(null)
+const settingsCompartment = new Compartment()
 
 // Flag to suppress modification tracking during content restoration
 let isRestoringContent = false
@@ -60,9 +58,16 @@ let renderedTabId: string | null = null
  */
 function buildExtensions(): Extension[] {
   return [
-    lineNumbers(),
+    settingsCompartment.of(
+      buildSourceEditorSettings({
+        showLineNumbers: editorSettings.showLineNumbers,
+        showWhitespace: editorSettings.showWhitespace,
+        indentSize: editorSettings.indentSize,
+        softTabs: editorSettings.softTabs,
+        spellCheck: editorSettings.spellCheck,
+      }),
+    ),
     highlightActiveLine(),
-    highlightActiveLineGutter(),
     history(),
     bracketMatching(),
     indentOnInput(),
@@ -100,18 +105,18 @@ function buildExtensions(): Extension[] {
     EditorView.theme({
       '&': {
         height: '100%',
-        fontSize: '14px',
+        fontSize: 'var(--editor-font-size, 16px)',
         color: 'var(--text-primary, #333)',
         backgroundColor: 'var(--bg-primary, #fff)',
       },
       '.cm-scroller': {
         fontFamily: '"SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace',
-        lineHeight: '1.6',
+        lineHeight: 'var(--editor-line-height, 1.6)',
         padding: '16px 0',
       },
       '.cm-content': {
-        padding: '0 60px',
-        maxWidth: '920px',
+        padding: '0 clamp(16px, 5vw, 60px)',
+        maxWidth: 'min(100%, var(--editor-max-width, 860px))',
         caretColor: 'var(--text-primary, #333)',
       },
       '.cm-gutters': {
@@ -315,6 +320,32 @@ watch(
         })
       }
     }
+  },
+)
+
+// Reconfigure the live source editor when its visible preferences change.
+// The compartment preserves the current document, selection, and history.
+watch(
+  [
+    () => editorSettings.showLineNumbers,
+    () => editorSettings.showWhitespace,
+    () => editorSettings.indentSize,
+    () => editorSettings.softTabs,
+    () => editorSettings.spellCheck,
+  ],
+  () => {
+    if (!cmView.value) return
+    cmView.value.dispatch({
+      effects: settingsCompartment.reconfigure(
+        buildSourceEditorSettings({
+          showLineNumbers: editorSettings.showLineNumbers,
+          showWhitespace: editorSettings.showWhitespace,
+          indentSize: editorSettings.indentSize,
+          softTabs: editorSettings.softTabs,
+          spellCheck: editorSettings.spellCheck,
+        }),
+      ),
+    })
   },
 )
 

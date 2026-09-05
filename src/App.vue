@@ -95,6 +95,7 @@ import { useFocusModeStore } from './stores/focusMode'
 import { useTypewriterModeStore } from './stores/typewriterMode'
 import { useFindReplaceStore } from './stores/findReplace'
 import { usePreferencesStore } from './stores/preferences'
+import { useEditorSettingsStore } from './stores/editorSettings'
 import { useExportStore } from './stores/export'
 import { usePublishStore } from './stores/publish'
 import type { CloseDecision } from './stores/tabs'
@@ -111,6 +112,7 @@ const focusModeStore = useFocusModeStore()
 const typewriterModeStore = useTypewriterModeStore()
 const findReplaceStore = useFindReplaceStore()
 const preferencesStore = usePreferencesStore()
+const editorSettings = useEditorSettingsStore()
 const exportStore = useExportStore()
 const publishStore = usePublishStore()
 const editorRef = ref<InstanceType<typeof Editor> | null>(null)
@@ -168,7 +170,7 @@ function handleClosePromptKeydown(event: KeyboardEvent): void {
 }
 
 function appActionsBlocked(): boolean {
-  return closePrompt.value !== null || exitInProgress
+  return closePrompt.value !== null || exitInProgress || preferencesStore.visible
 }
 
 /** Resolve dirty tabs before Rust completes a native quit or window close. */
@@ -416,7 +418,7 @@ function handleBeforeUnload() {
 onMounted(async () => {
   // Initialize preferences (apply theme, font size, etc.)
   preferencesStore.initialize()
-  editorModeStore.setMode(preferencesStore.defaultEditorMode)
+  editorModeStore.setMode(editorSettings.defaultMode)
   tabsStore.setCloseDecisionHandler(requestCloseDecision)
 
   // Register global keyboard shortcuts
