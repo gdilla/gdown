@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { usePreferencesStore } from './preferences'
 import { useTabsStore } from './tabs'
 import { parseFrontMatter, assembleFrontMatter } from '../utils/frontmatter'
+import { flushLiveEditorState } from '../utils/flushEditorState'
 import type { Tab } from '../types/tab'
 
 export type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'error'
@@ -326,6 +327,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
       }
 
       // Capture after the dialog: edits made while choosing a path must be saved.
+      flushLiveEditorState()
       const currentBeforeWrite = tabsStore.tabs.find((candidate) => candidate.id === tabId)
       if (!currentBeforeWrite) return false
       const revision = currentBeforeWrite.contentRevision
@@ -366,6 +368,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
   }
 
   async function saveTab(tabId: string): Promise<boolean> {
+    flushLiveEditorState()
     const existing = inFlightSaves.get(tabId)
     if (existing) {
       queuedSaves.add(tabId)

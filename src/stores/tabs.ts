@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type { Tab, EditorState } from '../types/tab'
 import { createDefaultEditorState } from '../types/tab'
 import { parseFrontMatter } from '../utils/frontmatter'
+import { flushLiveEditorState } from '../utils/flushEditorState'
 
 export type CloseDecision = 'save' | 'discard' | 'cancel'
 export type CloseDecisionHandler = (tab: Tab) => Promise<CloseDecision>
@@ -106,6 +107,7 @@ export const useTabsStore = defineStore('tabs', () => {
     const autoSaveStore = useAutoSaveStore()
     // Native Save As and regular writes can both be waiting on IPC or a
     // dialog. Never remove a tab while either operation can still mutate it.
+    flushLiveEditorState()
     await autoSaveStore.waitForTabSave(tabId)
 
     const tab = tabs.value.find((candidate) => candidate.id === tabId)
@@ -201,6 +203,12 @@ export const useTabsStore = defineStore('tabs', () => {
       tab.editorState = { ...tab.editorState, ...state }
       if (contentChanged) tab.contentRevision += 1
     }
+  }
+
+  /** Advance the save owner's revision as soon as rich content changes. */
+  function markContentChanged(tabId: string): void {
+    const tab = tabs.value.find((candidate) => candidate.id === tabId)
+    if (tab) tab.contentRevision += 1
   }
 
   /**
@@ -500,6 +508,7 @@ export const useTabsStore = defineStore('tabs', () => {
     setCloseDecisionHandler,
     setActiveTab,
     saveEditorState,
+    markContentChanged,
     setModified,
     updateTabTitle,
     setFilePath,

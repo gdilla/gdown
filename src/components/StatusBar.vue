@@ -212,6 +212,7 @@ import { useOutlineStore } from '../stores/outline'
 import { useEditorSettingsStore } from '../stores/editorSettings'
 import { usePreferencesStore } from '../stores/preferences'
 import { assembleFullMarkdown } from '../utils/copyMarkdown'
+import { flushLiveEditorState } from '../utils/flushEditorState'
 
 const editorModeStore = useEditorModeStore()
 const autoSaveStore = useAutoSaveStore()
@@ -250,6 +251,7 @@ async function copyPath() {
 }
 
 async function copyMarkdown() {
+  flushLiveEditorState()
   const tab = tabsStore.activeTab
   if (!tab) return
   const full = assembleFullMarkdown(tab.editorState.markdown, tab.editorState.frontmatter)

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useTabsStore } from './tabs'
 import { markdownToHtml } from '../utils/markdownConverter'
 import { copyAsRichText, copyAsPlainText, unescapeMarkdown } from '../utils/clipboardUtils'
+import { flushLiveEditorState } from '../utils/flushEditorState'
 
 export interface OutlineHeading {
   /** Unique identifier (based on position in doc) */
@@ -228,6 +229,7 @@ export const useOutlineStore = defineStore('outline', () => {
     headingIndex: number,
     format: 'markdown' | 'richtext',
   ): Promise<boolean> {
+    flushLiveEditorState()
     const content = getSectionContent(headingIndex)
     if (!content) return false
 
@@ -243,6 +245,7 @@ export const useOutlineStore = defineStore('outline', () => {
    * Copy the whole document to the clipboard.
    */
   async function copyWholeDocument(format: 'markdown' | 'richtext'): Promise<boolean> {
+    flushLiveEditorState()
     const tabsStore = useTabsStore()
     const markdown = tabsStore.activeTab?.editorState?.markdown
     if (!markdown) return false

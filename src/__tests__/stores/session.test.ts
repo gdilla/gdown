@@ -126,6 +126,29 @@ title: From disk
     expect(tab?.editorState.markdown).toBe('')
   })
 
+  it('flushes the live editor before saving a session snapshot', async () => {
+    const session = useSessionStore()
+    const tabsStore = useTabsStore()
+    const tab = tabsStore.createTab(null, '# Before')
+    tabsStore.setModified(tab.id, true)
+    const capture = () => {
+      tabsStore.saveEditorState(tab.id, { markdown: '# Latest' })
+      tabsStore.setModified(tab.id, true)
+    }
+    window.addEventListener('gdown:capture-state', capture)
+    mockedInvoke.mockResolvedValue(undefined)
+
+    try {
+      await session.saveSession()
+    } finally {
+      window.removeEventListener('gdown:capture-state', capture)
+    }
+
+    const saveCall = mockedInvoke.mock.calls.find(([command]) => command === 'save_session_state')
+    const savedState = JSON.parse((saveCall?.[1] as { state: string }).state) as SessionState
+    expect(savedState.tabs[0]?.markdown).toBe('# Latest')
+  })
+
   it('does not resurrect an untitled draft discarded during quit', async () => {
     const session = useSessionStore()
     const tabsStore = useTabsStore()

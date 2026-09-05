@@ -345,6 +345,50 @@ Some paragraph.
       expect(writeTextMock).toHaveBeenCalledWith('# Title\n\nContent here.')
     })
 
+    it('flushes the live editor before copying section markdown', async () => {
+      const writeTextMock = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, {
+        clipboard: { write: vi.fn(), writeText: writeTextMock },
+      })
+
+      const outlineStore = useOutlineStore()
+      const tabsStore = useTabsStore()
+      const before = '# Title\n\nBefore.'
+      tabsStore.$patch({
+        tabs: [
+          {
+            id: 'test-tab',
+            title: 'Test',
+            filePath: null,
+            isModified: true,
+            contentRevision: 0,
+            editorState: {
+              doc: null,
+              markdown: before,
+              scrollTop: 0,
+              selection: { from: 0, to: 0 },
+              frontmatter: null,
+              frontmatterAttributes: {},
+            },
+            isUntitled: true,
+            isImage: false,
+          },
+        ],
+        activeTabId: 'test-tab',
+      })
+      outlineStore.updateFromMarkdown(before)
+      const capture = () => tabsStore.saveEditorState('test-tab', { markdown: '# Title\n\nLatest.' })
+      window.addEventListener('gdown:capture-state', capture)
+
+      try {
+        await expect(outlineStore.copySection(0, 'markdown')).resolves.toBe(true)
+      } finally {
+        window.removeEventListener('gdown:capture-state', capture)
+      }
+
+      expect(writeTextMock).toHaveBeenCalledWith('# Title\n\nLatest.')
+    })
+
     it('returns false for invalid index', async () => {
       const outlineStore = useOutlineStore()
       const result = await outlineStore.copySection(99, 'markdown')

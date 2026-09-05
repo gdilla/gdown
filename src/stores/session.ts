@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useTabsStore } from './tabs'
 import { useSidebarStore } from './sidebar'
+import { flushLiveEditorState } from '../utils/flushEditorState'
 
 /**
  * Serializable session tab data — captures the essential info needed
@@ -116,6 +117,7 @@ export const useSessionStore = defineStore('session', () => {
    * Debounced to prevent excessive writes.
    */
   async function saveSession(): Promise<void> {
+    flushLiveEditorState()
     const state = captureSessionState()
     if (savePromise) {
       // Keep the newest snapshot for the write already in progress.

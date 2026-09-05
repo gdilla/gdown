@@ -37,21 +37,18 @@ describe('createCoalescedSnapshotScheduler', () => {
     expect(capture).toHaveBeenCalledOnce()
   })
 
-  it.each(['save', 'tab switch', 'mode switch', 'close'])(
-    'flushes immediately at the %s boundary and cancels the timer',
-    () => {
-      vi.useFakeTimers()
-      const capture = vi.fn()
-      const scheduler = createCoalescedSnapshotScheduler(capture, 200)
+  it('flushes immediately and cancels the pending timer', () => {
+    vi.useFakeTimers()
+    const capture = vi.fn()
+    const scheduler = createCoalescedSnapshotScheduler(capture, 200)
 
-      scheduler.schedule()
-      scheduler.flush()
+    scheduler.schedule()
+    scheduler.flush()
 
-      expect(capture).toHaveBeenCalledOnce()
-      vi.advanceTimersByTime(1_000)
-      expect(capture).toHaveBeenCalledOnce()
-    },
-  )
+    expect(capture).toHaveBeenCalledOnce()
+    vi.advanceTimersByTime(1_000)
+    expect(capture).toHaveBeenCalledOnce()
+  })
 
   it('captures at an explicit boundary even without a pending edit', () => {
     const capture = vi.fn()

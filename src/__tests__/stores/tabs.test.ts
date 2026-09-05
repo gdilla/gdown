@@ -208,6 +208,33 @@ describe('useTabsStore', () => {
       })
     })
 
+    it('flushes the live editor before saving a dirty tab for close', async () => {
+      const store = useTabsStore()
+      const tab = store.createTab('/tmp/note.md', '# Before')
+      store.setModified(tab.id, true)
+      store.setCloseDecisionHandler(async () => 'save')
+      const capture = () => {
+        store.saveEditorState(tab.id, { markdown: '# Latest' })
+        store.setModified(tab.id, true)
+      }
+      window.addEventListener('gdown:capture-state', capture)
+      mockedInvoke
+        .mockResolvedValueOnce(100)
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(101)
+
+      try {
+        await expect(store.closeTab(tab.id)).resolves.toBe(true)
+      } finally {
+        window.removeEventListener('gdown:capture-state', capture)
+      }
+
+      expect(mockedInvoke).toHaveBeenCalledWith('write_file', {
+        path: '/tmp/note.md',
+        content: '# Latest',
+      })
+    })
+
     it('keeps the tab when a newer edit arrives during the close save', async () => {
       const store = useTabsStore()
       usePreferencesStore().autoSaveEnabled = false
@@ -271,6 +298,18 @@ describe('useTabsStore', () => {
       expect(updated.editorState.scrollTop).toBe(100)
       // Other fields should remain at defaults
       expect(updated.editorState.doc).toBeNull()
+    })
+  })
+
+  describe('markContentChanged', () => {
+    it('advances the save revision before a rich snapshot is serialized', () => {
+      const store = useTabsStore()
+      const tab = store.createTab('/tmp/note.md', '# Draft')
+
+      expect(tab.contentRevision).toBe(0)
+      store.markContentChanged(tab.id)
+
+      expect(store.tabs[0]?.contentRevision).toBe(1)
     })
   })
 

@@ -5,6 +5,7 @@ import { useTabsStore } from './tabs'
 import { useExportSettingsStore } from './exportSettings'
 import { getExportConfig } from '../services/export'
 import { assembleFullMarkdown } from '../utils/copyMarkdown'
+import { flushLiveEditorState } from '../utils/flushEditorState'
 import type { ExportConfig, ExportFormat } from '../types/export'
 
 /** Supported export format info returned from the backend */
@@ -293,6 +294,7 @@ export const useExportStore = defineStore('export', () => {
   async function performExport(): Promise<boolean> {
     if (isExporting.value) return false
 
+    flushLiveEditorState()
     const tabsStore = useTabsStore()
     const activeTab = tabsStore.activeTab
 

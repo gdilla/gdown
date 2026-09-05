@@ -91,6 +91,7 @@ import { useTabsStore } from '../stores/tabs'
 import { htmlToMarkdown, markdownToHtml } from '../utils/markdownConverter'
 import { resolveImagePaths, unresolveImagePaths, getDocumentDir } from '../utils/imagePathResolver'
 import { assembleFrontMatter, parseFrontMatter } from '../utils/frontmatter'
+import { createCoalescedSnapshotScheduler } from '../utils/coalescedSnapshot'
 import type { EditorState } from '../types/tab'
 
 const tabsStore = useTabsStore()
@@ -132,6 +133,27 @@ function htmlToMd(html: string, filePath = tabsStore.activeTab?.filePath ?? null
   const dir = getDocumentDir(filePath)
   const cleanHtml = dir ? unresolveImagePaths(html, dir) : html
   return htmlToMarkdown(cleanHtml)
+}
+
+let snapshotPending = false
+const snapshotScheduler = createCoalescedSnapshotScheduler(() => {
+  snapshotPending = false
+  if (renderedTabId) captureState(renderedTabId)
+}, 200)
+
+function scheduleSnapshot(): void {
+  snapshotPending = true
+  snapshotScheduler.schedule()
+}
+
+function flushSnapshot(): void {
+  if (!snapshotPending) return
+  snapshotScheduler.flush()
+}
+
+function cancelSnapshot(): void {
+  snapshotScheduler.cancel()
+  snapshotPending = false
 }
 
 const editor = useEditor({
@@ -251,20 +273,8 @@ const editor = useEditor({
     const tabId = renderedTabId
     if (tabId) {
       tabsStore.setModified(tabId, true)
-      // Persist TipTap JSON plus the parsed body/front-matter contract. Rich
-      // serialization includes the frontmatter node, so never store it as
-      // part of the body or the next save would duplicate the YAML block.
-      const serialized = htmlToMd(
-        ed.getHTML(),
-        tabsStore.tabs.find((tab) => tab.id === tabId)?.filePath ?? null,
-      )
-      const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(serialized)
-      tabsStore.saveEditorState(tabId, {
-        doc: ed.getJSON(),
-        markdown: body,
-        frontmatter: hasFrontMatter ? rawYaml : null,
-        frontmatterAttributes: hasFrontMatter ? attributes : {},
-      })
+      tabsStore.markContentChanged(tabId)
+      scheduleSnapshot()
     }
 
     // Update outline headings whenever document changes
@@ -319,21 +329,12 @@ function handleToggleMode(): void {
       showModeIndicator.value = false
     }, 800)
 
-    // Serialize TipTap HTML → body markdown before the parent mounts SourceEditor.
+    // Flush the coalesced rich snapshot before the parent mounts SourceEditor.
+    flushSnapshot()
     const tabId = renderedTabId
-    const tab = tabId ? tabsStore.tabs.find((candidate) => candidate.id === tabId) : null
-    const serialized = editor.value
-      ? htmlToMd(editor.value.getHTML(), tab?.filePath ?? null)
-      : (tab?.editorState.markdown ?? '')
-    const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(serialized)
     if (tabId) {
       // Source mode owns raw markdown; discard the old TipTap JSON snapshot.
-      tabsStore.saveEditorState(tabId, {
-        markdown: body,
-        doc: null,
-        frontmatter: hasFrontMatter ? rawYaml : null,
-        frontmatterAttributes: hasFrontMatter ? attributes : {},
-      })
+      tabsStore.saveEditorState(tabId, { doc: null })
     }
     editorModeStore.setMode('source')
   } finally {
@@ -489,7 +490,7 @@ watch(
 
     // Save state from the tab we're leaving
     if (renderedTabId) {
-      captureState(renderedTabId)
+      flushSnapshot()
     }
 
     // Restore state for the newly active tab
@@ -510,6 +511,7 @@ watch(
 function handleFileReloaded(e: Event) {
   const { tabId, markdown } = (e as CustomEvent<{ tabId: string; markdown: string }>).detail
   if (tabId !== renderedTabId || !editor.value) return
+  cancelSnapshot()
   const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
   const fullMarkdown = assembleFrontMatter(tab?.editorState.frontmatter ?? null, markdown)
   const html = mdToHtml(fullMarkdown, tab?.filePath ?? null)
@@ -523,7 +525,7 @@ function handleFileReloaded(e: Event) {
 }
 
 function handleCaptureState() {
-  if (renderedTabId) captureState(renderedTabId)
+  flushSnapshot()
 }
 
 // Handle insert-image event
@@ -702,8 +704,10 @@ onMounted(() => {
 onBeforeUnmount(() => {
   // Save current tab state unless this is the intentional WYSIWYG → Source
   // handoff, which already wrote body markdown and cleared the TipTap snapshot.
-  if (!unmountForModeSwitch && renderedTabId) {
-    captureState(renderedTabId)
+  if (unmountForModeSwitch) {
+    cancelSnapshot()
+  } else if (snapshotPending && renderedTabId) {
+    flushSnapshot()
   }
 
   if (modeIndicatorTimer) clearTimeout(modeIndicatorTimer)

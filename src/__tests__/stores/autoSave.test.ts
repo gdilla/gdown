@@ -54,6 +54,35 @@ describe('useAutoSaveStore', () => {
     expect(tabsStore.tabs[0]?.isModified).toBe(false)
   })
 
+  it('flushes the live editor before reading a save snapshot', async () => {
+    const tabsStore = useTabsStore()
+    const autoSaveStore = useAutoSaveStore()
+    disableAutoSave()
+
+    const tab = tabsStore.createTab('/tmp/note.md', '# Before')
+    tabsStore.setModified(tab.id, true)
+    const capture = () => {
+      tabsStore.saveEditorState(tab.id, { markdown: '# Latest' })
+      tabsStore.setModified(tab.id, true)
+    }
+    window.addEventListener('gdown:capture-state', capture)
+    mockedInvoke
+      .mockResolvedValueOnce(100)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(101)
+
+    try {
+      await expect(autoSaveStore.saveTab(tab.id)).resolves.toBe(true)
+    } finally {
+      window.removeEventListener('gdown:capture-state', capture)
+    }
+
+    expect(mockedInvoke).toHaveBeenCalledWith('write_file', {
+      path: '/tmp/note.md',
+      content: '# Latest',
+    })
+  })
+
   it('keeps edits made while a write is in flight dirty', async () => {
     const tabsStore = useTabsStore()
     const autoSaveStore = useAutoSaveStore()

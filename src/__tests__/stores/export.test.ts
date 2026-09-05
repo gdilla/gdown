@@ -125,11 +125,17 @@ describe('useExportStore configuration', () => {
     store.extraFlags = settings.settings.extraPandocArgs
     store.customOutputPath = '/tmp/notes.html'
 
-    await expect(store.performExport()).resolves.toBe(true)
+    const capture = () => tabs.saveEditorState(tab.id, { markdown: '# Latest' })
+    window.addEventListener('gdown:capture-state', capture)
+    try {
+      await expect(store.performExport()).resolves.toBe(true)
+    } finally {
+      window.removeEventListener('gdown:capture-state', capture)
+    }
 
     expect(mockedGetExportConfig).toHaveBeenCalledWith('html')
     expect(mockedInvoke).toHaveBeenCalledWith('export_document', {
-      markdown: '---\ntitle: Notes\ntags: [a, b]\n---\n\n# Hello',
+      markdown: '---\ntitle: Notes\ntags: [a, b]\n---\n\n# Latest',
       outputPath: '/tmp/notes.html',
       format: 'html',
       title: 'notes',
