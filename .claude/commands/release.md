@@ -1,10 +1,19 @@
-# /release — Build and Install
+# /release — Verify and release Leaf
 
-Build Leaf for macOS and install to /Applications.
+The user's `/release` invocation authorizes this documented build, signing, and
+application-install flow. Read `HARNESS.md` and `CLAUDE.md`, then run the
+canonical release gate:
 
-## Steps
-1. Run `pnpm check && pnpm test` — abort if anything fails
-2. Run `pnpm build` to create the release bundle
-3. Sign: `codesign --force --deep --sign - src-tauri/target/release/bundle/macos/Leaf.app`
-4. Install: `cp -r src-tauri/target/release/bundle/macos/Leaf.app /Applications/`
-5. Report success with build output location
+```bash
+pnpm verify:release
+```
+
+This runs the PR gate and the full Tauri build. If it passes, run:
+
+```bash
+codesign --force --deep --sign - src-tauri/target/release/bundle/macos/Leaf.app
+cp -r src-tauri/target/release/bundle/macos/Leaf.app /Applications/
+```
+
+Report the artifact path and any failure. Never use `--no-verify` or skip a
+gate.

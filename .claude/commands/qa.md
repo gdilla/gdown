@@ -1,8 +1,13 @@
 # /qa — Run Quality Gates
 
-Run all quality gates for the Leaf project and report status.
+Read `HARNESS.md` and `CLAUDE.md`, then run:
 
-## Steps
-1. Run `pnpm check` (includes typecheck + lint + rust:lint)
-2. Run `pnpm test` (Vitest unit tests)
-3. Report pass/fail for each gate with any error details
+```bash
+pnpm verify:pr
+```
+
+Report pass/fail for typecheck, ESLint, Clippy, rustfmt, Vitest, Rust tests,
+and the Vite frontend build. Include the first relevant error and distinguish
+setup/config failures from product failures. Do not skip gates or use
+`--no-verify`. The gate is fail-fast: mark checks after the first failure as
+not run and do not rerun unrelated checks.

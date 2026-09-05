@@ -5,46 +5,33 @@ GitHub: https://github.com/gdilla/gdown
 
 ## Quality Gates
 
-Every change must pass these before merge:
+`HARNESS.md` is the canonical workflow and review-evidence guide. This file
+owns Leaf's architecture and coding conventions.
+
+For a PR, run:
 
 ```bash
-pnpm check        # typecheck + lint + rust:lint (combined gate)
-pnpm test         # vitest unit tests
-pnpm build        # full Tauri build (for release)
+pnpm verify:pr    # typecheck, lint, clippy, rustfmt, Vitest, Rust tests, Vite build
 ```
 
-Individual gates:
+For an explicitly requested release, run:
+
 ```bash
-pnpm typecheck    # vue-tsc --noEmit
-pnpm lint         # ESLint (src/)
-pnpm rust:lint    # cargo clippy -D warnings
-pnpm rust:fmt     # cargo fmt --check
-pnpm test         # vitest run
+pnpm verify:release  # PR gate plus full Tauri build
 ```
 
 ## Feature Development Protocol
 
-1. Create an isolated worktree for the feature:
-   ```bash
-   git fetch origin
-   BRANCH="feat/<name>"
-   git worktree add "worktrees/$BRANCH" -b "$BRANCH" origin/main
-   cd "worktrees/$BRANCH" && pnpm install
-   ```
-2. Write failing tests first in `src/__tests__/`
-3. Implement the feature
-4. Run `pnpm check && pnpm test` — all must pass
-5. Self-review the diff
-6. Commit with conventional prefix (`feat:`, `fix:`, `chore:`, `perf:`)
-7. Create PR with summary and test plan
-8. After merge, clean up: `git worktree remove "worktrees/$BRANCH" && git branch -d "$BRANCH"`
+Read `HARNESS.md` for the canonical worktree, verification, review, and release
+workflow. Keep feature work in `worktrees/<kind>/<slug>` on a dedicated branch,
+then run `pnpm verify:pr` before reporting it ready.
 
-**Worktree rules:** Always create worktrees inside `Leaf/worktrees/` — NEVER as siblings in `../` (that pollutes the parent projects folder). Run `pnpm install` in each new worktree. Multiple features can run in parallel in separate worktrees.
+**Worktree rules:** Always create worktrees inside `Leaf/worktrees/` — NEVER as siblings in `../` (that pollutes the parent projects folder). Run `pnpm install --frozen-lockfile` in each new worktree. Multiple features can run in parallel in separate worktrees.
 
 ## Done Criteria
 
 A PR is ready when:
-- All quality gates pass (`pnpm check && pnpm test`)
+- All PR gates pass (`pnpm verify:pr`)
 - Tests cover the new behavior
 - No `any` types introduced
 - CSS uses custom properties only (no hardcoded colors)
@@ -114,7 +101,7 @@ Leaf/
 │   │   ├── main.rs           — Entry point (calls leaf_lib::run())
 │   │   └── commands/         — fs.rs, export.rs, session.rs
 │   └── tauri.conf.json       — App config (productName: "Leaf", identifier: com.gautambanerjee.leaf)
-├── .github/workflows/ci.yml  — CI: typecheck, lint, test, clippy, rustfmt
+├── .github/workflows/ci.yml  — CI: canonical `pnpm verify:pr` gate
 ├── eslint.config.js          — ESLint flat config (Vue 3 + TS)
 ├── vitest.config.ts          — Vitest configuration
 └── public/
@@ -156,12 +143,14 @@ The WYSIWYG/source switch uses `v-if` in App.vue — **two separate components**
 ```bash
 pnpm dev          # Start Tauri dev server (hot reload, Vite on :1420)
 pnpm vite:dev     # Frontend only (no Tauri window)
-pnpm check        # All quality gates (typecheck + lint + rust lint)
-pnpm test         # Vitest unit tests
-pnpm build        # Full release build → Leaf.app + Leaf.dmg
+pnpm verify:pr    # PR gate: typecheck, lint, clippy, rustfmt, tests, Vite build
+pnpm verify:release # PR gate plus full Tauri build → Leaf.app + Leaf.dmg
 ```
 
 ## Build & Install (macOS)
+
+Use `/release` after the user has explicitly requested a release. It runs
+`pnpm verify:release` before the signing and installation steps below.
 
 ```bash
 # 1. Build release bundle
@@ -213,4 +202,4 @@ Current themes: `light`, `dark`, `auto`, `solarized-light`, `solarized-dark`, `g
 - The embedded `src/components/SourceEditor.vue` (inside Editor.vue) is never actually shown
   (Editor.vue is unmounted when source mode is active). The real source editor is `source/SourceEditor.vue`.
 - **Test files use `.test.ts`** extension (not `.spec.ts`). Tests live in `src/__tests__/` mirroring `src/` structure.
-- **Worktree pnpm issue:** `pnpm install` in new worktrees skips esbuild build scripts (interactive `pnpm approve-builds` prompt can't run in non-interactive shells). This causes missing `node_modules/.bin/esbuild` and typecheck failures for transitive type declarations (`@lezer/highlight`, `@tiptap/extension-*`). Workaround: manually symlink esbuild — `ln -sf ../.pnpm/esbuild@<version>/node_modules/esbuild/bin/esbuild node_modules/.bin/esbuild` — or commit with `--no-verify` if only pre-existing type errors remain.
+- **Worktree pnpm setup:** `pnpm-workspace.yaml` intentionally denies esbuild build scripts. Do not symlink binaries, approve dependency scripts ad hoc, or bypass hooks with `--no-verify`. Report missing build outputs as a setup/config failure and handle policy changes separately.

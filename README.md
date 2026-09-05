@@ -27,8 +27,8 @@ Leaf gives you a seamless WYSIWYG editing experience with the ability to switch 
 ## Getting Started
 
 ```bash
-# Install dependencies
-pnpm install
+# Install dependencies from the committed lockfile
+pnpm install --frozen-lockfile
 
 # Start the dev server (hot reload)
 pnpm dev
@@ -44,19 +44,22 @@ pnpm vite:dev
 | `pnpm dev` | Start Tauri dev server with hot reload |
 | `pnpm build` | Full release build (Leaf.app + DMG) |
 | `pnpm test` | Run Vitest unit tests |
-| `pnpm check` | Typecheck + ESLint + Clippy (all quality gates) |
+| `pnpm check` | Typecheck + ESLint + Clippy + rustfmt |
+| `pnpm verify:pr` | All PR gates, including Vitest, Rust tests, and the Vite build |
+| `pnpm verify:release` | PR gates plus the full Tauri release build |
 | `pnpm typecheck` | `vue-tsc --noEmit` |
 | `pnpm lint` | ESLint on `src/` |
 | `pnpm lint:fix` | ESLint with auto-fix |
 | `pnpm rust:lint` | `cargo clippy -D warnings` |
 | `pnpm rust:fmt` | `cargo fmt --check` |
+| `pnpm rust:test` | `cargo test` |
 | `pnpm test:watch` | Vitest in watch mode |
 
 ## Build & Install (macOS)
 
 ```bash
-# Build the release bundle
-pnpm build
+# Run all PR gates and build the release bundle
+pnpm verify:release
 
 # Ad-hoc sign for local use
 codesign --force --deep --sign - src-tauri/target/release/bundle/macos/Leaf.app
