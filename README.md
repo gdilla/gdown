@@ -99,7 +99,7 @@ Build outputs:
 │   │   ├── StatusBar.vue        — Status bar with mode toggle
 │   │   ├── sidebar/             — File tree and outline panels
 │   │   ├── tabs/                — Tab bar
-│   │   └── preferences/         — Preferences window (6 panes)
+│   │   └── preferences/         — Preferences window (4 panes)
 │   ├── extensions/              — Custom Tiptap extensions
 │   ├── stores/                  — Pinia stores (one per domain)
 │   ├── codemirror/              — CodeMirror extensions
@@ -109,7 +109,7 @@ Build outputs:
 │   ├── src/
 │   │   ├── lib.rs               — Tauri setup, menus, events
 │   │   ├── main.rs              — Entry point
-│   │   └── commands/            — File I/O, export, session commands
+│   │   └── commands/            — File I/O, export, session, and AI file commands
 │   └── tauri.conf.json          — App configuration
 └── .github/workflows/ci.yml    — CI pipeline
 ```

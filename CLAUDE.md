@@ -86,7 +86,7 @@ Leaf/
 │   │   ├── StatusBar.vue     — Save status, path display, panel toggles, mode toggle
 │   │   ├── sidebar/          — File tree, outline panel
 │   │   ├── tabs/             — Tab bar and tab items
-│   │   └── preferences/      — Preferences window (6 panes)
+│   │   └── preferences/      — Preferences window (4 panes)
 │   ├── extensions/           — Custom Tiptap extensions (GdownTable, MermaidBlock, etc.)
 │   ├── stores/               — Pinia stores (tabs, autoSave, preferences, editorMode, etc.)
 │   ├── utils/
@@ -99,7 +99,7 @@ Leaf/
 │   ├── src/
 │   │   ├── lib.rs            — Tauri setup, menu builder, event handlers
 │   │   ├── main.rs           — Entry point (calls leaf_lib::run())
-│   │   └── commands/         — fs.rs, export.rs, session.rs
+│   │   └── commands/         — fs.rs, export.rs, session.rs, ai_files.rs, mod.rs
 │   └── tauri.conf.json       — App config (productName: "Leaf", identifier: com.gautambanerjee.leaf)
 ├── .github/workflows/ci.yml  — CI: canonical `pnpm verify:pr` gate
 ├── eslint.config.js          — ESLint flat config (Vue 3 + TS)
@@ -199,7 +199,6 @@ Current themes: `light`, `dark`, `auto`, `solarized-light`, `solarized-dark`, `g
 - **DO NOT** add Cmd+/ handling to App.vue — it causes double-fire and clears document content.
 - **Cargo lib name** is `leaf_lib` (not `gdown_lib`) — main.rs calls `leaf_lib::run()`.
 - Mermaid and MathJax are **lazy-loaded** — do not add top-level imports of these packages.
-- The embedded `src/components/SourceEditor.vue` (inside Editor.vue) is never actually shown
-  (Editor.vue is unmounted when source mode is active). The real source editor is `source/SourceEditor.vue`.
+- The source editor is `src/components/source/SourceEditor.vue`; it is mounted only when source mode is active.
 - **Test files use `.test.ts`** extension (not `.spec.ts`). Tests live in `src/__tests__/` mirroring `src/` structure.
 - **Worktree pnpm setup:** `pnpm-workspace.yaml` intentionally denies esbuild build scripts. Do not symlink binaries, approve dependency scripts ad hoc, or bypass hooks with `--no-verify`. Report missing build outputs as a setup/config failure and handle policy changes separately.
