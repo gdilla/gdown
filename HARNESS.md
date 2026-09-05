@@ -62,6 +62,13 @@ CI installs with `pnpm install --frozen-lockfile` and runs the same
 sync; pnpm is the repository package manager. Use the Node version in `.nvmrc`
 for local checks; CI reads the same file.
 
+Pandoc is optional for local app use; export availability is reported at
+runtime when it is absent. CI provisions Pandoc before `pnpm verify:pr` so the
+Rust export integration tests exercise the converter instead of silently
+passing on a skipped test. A local `cargo test` without Pandoc can still report
+those tests as passed while skipping their bodies; record export coverage as
+unavailable for that run.
+
 ## Review evidence
 
 Review the actual base and head commits, then inspect every changed file. For a
