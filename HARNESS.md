@@ -44,7 +44,7 @@ The package scripts are the source of truth for gates:
 | Command | Coverage |
 | --- | --- |
 | `pnpm verify:pr` | typecheck, ESLint, Clippy, rustfmt, Vitest, Rust tests, and the Vite frontend build |
-| `pnpm verify:release` | the PR gate plus the full Tauri release build |
+| `pnpm verify:release` | the PR gate plus the Tauri `.app` bundle build (`--bundles app`) |
 | `pnpm dev` / `pnpm vite:dev` | Tauri / frontend development servers |
 
 Run `pnpm verify:pr` before reporting a PR-ready change. Run
@@ -99,7 +99,7 @@ Missing evidence is uncertainty and should remain visible in the review.
 - `/qa` runs `pnpm verify:pr` and reports each constituent gate.
 - `/review` performs a read-only, commit-specific review and ends with a
   prioritized verdict.
-- `/release` runs `pnpm verify:release`; signing and copying into
+- `/release` runs `pnpm verify:release` for the Tauri `.app` bundle; signing and copying into
   `/Applications` happen only after explicit release authorization.
 
 These commands must follow the same worktree, verification, and evidence rules

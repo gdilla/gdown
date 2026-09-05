@@ -24,7 +24,7 @@
     "rust:test": "cd src-tauri && cargo test",
     "check": "pnpm typecheck && pnpm lint && pnpm rust:lint && pnpm rust:fmt",
     "verify:pr": "pnpm check && pnpm test && pnpm rust:test && pnpm vite:build",
-    "verify:release": "pnpm verify:pr && pnpm build",
+    "verify:release": "pnpm verify:pr && pnpm build --bundles app",
     "prepare": "husky"
   },
   "dependencies": {
