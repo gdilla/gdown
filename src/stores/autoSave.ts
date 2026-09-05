@@ -1,46 +1,59 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { usePreferencesStore } from './preferences'
 import { useTabsStore } from './tabs'
+import { parseFrontMatter, assembleFrontMatter } from '../utils/frontmatter'
+import { flushLiveEditorState } from '../utils/flushEditorState'
+import type { Tab } from '../types/tab'
 
 export type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'error'
 
-/** Auto-save debounce delay in milliseconds */
-const AUTO_SAVE_DELAY_MS = 1500
-
-/** Interval for checking external file changes (ms) */
+const DEFAULT_AUTO_SAVE_DELAY_MS = 1500
 const CONFLICT_CHECK_INTERVAL_MS = 1500
 
-/** Conflict info when external changes are detected */
 export interface ConflictInfo {
   tabId: string
   filePath: string
   diskContent: string
+  modifiedTime: number
+}
+
+/** The one full-file serialization contract used by every disk write. */
+export function serializeTabToFile(tab: Tab): string {
+  return assembleFrontMatter(tab.editorState.frontmatter, tab.editorState.markdown ?? '')
+}
+
+function parseDiskContent(content: string) {
+  const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
+  return {
+    markdown: body,
+    frontmatter: hasFrontMatter ? rawYaml : null,
+    frontmatterAttributes: hasFrontMatter ? attributes : {},
+  }
 }
 
 export const useAutoSaveStore = defineStore('autoSave', () => {
+  const tabsStore = useTabsStore()
+  const preferencesStore = usePreferencesStore()
+
   const status = ref<SaveStatus>('saved')
   const lastSavedAt = ref<Date | null>(null)
   const errorMessage = ref<string | null>(null)
-
-  /** Currently displayed conflict dialog info, or null if no conflict */
   const conflictDialog = ref<ConflictInfo | null>(null)
-
-  /** Notification for save events (auto-cleared) */
   const saveNotification = ref<{ message: string; type: 'success' | 'error' | 'warning' } | null>(
     null,
   )
-
-  /** Tracks last known modified times for open files (filePath -> epoch ms) */
   const knownModifiedTimes = ref<Record<string, number>>({})
 
-  /** Debounce timer for auto-save */
-  let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
-
-  /** Conflict check interval handle */
+  const autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const inFlightSaves = new Map<string, Promise<boolean>>()
+  const queuedSaves = new Set<string>()
+  const recoveryTabsNeedingConflict = new Set<string>()
+  const externalConflictTabs = new Set<string>()
+  let saveLane: Promise<void> = Promise.resolve()
   let conflictCheckInterval: ReturnType<typeof setInterval> | null = null
-
-  /** Promise resolver for conflict dialog resolution */
+  let conflictCheckPromise: Promise<void> | null = null
   let conflictResolver: ((action: 'overwrite' | 'cancel') => void) | null = null
 
   const statusText = computed(() => {
@@ -51,7 +64,6 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         return 'Unsaved changes'
       case 'saving':
         return 'Saving...'
-      case 'error':
       default:
         return 'Save failed'
     }
@@ -65,466 +77,525 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         return '●'
       case 'saving':
         return '↻'
-      case 'error':
       default:
         return '✕'
     }
   })
 
-  /**
-   * Get the current markdown content for a specific tab.
-   */
-  function getTabMarkdown(tabId: string): string | null {
-    const tabsStore = useTabsStore()
-    const tab = tabsStore.tabs.find((t) => t.id === tabId)
-    if (!tab) return null
-    return tab.editorState.markdown ?? null
+  function setActiveStatus(next: SaveStatus, tabId: string): void {
+    if (tabsStore.activeTabId === tabId) status.value = next
   }
 
-  /**
-   * Format write errors into user-friendly messages.
-   */
-  function formatWriteError(err: any): string {
-    const msg = typeof err === 'string' ? err : err?.message || String(err)
+  /** Serialize writes so the single conflict dialog always has one owner. */
+  function enqueueSave<T>(operation: () => Promise<T>): Promise<T> {
+    const queued = saveLane.then(operation, operation)
+    saveLane = queued.then(
+      () => undefined,
+      () => undefined,
+    )
+    return queued
+  }
 
-    if (msg.includes('Permission denied') || msg.includes('permission')) {
+  function getTabMarkdown(tabId: string): string | null {
+    const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+    return tab?.editorState.markdown ?? null
+  }
+
+  function formatWriteError(err: unknown): string {
+    const message = typeof err === 'string' ? err : err instanceof Error ? err.message : String(err)
+
+    if (/permission denied|permission/i.test(message)) {
       return 'Permission denied. The file or directory may be read-only.'
     }
-    if (msg.includes('No space left') || msg.includes('disk full')) {
+    if (/no space left|disk full/i.test(message)) {
       return 'Disk is full. Free up space and try again.'
     }
-    if (msg.includes('No such file or directory') || msg.includes('does not exist')) {
+    if (/no such file or directory|does not exist/i.test(message)) {
       return 'The file path is invalid or the directory no longer exists.'
     }
-    if (msg.includes('Read-only file system')) {
-      return 'The file system is read-only.'
-    }
-
-    return msg
+    if (/read-only file system/i.test(message)) return 'The file system is read-only.'
+    return message
   }
 
-  /**
-   * Show a temporary notification that auto-clears.
-   */
-  function showNotification(message: string, type: 'success' | 'error' | 'warning') {
+  function showNotification(message: string, type: 'success' | 'error' | 'warning'): void {
     saveNotification.value = { message, type }
     setTimeout(
       () => {
-        if (saveNotification.value?.message === message) {
-          saveNotification.value = null
-        }
+        if (saveNotification.value?.message === message) saveNotification.value = null
       },
       type === 'error' ? 5000 : 3000,
     )
   }
 
-  /**
-   * Prompt for save location using native "Save As" dialog.
-   * Returns the chosen file path, or null if cancelled.
-   */
   async function promptForSaveLocation(defaultName: string): Promise<string | null> {
     try {
-      const filePath = await invoke<string | null>('save_file_dialog', {
+      return await invoke<string | null>('save_file_dialog', {
         defaultName: defaultName || 'Untitled.md',
       })
-      return filePath
     } catch (err) {
       console.error('Save dialog error:', err)
       return null
     }
   }
 
-  /**
-   * Record the modified time of a file when it's first opened.
-   * Called when a file is opened in a tab.
-   */
-  async function trackFileModifiedTime(filePath: string) {
+  async function trackFileModifiedTime(filePath: string): Promise<void> {
     try {
-      const modTime = await invoke<number>('get_file_modified_time', { path: filePath })
-      knownModifiedTimes.value[filePath] = modTime
+      knownModifiedTimes.value[filePath] = await invoke<number>('get_file_modified_time', {
+        path: filePath,
+      })
     } catch {
-      // Non-critical — file may not exist yet
+      // New or temporarily unavailable files have no conflict baseline yet.
     }
   }
 
-  /**
-   * Stop tracking a file when its tab is closed.
-   */
-  function untrackFile(filePath: string) {
+  function untrackFile(filePath: string): void {
     delete knownModifiedTimes.value[filePath]
   }
 
-  /**
-   * Check if file was modified externally before saving.
-   * If conflict is detected, shows a dialog and waits for user resolution.
-   * Returns 'overwrite' to proceed, 'cancel' to abort.
-   */
+  /** Mark a recovered dirty file for an explicit disk conflict decision. */
+  function markRecoveryTab(tabId: string): void {
+    recoveryTabsNeedingConflict.add(tabId)
+  }
+
+  function applyDiskContent(tabId: string, content: string): void {
+    const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+    if (!tab) return
+    tabsStore.saveEditorState(tabId, { ...parseDiskContent(content), doc: null })
+    tabsStore.setModified(tabId, false)
+  }
+
   async function checkConflictBeforeSave(
     filePath: string,
     tabId: string,
   ): Promise<'overwrite' | 'cancel'> {
+    const needsRecoveryConflict = recoveryTabsNeedingConflict.has(tabId)
+    const knownModTime = knownModifiedTimes.value[filePath]
     try {
       const currentModTime = await invoke<number>('get_file_modified_time', { path: filePath })
-      const knownModTime = knownModifiedTimes.value[filePath]
-
-      if (knownModTime && currentModTime > knownModTime) {
-        // File was modified externally — show conflict dialog
-        const diskContent = await invoke<string>('read_file', { path: filePath })
-        conflictDialog.value = { tabId, filePath, diskContent }
-
-        // Wait for user resolution
-        return new Promise<'overwrite' | 'cancel'>((resolve) => {
-          conflictResolver = resolve
-        })
+      if (
+        !needsRecoveryConflict &&
+        (knownModTime === undefined || currentModTime <= knownModTime)
+      ) {
+        return 'overwrite'
       }
+
+      const diskContent = await invoke<string>('read_file', { path: filePath })
+      conflictDialog.value = { tabId, filePath, diskContent, modifiedTime: currentModTime }
+      return await new Promise<'overwrite' | 'cancel'>((resolve) => {
+        conflictResolver = resolve
+      })
     } catch {
-      // If we can't check, proceed with save (file may be new/deleted externally)
+      // A recovered document has no trusted baseline. Refuse a blind write if
+      // metadata or disk content cannot be read; the user can use Save As.
+      if (needsRecoveryConflict || knownModTime !== undefined) {
+        showNotification(
+          `Could not verify ${filePath}; use Save As to choose a destination.`,
+          'warning',
+        )
+        return 'cancel'
+      }
+      // A never-tracked file may be newly created, so a normal write can
+      // recreate it intentionally.
+      return 'overwrite'
     }
-    return 'overwrite'
   }
 
-  /**
-   * Resolve a file conflict. Called by the UI conflict dialog.
-   * @param action - 'overwrite' saves our version, 'reload' loads disk version, 'cancel' aborts save
-   */
-  function resolveConflict(action: 'overwrite' | 'reload' | 'cancel') {
-    if (!conflictDialog.value) return
-
-    const { tabId, filePath, diskContent } = conflictDialog.value
-    const tabsStore = useTabsStore()
+  function resolveConflict(action: 'overwrite' | 'reload' | 'cancel'): void {
+    const conflict = conflictDialog.value
+    if (!conflict) return
 
     if (action === 'reload') {
-      // Load the disk version into the tab
-      const tab = tabsStore.tabs.find((t) => t.id === tabId)
-      if (tab) {
-        tab.editorState.markdown = diskContent
-        tab.editorState.doc = null
-        tab.isModified = false
-        // Push new content into the live running editor
-        window.dispatchEvent(
-          new CustomEvent('gdown:file-reloaded', {
-            detail: { tabId, markdown: diskContent },
-          }),
-        )
-      }
-      // Update known mod time
-      invoke<number>('get_file_modified_time', { path: filePath })
-        .then((modTime) => {
-          knownModifiedTimes.value[filePath] = modTime
-        })
-        .catch(() => {})
+      applyDiskContent(conflict.tabId, conflict.diskContent)
+      knownModifiedTimes.value[conflict.filePath] = conflict.modifiedTime
+      externalConflictTabs.delete(conflict.tabId)
+      recoveryTabsNeedingConflict.delete(conflict.tabId)
       conflictDialog.value = null
-      if (conflictResolver) {
-        conflictResolver('cancel') // Don't save after reload
-        conflictResolver = null
-      }
-      status.value = 'saved'
+      conflictResolver?.('cancel')
+      conflictResolver = null
+      setActiveStatus('saved', conflict.tabId)
       showNotification(
-        `↻ Reloaded ${tabsStore.tabs.find((t) => t.id === tabId)?.title ?? 'file'} from disk`,
+        `↻ Reloaded ${tabsStore.tabs.find((tab) => tab.id === conflict.tabId)?.title ?? 'file'} from disk`,
         'warning',
       )
-    } else if (action === 'overwrite') {
-      conflictDialog.value = null
-      if (conflictResolver) {
-        conflictResolver('overwrite')
-        conflictResolver = null
-      }
-    } else {
-      // cancel
-      conflictDialog.value = null
-      if (conflictResolver) {
-        conflictResolver('cancel')
-        conflictResolver = null
-      }
-      status.value = 'unsaved'
+      window.dispatchEvent(
+        new CustomEvent('gdown:file-reloaded', {
+          detail: {
+            tabId: conflict.tabId,
+            markdown: parseDiskContent(conflict.diskContent).markdown,
+          },
+        }),
+      )
+      return
     }
+
+    const wasExternalConflict = externalConflictTabs.delete(conflict.tabId)
+    if (action === 'overwrite' && wasExternalConflict) {
+      // The scan has already shown this exact disk revision to the user. Use
+      // it as the new baseline, then the scan lane writes the local snapshot.
+      knownModifiedTimes.value[conflict.filePath] = conflict.modifiedTime
+    }
+    conflictDialog.value = null
+    conflictResolver?.(action === 'overwrite' ? 'overwrite' : 'cancel')
+    conflictResolver = null
+    if (action === 'cancel') setActiveStatus('unsaved', conflict.tabId)
   }
 
-  /**
-   * Write content to disk and update tracking state.
-   * Core write operation with error handling.
-   */
   async function writeFileToDisk(filePath: string, content: string): Promise<void> {
     await invoke('write_file', { path: filePath, content })
-
-    // Update known modified time
-    try {
-      const modTime = await invoke<number>('get_file_modified_time', { path: filePath })
-      knownModifiedTimes.value[filePath] = modTime
-    } catch {
-      // Non-critical
-    }
+    await trackFileModifiedTime(filePath)
   }
 
-  /**
-   * Save the active tab. If untitled, prompts for save location.
-   * This is the main save entry point for Cmd+S and auto-save.
-   */
-  async function saveActiveTab(): Promise<boolean> {
-    const tabsStore = useTabsStore()
-    const tab = tabsStore.activeTab
-    if (!tab) return false
-
-    // Untitled/new file: prompt for save location
-    if (!tab.filePath || tab.isUntitled) {
-      return saveActiveTabAs()
-    }
-
-    // Don't save if not modified
+  async function performSave(tabId: string): Promise<boolean> {
+    // The save may have waited behind another file's conflict dialog. Flush
+    // again at the actual write boundary so its revision and markdown agree.
+    flushLiveEditorState()
+    const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+    if (!tab || !tab.filePath || tab.isUntitled) return false
+    const filePath = tab.filePath
     if (!tab.isModified) {
-      status.value = 'saved'
+      setActiveStatus('saved', tabId)
       return true
     }
 
-    const content = getTabMarkdown(tab.id)
-    if (content === null) return false
-
-    status.value = 'saving'
-    errorMessage.value = null
-
-    try {
-      // Check for external conflict before writing
-      const conflictResult = await checkConflictBeforeSave(tab.filePath, tab.id)
-      if (conflictResult === 'cancel') {
-        status.value = 'unsaved'
-        return false
-      }
-
-      await writeFileToDisk(tab.filePath, content)
-
-      // Mark tab as clean
-      tabsStore.setModified(tab.id, false)
-      status.value = 'saved'
-      lastSavedAt.value = new Date()
-      return true
-    } catch (err) {
-      console.error('Save failed:', err)
-      const friendlyError = formatWriteError(err)
-      status.value = 'error'
-      errorMessage.value = friendlyError
-      showNotification(`Save failed: ${friendlyError}`, 'error')
-      return false
-    }
-  }
-
-  /**
-   * Save the active tab with a "Save As" dialog (always prompts for location).
-   * Also used for first-time saves of untitled files.
-   */
-  async function saveActiveTabAs(): Promise<boolean> {
-    const tabsStore = useTabsStore()
-    const tab = tabsStore.activeTab
-    if (!tab) return false
-
-    const content = getTabMarkdown(tab.id)
-    if (content === null) return false
-
-    const defaultName = tab.isUntitled ? `${tab.title}.md` : tab.title
-
-    status.value = 'saving'
-    errorMessage.value = null
+    const revision = tab.contentRevision
+    const content = serializeTabToFile(tab)
+    setActiveStatus('saving', tabId)
+    if (tabsStore.activeTabId === tabId) errorMessage.value = null
 
     try {
-      const filePath = await promptForSaveLocation(defaultName)
-      if (!filePath) {
-        // User cancelled the dialog
-        status.value = tab.isModified ? 'unsaved' : 'saved'
+      if ((await checkConflictBeforeSave(filePath, tabId)) === 'cancel') {
+        const current = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+        setActiveStatus(current?.isModified ? 'unsaved' : 'saved', tabId)
         return false
       }
 
       await writeFileToDisk(filePath, content)
+      const current = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+      const unchanged =
+        current !== undefined &&
+        current.contentRevision === revision &&
+        serializeTabToFile(current) === content
 
-      // Update tab: set file path, mark as saved
-      tabsStore.setFilePath(tab.id, filePath)
-      tabsStore.setModified(tab.id, false)
-      status.value = 'saved'
-      lastSavedAt.value = new Date()
-      return true
-    } catch (err) {
-      console.error('Save As failed:', err)
-      const friendlyError = formatWriteError(err)
-      status.value = 'error'
-      errorMessage.value = friendlyError
-      showNotification(`Save failed: ${friendlyError}`, 'error')
-      return false
-    }
-  }
-
-  /**
-   * Save a specific tab by ID. Used for auto-save of non-active tabs.
-   */
-  async function saveTab(tabId: string): Promise<boolean> {
-    const tabsStore = useTabsStore()
-    const tab = tabsStore.tabs.find((t) => t.id === tabId)
-    if (!tab || !tab.filePath || tab.isUntitled || !tab.isModified) return false
-
-    const content = getTabMarkdown(tabId)
-    if (content === null) return false
-
-    try {
-      await writeFileToDisk(tab.filePath, content)
-      tabsStore.setModified(tabId, false)
-      return true
-    } catch (err) {
-      console.error(`Auto-save failed for ${tab.title}:`, err)
-      return false
-    }
-  }
-
-  /**
-   * Trigger a debounced auto-save for the active tab.
-   * Resets the timer on each call so rapid edits don't cause excessive saves.
-   */
-  function scheduleAutoSave(): void {
-    const tabsStore = useTabsStore()
-    const tab = tabsStore.activeTab
-
-    // Only auto-save files that have a path on disk
-    if (!tab || !tab.filePath || tab.isUntitled) {
-      if (tab?.isModified) {
-        status.value = 'unsaved'
+      if (unchanged) {
+        tabsStore.setModified(tabId, false)
+        recoveryTabsNeedingConflict.delete(tabId)
+        lastSavedAt.value = new Date()
+        setActiveStatus('saved', tabId)
+        window.dispatchEvent(
+          new CustomEvent('gdown:auto-saved', {
+            detail: { tabId, filePath, timestamp: lastSavedAt.value.getTime() },
+          }),
+        )
+        return true
       }
-      return
+
+      // The write is valid for its captured revision; a newer edit remains dirty.
+      setActiveStatus('unsaved', tabId)
+      if (preferencesStore.autoSaveEnabled) scheduleAutoSave(tabId)
+      return false
+    } catch (err) {
+      const message = formatWriteError(err)
+      errorMessage.value = message
+      setActiveStatus('error', tabId)
+      console.error(`Save failed for '${filePath}':`, message)
+      showNotification(`Save failed: ${message}`, 'error')
+      window.dispatchEvent(
+        new CustomEvent('gdown:auto-save-error', {
+          detail: { tabId, filePath, error: message },
+        }),
+      )
+      return false
     }
-
-    status.value = 'unsaved'
-
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer)
-    }
-
-    autoSaveTimer = setTimeout(() => {
-      autoSaveTimer = null
-      saveActiveTab()
-    }, AUTO_SAVE_DELAY_MS)
   }
 
-  /**
-   * Immediately save the active tab (e.g., on Cmd+S).
-   * For untitled files, prompts for save location.
-   */
-  async function saveNow(): Promise<boolean> {
-    // Cancel any pending auto-save
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer)
-      autoSaveTimer = null
+  async function saveTabAs(tabId: string): Promise<boolean> {
+    const existing = inFlightSaves.get(tabId)
+    // Save As owns a native dialog. A second request while it is open waits
+    // for the same operation instead of opening a competing dialog.
+    if (existing) return existing
+
+    const operation = enqueueSave(async (): Promise<boolean> => {
+      cancelPending(tabId)
+      const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+      if (!tab) return false
+
+      const defaultName = tab.isUntitled ? `${tab.title}.md` : tab.title
+      setActiveStatus('saving', tabId)
+      if (tabsStore.activeTabId === tabId) errorMessage.value = null
+
+      const filePath = await promptForSaveLocation(defaultName)
+      if (!filePath) {
+        setActiveStatus(tab.isModified ? 'unsaved' : 'saved', tabId)
+        return false
+      }
+
+      // Capture after the dialog: edits made while choosing a path must be saved.
+      flushLiveEditorState()
+      const currentBeforeWrite = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+      if (!currentBeforeWrite) return false
+      const revision = currentBeforeWrite.contentRevision
+      const content = serializeTabToFile(currentBeforeWrite)
+      try {
+        await writeFileToDisk(filePath, content)
+        const current = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+        const unchanged =
+          current !== undefined &&
+          current.contentRevision === revision &&
+          serializeTabToFile(current) === content
+        tabsStore.setFilePath(tabId, filePath)
+        tabsStore.setModified(tabId, !unchanged)
+        if (unchanged) {
+          recoveryTabsNeedingConflict.delete(tabId)
+          lastSavedAt.value = new Date()
+          setActiveStatus('saved', tabId)
+          return true
+        }
+        setActiveStatus('unsaved', tabId)
+        if (preferencesStore.autoSaveEnabled) scheduleAutoSave(tabId)
+        return false
+      } catch (err) {
+        const message = formatWriteError(err)
+        errorMessage.value = message
+        setActiveStatus('error', tabId)
+        showNotification(`Save failed: ${message}`, 'error')
+        return false
+      }
+    })
+
+    inFlightSaves.set(tabId, operation)
+    try {
+      return await operation
+    } finally {
+      if (inFlightSaves.get(tabId) === operation) inFlightSaves.delete(tabId)
+    }
+  }
+
+  async function saveTab(tabId: string): Promise<boolean> {
+    flushLiveEditorState()
+    const existing = inFlightSaves.get(tabId)
+    if (existing) {
+      queuedSaves.add(tabId)
+      const result = await existing
+      if (queuedSaves.delete(tabId)) return saveTab(tabId)
+      return result
     }
 
+    const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+    if (!tab) return false
+    if (!tab.filePath || tab.isUntitled) return saveTabAs(tabId)
+    if (!tab.isModified) {
+      setActiveStatus('saved', tabId)
+      return true
+    }
+
+    cancelPending(tabId)
+    const operation = enqueueSave(() => performSave(tabId))
+    inFlightSaves.set(tabId, operation)
+    try {
+      return await operation
+    } finally {
+      if (inFlightSaves.get(tabId) === operation) inFlightSaves.delete(tabId)
+    }
+  }
+
+  async function saveActiveTab(): Promise<boolean> {
+    const tab = tabsStore.activeTab
+    return tab ? saveTab(tab.id) : false
+  }
+
+  async function saveActiveTabAs(): Promise<boolean> {
+    const tab = tabsStore.activeTab
+    return tab ? saveTabAs(tab.id) : false
+  }
+
+  function scheduleAutoSave(tabId = tabsStore.activeTabId ?? ''): void {
+    if (!tabId || !preferencesStore.autoSaveEnabled) return
+    const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+    if (!tab) return
+    setActiveStatus('unsaved', tabId)
+    cancelPending(tabId)
+    if (!tab.filePath || tab.isUntitled || !tab.isModified) return
+
+    const delay = Math.max(500, preferencesStore.autoSaveIntervalMs || DEFAULT_AUTO_SAVE_DELAY_MS)
+    autoSaveTimers.set(
+      tabId,
+      setTimeout(() => {
+        autoSaveTimers.delete(tabId)
+        void saveTab(tabId)
+      }, delay),
+    )
+  }
+
+  async function saveNow(): Promise<boolean> {
+    const tabId = tabsStore.activeTabId
+    if (!tabId) return false
+    cancelPending(tabId)
     return saveActiveTab()
   }
 
-  /**
-   * Cancel pending auto-save timer (e.g., when switching tabs).
-   */
-  function cancelPending(): void {
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer)
-      autoSaveTimer = null
-    }
-  }
-
-  /**
-   * Update status based on the active tab's state.
-   * Called when switching tabs or after external state changes.
-   */
-  function syncStatus(): void {
-    const tabsStore = useTabsStore()
-    const tab = tabsStore.activeTab
-
-    if (!tab) {
-      status.value = 'saved'
+  function cancelPending(tabId?: string): void {
+    if (tabId) {
+      const timer = autoSaveTimers.get(tabId)
+      if (timer) clearTimeout(timer)
+      autoSaveTimers.delete(tabId)
       return
     }
-
-    if (tab.isModified) {
-      status.value = 'unsaved'
-    } else {
-      status.value = 'saved'
-    }
+    for (const timer of autoSaveTimers.values()) clearTimeout(timer)
+    autoSaveTimers.clear()
   }
 
-  /**
-   * Check all open tabs for external file changes.
-   * If a file is modified without local changes, silently reload.
-   * If a file is modified with local changes, show conflict dialog.
-   */
-  async function checkForExternalChanges() {
-    const tabsStore = useTabsStore()
+  function cancelTab(tabId: string): void {
+    cancelPending(tabId)
+    queuedSaves.delete(tabId)
+    recoveryTabsNeedingConflict.delete(tabId)
+  }
 
-    for (const tab of tabsStore.tabs) {
-      if (!tab.filePath || tab.isUntitled) continue
-      if (conflictDialog.value) break // Don't check while a conflict is being shown
-
-      const knownModTime = knownModifiedTimes.value[tab.filePath]
-      if (!knownModTime) continue
-
+  async function waitForTabSave(tabId: string): Promise<boolean> {
+    while (true) {
+      const operation = inFlightSaves.get(tabId)
+      if (!operation) return true
       try {
-        const currentModTime = await invoke<number>('get_file_modified_time', {
-          path: tab.filePath,
-        })
-        if (currentModTime > knownModTime) {
-          if (tab.isModified) {
-            // Conflict: local unsaved changes + external modification
-            const diskContent = await invoke<string>('read_file', { path: tab.filePath })
-            conflictDialog.value = { tabId: tab.id, filePath: tab.filePath, diskContent }
-            // Wait for resolution before checking more files
-            await new Promise<void>((resolve) => {
-              const check = setInterval(() => {
-                if (!conflictDialog.value) {
-                  clearInterval(check)
-                  resolve()
-                }
-              }, 200)
-            })
-          } else {
-            // No local changes — silently reload from disk and push to live editor
-            try {
-              const diskContent = await invoke<string>('read_file', { path: tab.filePath })
-              tab.editorState.markdown = diskContent
-              tab.editorState.doc = null
-              knownModifiedTimes.value[tab.filePath] = currentModTime
-              // Push new content into the live running editor (if this tab is active)
-              window.dispatchEvent(
-                new CustomEvent('gdown:file-reloaded', {
-                  detail: { tabId: tab.id, markdown: diskContent },
-                }),
-              )
-              showNotification(`↻ ${tab.title} updated`, 'warning')
-            } catch {
-              // File may have been deleted
-            }
-          }
-        }
+        await operation
       } catch {
-        // File may no longer exist — ignore
+        return false
       }
     }
   }
 
-  /**
-   * Start periodic conflict detection.
-   */
-  function startConflictDetection() {
-    if (conflictCheckInterval) return
-    conflictCheckInterval = setInterval(checkForExternalChanges, CONFLICT_CHECK_INTERVAL_MS)
-  }
-
-  /**
-   * Stop periodic conflict detection.
-   */
-  function stopConflictDetection() {
-    if (conflictCheckInterval) {
-      clearInterval(conflictCheckInterval)
-      conflictCheckInterval = null
+  async function waitForAllSaves(): Promise<void> {
+    while (inFlightSaves.size > 0) {
+      await Promise.all(
+        [...inFlightSaves.values()].map((operation) => operation.then(() => undefined)),
+      )
     }
   }
 
-  /**
-   * Cleanup all timers. Call on app unmount.
-   */
-  function cleanup() {
+  function syncStatus(): void {
+    const tab = tabsStore.activeTab
+    status.value = tab?.isModified ? 'unsaved' : 'saved'
+  }
+
+  async function scanExternalChanges(): Promise<void> {
+    for (const tab of [...tabsStore.tabs]) {
+      if (!tab.filePath || tab.isUntitled) continue
+      const filePath = tab.filePath
+      const knownModTime = knownModifiedTimes.value[filePath]
+      if (!knownModTime) continue
+      if (conflictDialog.value) break
+      // Do not mistake our own in-flight write for an external edit.
+      if (inFlightSaves.has(tab.id)) continue
+
+      const observedRevision = tab.contentRevision
+
+      try {
+        const currentModTime = await invoke<number>('get_file_modified_time', {
+          path: filePath,
+        })
+        if (currentModTime <= knownModTime) continue
+
+        const diskContent = await invoke<string>('read_file', { path: filePath })
+        const currentTab = tabsStore.tabs.find((candidate) => candidate.id === tab.id)
+        if (!currentTab || currentTab.filePath !== filePath || inFlightSaves.has(tab.id)) continue
+
+        if (currentTab.isModified || currentTab.contentRevision !== observedRevision) {
+          externalConflictTabs.add(currentTab.id)
+          conflictDialog.value = {
+            tabId: currentTab.id,
+            filePath,
+            diskContent,
+            modifiedTime: currentModTime,
+          }
+          const decision = await new Promise<'overwrite' | 'cancel'>((resolve) => {
+            conflictResolver = resolve
+          })
+          if (decision === 'overwrite') {
+            const latest = tabsStore.tabs.find((candidate) => candidate.id === currentTab.id)
+            if (latest?.filePath === filePath && latest.isModified) {
+              // Register the write before this scan lane returns so close
+              // waits cannot remove the tab while the approved write runs.
+              void saveTab(latest.id)
+            }
+          }
+        } else {
+          applyDiskContent(currentTab.id, diskContent)
+          knownModifiedTimes.value[filePath] = currentModTime
+          const markdown = parseDiskContent(diskContent).markdown
+          window.dispatchEvent(
+            new CustomEvent('gdown:file-reloaded', {
+              detail: { tabId: currentTab.id, markdown },
+            }),
+          )
+          showNotification(`↻ ${tab.title} updated`, 'warning')
+        }
+      } catch {
+        // The file may have been deleted or temporarily inaccessible.
+      }
+    }
+  }
+
+  /** Serialize external polling with writes so one conflict dialog owns the lane. */
+  async function checkForExternalChanges(): Promise<void> {
+    if (conflictCheckPromise) return conflictCheckPromise
+    const operation = enqueueSave(scanExternalChanges)
+    conflictCheckPromise = operation
+    try {
+      await operation
+    } finally {
+      if (conflictCheckPromise === operation) conflictCheckPromise = null
+    }
+  }
+
+  function startConflictDetection(): void {
+    if (conflictCheckInterval) return
+    conflictCheckInterval = setInterval(
+      () => void checkForExternalChanges(),
+      CONFLICT_CHECK_INTERVAL_MS,
+    )
+  }
+
+  function stopConflictDetection(): void {
+    if (conflictCheckInterval) clearInterval(conflictCheckInterval)
+    conflictCheckInterval = null
+  }
+
+  const stopContentWatch = watch(
+    () => {
+      const tab = tabsStore.activeTab
+      return tab ? `${tab.id}:${tab.contentRevision}:${tab.isModified}` : null
+    },
+    (key) => {
+      if (!key) return
+      const tab = tabsStore.activeTab
+      if (tab?.isModified) scheduleAutoSave(tab.id)
+    },
+  )
+
+  const stopActiveTabWatch = watch(
+    () => tabsStore.activeTabId,
+    (newTabId, oldTabId) => {
+      if (newTabId === oldTabId) return
+      if (oldTabId) {
+        const hadPending = autoSaveTimers.has(oldTabId)
+        cancelPending(oldTabId)
+        if (hadPending && preferencesStore.autoSaveEnabled) void saveTab(oldTabId)
+      }
+      syncStatus()
+    },
+  )
+
+  const stopPreferenceWatch = watch(
+    () => [preferencesStore.autoSaveEnabled, preferencesStore.autoSaveIntervalMs] as const,
+    ([enabled]) => {
+      if (!enabled) cancelPending()
+    },
+  )
+
+  function cleanup(): void {
     cancelPending()
     stopConflictDetection()
+    stopContentWatch()
+    stopActiveTabWatch()
+    stopPreferenceWatch()
   }
 
   return {
@@ -536,17 +607,27 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
     knownModifiedTimes,
     statusText,
     statusIcon,
+    getTabMarkdown,
+    serializeTabToFile,
     scheduleAutoSave,
     saveNow,
+    saveActiveTab,
     saveActiveTabAs,
     saveTab,
+    saveTabAs,
     cancelPending,
+    cancelTab,
+    waitForTabSave,
+    waitForAllSaves,
     syncStatus,
     resolveConflict,
+    checkConflictBeforeSave,
     trackFileModifiedTime,
     untrackFile,
+    markRecoveryTab,
     startConflictDetection,
     stopConflictDetection,
+    checkForExternalChanges,
     cleanup,
   }
 })

@@ -60,23 +60,28 @@
         <span v-if="copied" class="copy-confirm">Copied!</span>
       </div>
       <div
-        v-if="tabsStore.activeTab?.filePath && wordCountStore.displayText"
+        v-if="tabsStore.activeTab?.filePath && preferencesStore.showWordCount"
         class="path-word-divider"
       />
       <!-- Word count display (Typora-style: click to expand details) -->
-      <div
-        v-if="tabsStore.activeTab"
+      <button
+        v-if="tabsStore.activeTab && preferencesStore.showWordCount"
+        type="button"
         class="word-count"
-        :title="'Click for detailed statistics'"
+        title="Show detailed statistics"
+        :aria-expanded="wordCountStore.showDetails"
+        aria-controls="word-count-details"
         @click="wordCountStore.toggleDetails()"
       >
         <span class="word-count-text">{{ wordCountStore.displayText }}</span>
-      </div>
+      </button>
       <!-- Word count detail popover -->
       <Transition name="wc-popover">
         <div
-          v-if="wordCountStore.showDetails && tabsStore.activeTab"
+          v-if="wordCountStore.showDetails && tabsStore.activeTab && preferencesStore.showWordCount"
+          id="word-count-details"
           class="word-count-popover"
+          role="status"
           @click.stop
         >
           <div class="wc-popover-title">Document Statistics</div>
@@ -205,7 +210,9 @@ import { useWordCountStore } from '../stores/wordCount'
 import { useSidebarStore } from '../stores/sidebar'
 import { useOutlineStore } from '../stores/outline'
 import { useEditorSettingsStore } from '../stores/editorSettings'
+import { usePreferencesStore } from '../stores/preferences'
 import { assembleFullMarkdown } from '../utils/copyMarkdown'
+import { flushLiveEditorState } from '../utils/flushEditorState'
 
 const editorModeStore = useEditorModeStore()
 const autoSaveStore = useAutoSaveStore()
@@ -215,6 +222,7 @@ const wordCountStore = useWordCountStore()
 const sidebarStore = useSidebarStore()
 const outlineStore = useOutlineStore()
 const editorSettings = useEditorSettingsStore()
+const preferencesStore = usePreferencesStore()
 
 const copied = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | null = null
@@ -243,6 +251,7 @@ async function copyPath() {
 }
 
 async function copyMarkdown() {
+  flushLiveEditorState()
   const tab = tabsStore.activeTab
   if (!tab) return
   const full = assembleFullMarkdown(tab.editorState.markdown, tab.editorState.frontmatter)
@@ -509,6 +518,10 @@ const saveTooltip = computed(() => {
   display: flex;
   align-items: center;
   padding: 2px 8px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;

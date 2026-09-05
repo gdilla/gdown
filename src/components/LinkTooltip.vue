@@ -11,8 +11,12 @@
       <template v-if="!editing">
         <div class="link-url-row">
           <svg class="link-icon" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M6.354 5.5H4a3 3 0 0 0 0 6h3a3 3 0 0 0 2.83-4H9c-.086 0-.17.01-.25.031A2 2 0 0 1 7 9.5H4a2 2 0 0 1 0-4h1.535c.218-.376.495-.71.82-1z"/>
-            <path d="M9 5.5a3 3 0 0 0-2.83 4h1.098A2 2 0 0 1 9 6.5h3a2 2 0 0 1 0 4h-1.535a4 4 0 0 1-.82 1H12a3 3 0 1 0 0-6H9z"/>
+            <path
+              d="M6.354 5.5H4a3 3 0 0 0 0 6h3a3 3 0 0 0 2.83-4H9c-.086 0-.17.01-.25.031A2 2 0 0 1 7 9.5H4a2 2 0 0 1 0-4h1.535c.218-.376.495-.71.82-1z"
+            />
+            <path
+              d="M9 5.5a3 3 0 0 0-2.83 4h1.098A2 2 0 0 1 9 6.5h3a2 2 0 0 1 0 4h-1.535a4 4 0 0 1-.82 1H12a3 3 0 1 0 0-6H9z"
+            />
           </svg>
           <span class="link-url-text" :title="href">{{ displayUrl }}</span>
         </div>
@@ -58,164 +62,172 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onUnmounted } from "vue";
-import type { Editor } from "@tiptap/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEditorSettingsStore } from "../stores/editorSettings";
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import type { Editor } from '@tiptap/core'
+import { openUrl } from '@tauri-apps/plugin-opener'
+import { useEditorSettingsStore } from '../stores/editorSettings'
 
-const props = defineProps<{ editor: Editor }>();
-const editorSettings = useEditorSettingsStore();
+const props = defineProps<{ editor: Editor }>()
+const editorSettings = useEditorSettingsStore()
 
-const visible = ref(false);
-const href = ref("");
-const position = ref({ x: 0, y: 0 });
-const editing = ref(false);
-const editUrl = ref("");
-const editText = ref("");
-const copied = ref(false);
-const urlInput = ref<HTMLInputElement | null>(null);
+const visible = ref(false)
+const href = ref('')
+const position = ref({ x: 0, y: 0 })
+const editing = ref(false)
+const editUrl = ref('')
+const editText = ref('')
+const copied = ref(false)
+const urlInput = ref<HTMLInputElement | null>(null)
 
-let hideTimer: ReturnType<typeof setTimeout> | null = null;
-let copiedTimer: ReturnType<typeof setTimeout> | null = null;
-let linkFrom = 0;
-let linkTo = 0;
+let hideTimer: ReturnType<typeof setTimeout> | null = null
+let copiedTimer: ReturnType<typeof setTimeout> | null = null
+let linkFrom = 0
+let linkTo = 0
+let editorDom: HTMLElement | null = null
 
 const displayUrl = computed(() => {
-  const url = href.value;
-  return url.length > 52 ? url.substring(0, 49) + "…" : url;
-});
+  const url = href.value
+  return url.length > 52 ? url.substring(0, 49) + '…' : url
+})
 
 // ── Show / hide ──────────────────────────────────────────────────────
 
 function show(linkHref: string, anchorEl: HTMLElement) {
-  cancelHide();
-  href.value = linkHref;
-  editing.value = false;
+  cancelHide()
+  href.value = linkHref
+  editing.value = false
 
   // Use fixed viewport coords — works regardless of scroll position
-  const linkRect = anchorEl.getBoundingClientRect();
+  const linkRect = anchorEl.getBoundingClientRect()
   position.value = {
     x: Math.min(linkRect.left, window.innerWidth - 320),
     y: linkRect.bottom + 6,
-  };
-  visible.value = true;
+  }
+  visible.value = true
 }
 
 function scheduleHide() {
-  cancelHide();
+  cancelHide()
   hideTimer = setTimeout(() => {
-    visible.value = false;
-    editing.value = false;
-  }, 300);
+    visible.value = false
+    editing.value = false
+  }, 300)
 }
 
 function cancelHide() {
-  if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+  if (hideTimer) {
+    clearTimeout(hideTimer)
+    hideTimer = null
+  }
 }
 
 // ── Actions ──────────────────────────────────────────────────────────
 
 async function openLink() {
-  if (!href.value) return;
+  if (!href.value) return
   try {
-    await openUrl(href.value);
+    await openUrl(href.value)
   } catch {
-    window.open(href.value, "_blank");
+    window.open(href.value, '_blank')
   }
 }
 
 async function copyLink() {
-  await navigator.clipboard.writeText(href.value);
-  copied.value = true;
-  if (copiedTimer) clearTimeout(copiedTimer);
-  copiedTimer = setTimeout(() => { copied.value = false; }, 1500);
+  await navigator.clipboard.writeText(href.value)
+  copied.value = true
+  if (copiedTimer) clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => {
+    copied.value = false
+  }, 1500)
 }
 
 function removeLink() {
-  props.editor.chain().focus().extendMarkRange("link").unsetLink().run();
-  visible.value = false;
+  props.editor.chain().focus().extendMarkRange('link').unsetLink().run()
+  visible.value = false
 }
 
 function startEdit() {
-  props.editor.chain().extendMarkRange("link").run();
-  const { from, to } = props.editor.state.selection;
-  linkFrom = from;
-  linkTo = to;
-  editText.value = props.editor.state.doc.textBetween(linkFrom, linkTo, " ");
-  editUrl.value = href.value;
-  editing.value = true;
-  nextTick(() => urlInput.value?.focus());
+  props.editor.chain().extendMarkRange('link').run()
+  const { from, to } = props.editor.state.selection
+  linkFrom = from
+  linkTo = to
+  editText.value = props.editor.state.doc.textBetween(linkFrom, linkTo, ' ')
+  editUrl.value = href.value
+  editing.value = true
+  nextTick(() => urlInput.value?.focus())
 }
 
 function saveEdit() {
-  if (!editUrl.value.trim()) return;
+  if (!editUrl.value.trim()) return
   props.editor
     .chain()
     .focus()
     .setTextSelection({ from: linkFrom, to: linkTo })
-    .extendMarkRange("link")
+    .extendMarkRange('link')
     .setLink({ href: editUrl.value.trim() })
-    .run();
+    .run()
 
-  const currentText = props.editor.state.doc.textBetween(linkFrom, linkTo, " ");
+  const currentText = props.editor.state.doc.textBetween(linkFrom, linkTo, ' ')
   if (editText.value.trim() && editText.value.trim() !== currentText) {
-    const { from, to } = props.editor.state.selection;
+    const { from, to } = props.editor.state.selection
     props.editor
       .chain()
       .focus()
-      .insertContentAt({ from, to }, [{
-        type: "text",
-        text: editText.value.trim(),
-        marks: [{ type: "link", attrs: { href: editUrl.value.trim() } }],
-      }])
-      .run();
+      .insertContentAt({ from, to }, [
+        {
+          type: 'text',
+          text: editText.value.trim(),
+          marks: [{ type: 'link', attrs: { href: editUrl.value.trim() } }],
+        },
+      ])
+      .run()
   }
 
-  href.value = editUrl.value.trim();
-  editing.value = false;
+  href.value = editUrl.value.trim()
+  editing.value = false
 }
 
 function cancelEdit() {
-  editing.value = false;
-  props.editor.commands.focus();
+  editing.value = false
+  props.editor.commands.focus()
 }
 
 // ── Hover detection ───────────────────────────────────────────────────
 // Only active in 'edit' link mode.
 
 function findLinkEl(target: HTMLElement | null): HTMLAnchorElement | null {
-  return target?.closest("a.gdown-link") as HTMLAnchorElement | null;
+  return target?.closest('a.gdown-link') as HTMLAnchorElement | null
 }
 
 function handleMouseover(e: MouseEvent) {
-  if (editorSettings.linkMode !== 'edit') return;
-  const linkEl = findLinkEl(e.target as HTMLElement);
-  if (!linkEl) return;
-  const linkHref = linkEl.getAttribute("href");
-  if (linkHref) show(linkHref, linkEl);
+  if (editorSettings.linkMode !== 'edit') return
+  const linkEl = findLinkEl(e.target as HTMLElement)
+  if (!linkEl) return
+  const linkHref = linkEl.getAttribute('href')
+  if (linkHref) show(linkHref, linkEl)
 }
 
 function handleMouseout(e: MouseEvent) {
-  if (editorSettings.linkMode !== 'edit') return;
-  const related = e.relatedTarget as HTMLElement | null;
+  if (editorSettings.linkMode !== 'edit') return
+  const related = e.relatedTarget as HTMLElement | null
   // Stay open if moving to another link OR to the popup itself
-  if (findLinkEl(related) || related?.closest(".link-popup")) return;
-  scheduleHide();
+  if (findLinkEl(related) || related?.closest('.link-popup')) return
+  scheduleHide()
 }
 
 onMounted(() => {
-  const dom = props.editor.view.dom;
-  dom.addEventListener("mouseover", handleMouseover);
-  dom.addEventListener("mouseout", handleMouseout);
-});
+  editorDom = props.editor.view.dom
+  editorDom.addEventListener('mouseover', handleMouseover)
+  editorDom.addEventListener('mouseout', handleMouseout)
+})
 
 onUnmounted(() => {
-  const dom = props.editor.view.dom;
-  dom.removeEventListener("mouseover", handleMouseover);
-  dom.removeEventListener("mouseout", handleMouseout);
-  if (hideTimer) clearTimeout(hideTimer);
-  if (copiedTimer) clearTimeout(copiedTimer);
-});
+  editorDom?.removeEventListener('mouseover', handleMouseover)
+  editorDom?.removeEventListener('mouseout', handleMouseout)
+  editorDom = null
+  if (hideTimer) clearTimeout(hideTimer)
+  if (copiedTimer) clearTimeout(copiedTimer)
+})
 </script>
 
 <style>
@@ -288,7 +300,7 @@ onUnmounted(() => {
 }
 
 .link-btn:hover {
-  background: var(--tab-hover-bg, rgba(0,0,0,0.06));
+  background: var(--tab-hover-bg, rgba(0, 0, 0, 0.06));
 }
 
 .link-btn-primary {

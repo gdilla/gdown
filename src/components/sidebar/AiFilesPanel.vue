@@ -51,10 +51,10 @@ function formatDate(timestamp: number | undefined): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-/** Trigger discovery when mounted or when rootPath changes */
-function discover() {
+/** Trigger discovery when mounted or when rootPath changes. */
+function discover(force = false) {
   if (sidebar.rootPath) {
-    aiFiles.discoverFiles(sidebar.rootPath)
+    void aiFiles.discoverFiles(sidebar.rootPath, force)
   }
 }
 
@@ -64,7 +64,11 @@ onMounted(() => {
 
 watch(
   () => sidebar.rootPath,
-  () => {
+  (rootPath) => {
+    if (!rootPath) {
+      aiFiles.reset()
+      return
+    }
     discover()
   },
 )
@@ -81,7 +85,7 @@ watch(
     <!-- Error state -->
     <div v-else-if="aiFiles.error" class="panel-status panel-error">
       <p>{{ aiFiles.error }}</p>
-      <button class="retry-btn" @click="discover">Retry</button>
+      <button class="retry-btn" @click="discover(true)">Retry</button>
     </div>
 
     <!-- Empty state -->

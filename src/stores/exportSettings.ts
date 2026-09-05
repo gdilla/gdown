@@ -1,13 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { open } from '@tauri-apps/plugin-dialog'
 
 // ─── Export Settings Types ───
 
 export type ExportFormat = 'pdf' | 'html' | 'word' | 'latex' | 'epub' | 'rtf'
 
 export interface ExportSettings {
-  /** Path to the Pandoc binary (empty = auto-detect) */
+  /** Legacy value retained when loading older preference files. */
   pandocPath: string
   /** Default export format */
   defaultFormat: ExportFormat
@@ -19,7 +20,7 @@ export interface ExportSettings {
   customTemplatePath: string
   /** Extra Pandoc CLI arguments (advanced) */
   extraPandocArgs: string
-  /** Whether to open the exported file after export */
+  /** Legacy value retained when loading older preference files. */
   openAfterExport: boolean
 }
 
@@ -51,15 +52,12 @@ export const useExportSettingsStore = defineStore('exportSettings', () => {
     if (pandocAvailable.value) {
       return `${pandocVersion.value} (${effectivePandocPath.value})`
     }
-    if (settings.value.pandocPath) {
-      return `Not found at: ${settings.value.pandocPath}`
-    }
-    return 'Pandoc not found. Install from pandoc.org or set the path manually.'
+    return 'Pandoc not found. Install from pandoc.org to enable export.'
   })
 
-  /** The effective Pandoc path (custom or auto-detected) */
+  /** The Pandoc path selected by the backend's auto-detection. */
   const effectivePandocPath = computed(() => {
-    return settings.value.pandocPath || detectedPandocPath.value
+    return detectedPandocPath.value
   })
 
   const exportFormats: { id: ExportFormat; label: string; extension: string }[] = [
@@ -97,18 +95,6 @@ export const useExportSettingsStore = defineStore('exportSettings', () => {
 
   async function detectPandoc(): Promise<void> {
     try {
-      if (settings.value.pandocPath) {
-        // Validate the custom path
-        const info = await invoke<{ path: string; version: string }>('check_pandoc_at_path', {
-          pandocPath: settings.value.pandocPath,
-        })
-        pandocAvailable.value = true
-        pandocVersion.value = info.version
-        detectedPandocPath.value = info.path
-        return
-      }
-
-      // Auto-detect Pandoc
       const info = await invoke<{ path: string; version: string }>('check_pandoc')
       pandocAvailable.value = true
       pandocVersion.value = info.version
@@ -121,27 +107,16 @@ export const useExportSettingsStore = defineStore('exportSettings', () => {
   }
 
   /**
-   * Open a native file dialog to select a Pandoc binary.
-   */
-  async function selectPandocPath(): Promise<void> {
-    try {
-      const path = await invoke<string | null>('select_pandoc_binary')
-      if (path) {
-        settings.value.pandocPath = path
-        save()
-        await detectPandoc()
-      }
-    } catch (err) {
-      console.warn('Failed to select Pandoc binary:', err)
-    }
-  }
-
-  /**
    * Open a native file dialog to select a custom export template.
    */
   async function selectExportTemplate(): Promise<void> {
     try {
-      const path = await invoke<string | null>('select_export_template')
+      const selected = await open({
+        title: 'Choose Pandoc template',
+        multiple: false,
+        directory: false,
+      })
+      const path = Array.isArray(selected) ? selected[0] : selected
       if (path) {
         settings.value.customTemplatePath = path
         save()
@@ -149,15 +124,6 @@ export const useExportSettingsStore = defineStore('exportSettings', () => {
     } catch (err) {
       console.warn('Failed to select export template:', err)
     }
-  }
-
-  /**
-   * Clear the custom Pandoc path and re-detect.
-   */
-  async function clearPandocPath(): Promise<void> {
-    settings.value.pandocPath = ''
-    save()
-    await detectPandoc()
   }
 
   /**
@@ -204,9 +170,7 @@ export const useExportSettingsStore = defineStore('exportSettings', () => {
     update,
     reset,
     detectPandoc,
-    selectPandocPath,
     selectExportTemplate,
-    clearPandocPath,
     clearExportTemplate,
   }
 })

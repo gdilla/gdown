@@ -20,10 +20,12 @@ export const useMyStore = defineStore('myStore', () => {
 - Avoid circular imports between stores — use lazy `import()` if needed (see tabs.ts → autoSave.ts pattern)
 
 ## Testing
-- Every store must have tests in `src/__tests__/stores/`
+- Every behavior-changing store should have focused tests in
+  `src/__tests__/stores/`.
 - Test with `createPinia()` + `setActivePinia()` in `beforeEach`
 - Mock Tauri APIs (`@tauri-apps/api/core` invoke) in setup.ts
-- Don't test methods that directly call Tauri commands — those are integration tests
+- Mock Tauri APIs for store unit tests; direct command behavior belongs to Rust
+  or IPC integration coverage.
 
 ## Existing Stores
 - `tabs.ts` — Tab CRUD, active tab, content persistence

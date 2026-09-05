@@ -15,7 +15,9 @@ src-tauri/
 │   └── commands/
 │       ├── fs.rs        — File read/write/dialog commands
 │       ├── export.rs    — Pandoc export commands
-│       └── session.rs   — Session save/restore commands
+│       ├── session.rs   — Session save/restore commands
+│       ├── ai_files.rs  — AI file discovery and listing commands
+│       └── mod.rs       — Command module exports
 ├── Cargo.toml
 ├── tauri.conf.json
 └── rustfmt.toml

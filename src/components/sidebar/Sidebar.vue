@@ -213,7 +213,7 @@ const sidebarStyle = computed(() => ({
         <div v-else-if="sidebar.fileTree" class="file-tree" role="tree">
           <FileTreeNode
             v-for="child in sidebar.fileTree.children || []"
-            :key="child.path"
+            :key="`${child.path}:${sidebar.treeVersion}`"
             :node="child"
             :depth="0"
             :selected-path="selectedFilePath"

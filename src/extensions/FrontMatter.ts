@@ -52,10 +52,14 @@ export const FrontMatter = Node.create({
     ];
   },
 
-  renderHTML({ HTMLAttributes }) {
+  renderHTML({ node, HTMLAttributes }) {
     return [
       "div",
-      mergeAttributes(HTMLAttributes, { "data-type": "frontmatter", class: "frontmatter-node" }),
+      mergeAttributes(HTMLAttributes, {
+        "data-type": "frontmatter",
+        "data-raw-yaml": encodeURIComponent(node.textContent),
+        class: "frontmatter-node",
+      }),
       0,
     ];
   },

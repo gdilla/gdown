@@ -19,14 +19,6 @@
     <LinkTooltip v-if="editor && editorModeStore.isWysiwyg" :editor="editor" />
     <InsertLinkDialog v-if="editor && editorModeStore.isWysiwyg" :editor="editor" />
 
-    <!-- Source mode (CodeMirror 6) -->
-    <SourceEditor
-      v-show="editorModeStore.isSource"
-      ref="sourceEditorRef"
-      v-model="sourceContent"
-      @change="onSourceChange"
-    />
-
     <!-- Mode indicator overlay (brief flash on toggle) -->
     <Transition name="mode-indicator">
       <div v-if="showModeIndicator" class="mode-indicator-overlay">
@@ -93,14 +85,13 @@ import Superscript from '@tiptap/extension-superscript'
 import LinkTooltip from './LinkTooltip.vue'
 import InsertLinkDialog from './InsertLinkDialog.vue'
 import FindReplace from './FindReplace.vue'
-import SourceEditor from './SourceEditor.vue'
 import { useFindReplaceStore } from '../stores/findReplace'
 import { useEditorSettingsStore } from '../stores/editorSettings'
 import { useTabsStore } from '../stores/tabs'
 import { htmlToMarkdown, markdownToHtml } from '../utils/markdownConverter'
 import { resolveImagePaths, unresolveImagePaths, getDocumentDir } from '../utils/imagePathResolver'
 import { assembleFrontMatter, parseFrontMatter } from '../utils/frontmatter'
-import { useAutoSave } from '../services/autoSave'
+import { createCoalescedSnapshotScheduler } from '../utils/coalescedSnapshot'
 import type { EditorState } from '../types/tab'
 
 const tabsStore = useTabsStore()
@@ -111,46 +102,58 @@ const typewriterModeStore = useTypewriterModeStore()
 const findReplaceStore = useFindReplaceStore()
 const editorSettings = useEditorSettingsStore()
 
-// Initialize auto-save service (editor ref is set up below, so we use a getter)
-let editorRef: { getHTML: () => string } | null = null
-const autoSave = useAutoSave(() => editorRef, { delay: 2000, enabled: true })
-
 const editorContainer = ref<HTMLElement | null>(null)
-const sourceEditorRef = ref<InstanceType<typeof SourceEditor> | null>(null)
 
 // Mode indicator flash on toggle
 const showModeIndicator = ref(false)
 let modeIndicatorTimer: ReturnType<typeof setTimeout> | null = null
 
-// Source mode content (synced with CodeMirror via v-model)
-const sourceContent = ref('')
-
 // Flag to suppress modification tracking during content restore
 let isRestoringContent = false
 // Flag to prevent feedback loops during mode switching
 let isSwitchingMode = false
+// The parent unmounts this component after a WYSIWYG → Source handoff.
+let unmountForModeSwitch = false
+// The tab represented by this mounted editor; activeTabId may already have moved during unmount.
+let renderedTabId: string | null = null
 
 // ──────────────────────────────────────────────────────
 // Image path resolution helpers
 // ──────────────────────────────────────────────────────
 
-/** Get the directory of the active document for resolving relative image paths. */
-function activeDocDir(): string | null {
-  return getDocumentDir(tabsStore.activeTab?.filePath ?? null)
-}
-
 /** Convert markdown to HTML with local image paths resolved to asset:// URLs. */
-function mdToHtml(md: string): string {
+function mdToHtml(md: string, filePath = tabsStore.activeTab?.filePath ?? null): string {
   const html = markdownToHtml(md)
-  const dir = activeDocDir()
+  const dir = getDocumentDir(filePath)
   return dir ? resolveImagePaths(html, dir) : html
 }
 
 /** Convert HTML to markdown, unresolving asset:// URLs back to relative paths first. */
-function htmlToMd(html: string): string {
-  const dir = activeDocDir()
+function htmlToMd(html: string, filePath = tabsStore.activeTab?.filePath ?? null): string {
+  const dir = getDocumentDir(filePath)
   const cleanHtml = dir ? unresolveImagePaths(html, dir) : html
   return htmlToMarkdown(cleanHtml)
+}
+
+let snapshotPending = false
+const snapshotScheduler = createCoalescedSnapshotScheduler(() => {
+  snapshotPending = false
+  if (renderedTabId) captureState(renderedTabId)
+}, 200)
+
+function scheduleSnapshot(): void {
+  snapshotPending = true
+  snapshotScheduler.schedule()
+}
+
+function flushSnapshot(): void {
+  if (renderedTabId && editor.value) captureNavigation(renderedTabId)
+  if (snapshotPending) snapshotScheduler.flush()
+}
+
+function cancelSnapshot(): void {
+  snapshotScheduler.cancel()
+  snapshotPending = false
 }
 
 const editor = useEditor({
@@ -162,6 +165,8 @@ const editor = useEditor({
       italic: false,
       strike: false,
       code: false,
+      link: false,
+      underline: false,
       // Disable built-in block nodes — we use custom Gdown* versions
       heading: false,
       blockquote: false,
@@ -231,7 +236,7 @@ const editor = useEditor({
   editorProps: {
     attributes: {
       class: 'gdown-editor',
-      spellcheck: 'true',
+      spellcheck: String(editorSettings.spellCheck),
     },
     handleClick: (_view, _pos, event) => {
       const target = event.target as HTMLElement
@@ -261,29 +266,22 @@ const editor = useEditor({
       },
     },
   },
-  onUpdate: ({ editor: ed }) => {
+  onUpdate: () => {
     // Don't mark as modified during content restoration or mode switching
     if (isRestoringContent || isSwitchingMode) return
 
-    const tabId = tabsStore.activeTabId
+    const tabId = renderedTabId
     if (tabId) {
       tabsStore.setModified(tabId, true)
-      // Persist document content AND markdown to the tab's editor state.
-      // Markdown is needed for auto-save to disk.
-      const markdownStr = htmlToMd(ed.getHTML())
-      tabsStore.saveEditorState(tabId, {
-        doc: ed.getJSON(),
-        markdown: markdownStr,
-      })
+      tabsStore.markContentChanged(tabId)
+      scheduleSnapshot()
     }
 
-    // Update outline headings whenever document changes
-    outlineStore.updateFromEditor(ed)
   },
   onSelectionUpdate: ({ editor: ed }) => {
     if (isRestoringContent || isSwitchingMode) return
 
-    const tabId = tabsStore.activeTabId
+    const tabId = renderedTabId
     if (tabId) {
       const { from, to } = ed.state.selection
       tabsStore.saveEditorState(tabId, {
@@ -297,6 +295,15 @@ const editor = useEditor({
   },
 })
 
+// TipTap's editorProps are initialized once. Keep the live contenteditable
+// attribute in sync without recreating the editor or disturbing its history.
+watch(
+  () => editorSettings.spellCheck,
+  (enabled) => {
+    editor.value?.view.dom.setAttribute('spellcheck', String(enabled))
+  },
+)
+
 // ──────────────────────────────────────────────────────
 // Mode toggling: synchronize document state between modes
 // ──────────────────────────────────────────────────────
@@ -308,7 +315,9 @@ const editor = useEditor({
  *   Source → WYSIWYG: parse Markdown to HTML via markdown-it, load into TipTap
  */
 function handleToggleMode(): void {
+  if (!editorModeStore.isWysiwyg) return
   isSwitchingMode = true
+  unmountForModeSwitch = true
 
   try {
     // Show mode indicator briefly
@@ -318,95 +327,16 @@ function handleToggleMode(): void {
       showModeIndicator.value = false
     }, 800)
 
-    if (editorModeStore.isWysiwyg) {
-      // ─── Switching TO Source mode ───
-      // Serialize TipTap HTML → Markdown, with fallback to tab state
-      let bodyMd = ''
-      if (editor.value) {
-        const html = editor.value.getHTML()
-        bodyMd = htmlToMd(html)
-      } else {
-        // Editor ref not available — fall back to what onUpdate already persisted
-        bodyMd = tabsStore.activeTab?.editorState.markdown ?? ''
-      }
-
-      const tab = tabsStore.activeTab
-      const fm = tab?.editorState.frontmatter ?? null
-      sourceContent.value = assembleFrontMatter(fm, bodyMd)
-
-      // Explicitly persist to tab state before mode change so source/SourceEditor.vue
-      // reads the correct content on mount regardless of captureState ordering.
-      const tabId = tabsStore.activeTabId
-      if (tabId) {
-        tabsStore.saveEditorState(tabId, { markdown: bodyMd })
-      }
-
-      editorModeStore.setMode('source')
-
-      // Focus the source editor after DOM updates
-      nextTick(() => {
-        sourceEditorRef.value?.focus()
-      })
-    } else {
-      // ─── Switching TO WYSIWYG mode ───
-      // Parse front-matter out of source content before loading into TipTap
-      const fullSource = sourceContent.value
-      const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(fullSource)
-
-      const html = mdToHtml(body)
-
-      editorModeStore.setMode('wysiwyg')
-
-      if (editor.value) {
-        isRestoringContent = true
-        try {
-          editor.value.commands.setContent(html, { emitUpdate: false })
-        } finally {
-          isRestoringContent = false
-        }
-
-        // Persist the updated state to the tab (body-only markdown + front-matter)
-        const tabId = tabsStore.activeTabId
-        if (tabId) {
-          tabsStore.saveEditorState(tabId, {
-            doc: editor.value.getJSON(),
-            markdown: body,
-            frontmatter: hasFrontMatter ? rawYaml : null,
-            frontmatterAttributes: hasFrontMatter ? attributes : {},
-          })
-        }
-      }
-
-      // Focus the WYSIWYG editor after DOM updates
-      nextTick(() => {
-        editor.value?.commands.focus()
-      })
+    // Flush the coalesced rich snapshot before the parent mounts SourceEditor.
+    flushSnapshot()
+    const tabId = renderedTabId
+    if (tabId) {
+      // Source mode owns raw markdown; discard the old TipTap JSON snapshot.
+      tabsStore.saveEditorState(tabId, { doc: null })
     }
+    editorModeStore.setMode('source')
   } finally {
     isSwitchingMode = false
-  }
-}
-
-/**
- * Handle changes from the source editor (CodeMirror).
- * Mark the tab as modified and persist markdown.
- * Parses front-matter out of the full source content so that
- * the body and front-matter are stored separately in the tab state.
- */
-function onSourceChange(value: string): void {
-  if (isSwitchingMode) return
-
-  const tabId = tabsStore.activeTabId
-  if (tabId) {
-    // Parse front-matter from the full source content
-    const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(value)
-
-    tabsStore.setModified(tabId, true)
-    tabsStore.saveEditorState(tabId, {
-      markdown: body,
-      frontmatter: hasFrontMatter ? rawYaml : null,
-      frontmatterAttributes: hasFrontMatter ? attributes : {},
-    })
   }
 }
 
@@ -418,48 +348,38 @@ function onSourceChange(value: string): void {
  * Capture the full editor state for a given tab before switching away.
  */
 function captureState(tabId: string): void {
-  if (editorModeStore.isWysiwyg) {
-    if (!editor.value) return
+  if (!editor.value) return
 
-    const { from, to } = editor.value.state.selection
-    const scrollTop = editorContainer.value?.scrollTop ?? 0
+  const { from, to } = editor.value.state.selection
+  const filePath = tabsStore.tabs.find((tab) => tab.id === tabId)?.filePath ?? null
+  const serialized = htmlToMd(editor.value.getHTML(), filePath)
+  const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(serialized)
+  tabsStore.saveEditorState(tabId, {
+    doc: editor.value.getJSON(),
+    markdown: body,
+    frontmatter: hasFrontMatter ? rawYaml : null,
+    frontmatterAttributes: hasFrontMatter ? attributes : {},
+    scrollTop: editorContainer.value?.scrollTop ?? 0,
+    selection: { from, to },
+  })
+  outlineStore.updateFromEditor(editor.value)
+}
 
-    // Also generate markdown for round-trip fidelity
-    const markdownStr = htmlToMd(editor.value.getHTML())
-
-    tabsStore.saveEditorState(tabId, {
-      doc: editor.value.getJSON(),
-      markdown: markdownStr,
-      scrollTop,
-      selection: { from, to },
-    })
-  } else {
-    // In source mode, parse front-matter out and save body + front-matter separately.
-    // Guard: only overwrite markdown if sourceContent is non-empty. If it's empty
-    // (e.g. mode was toggled via status bar without going through handleToggleMode),
-    // the onUpdate-persisted markdown in tab state is already correct — don't clobber it.
-    const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(sourceContent.value)
-    const update: Partial<import('../types/tab').EditorState> = {
-      scrollTop: sourceEditorRef.value?.getScrollTop() ?? 0,
-    }
-    if (body.trim() || hasFrontMatter) {
-      update.markdown = body
-      update.frontmatter = hasFrontMatter ? rawYaml : null
-      update.frontmatterAttributes = hasFrontMatter ? attributes : {}
-    }
-    tabsStore.saveEditorState(tabId, update)
-  }
+/** Persist selection and scroll without serializing the full document. */
+function captureNavigation(tabId: string): void {
+  if (!editor.value) return
+  const { from, to } = editor.value.state.selection
+  tabsStore.saveEditorState(tabId, {
+    scrollTop: editorContainer.value?.scrollTop ?? 0,
+    selection: { from, to },
+  })
 }
 
 /**
  * Restore editor state from a tab's saved state.
  */
 function restoreState(state: EditorState): void {
-  if (editorModeStore.isWysiwyg) {
-    restoreWysiwygState(state)
-  } else {
-    restoreSourceState(state)
-  }
+  restoreWysiwygState(state)
 }
 
 /**
@@ -468,13 +388,19 @@ function restoreState(state: EditorState): void {
 function restoreWysiwygState(state: EditorState): void {
   if (!editor.value) return
 
+  const targetTabId = renderedTabId
+  const targetTab = targetTabId
+    ? tabsStore.tabs.find((tab) => tab.id === targetTabId)
+    : tabsStore.activeTab
+  const fullMarkdown = assembleFrontMatter(state.frontmatter, state.markdown)
+
   isRestoringContent = true
 
   try {
-    if (state.doc) {
+    if (state.doc && !state.frontmatter) {
       editor.value.commands.setContent(state.doc, { emitUpdate: false })
-    } else if (state.markdown) {
-      const html = mdToHtml(state.markdown)
+    } else if (fullMarkdown) {
+      const html = mdToHtml(fullMarkdown, targetTab?.filePath ?? null)
       editor.value.commands.setContent(html, { emitUpdate: false })
     } else {
       editor.value.commands.setContent('', { emitUpdate: false })
@@ -490,7 +416,14 @@ function restoreWysiwygState(state: EditorState): void {
 
   // Restore cursor and scroll after DOM settles
   nextTick(() => {
-    if (!editor.value) return
+    if (
+      !editor.value ||
+      targetTabId !== renderedTabId ||
+      tabsStore.activeTabId !== targetTabId ||
+      !editorModeStore.isWysiwyg
+    ) {
+      return
+    }
 
     // Restore cursor/selection
     try {
@@ -513,38 +446,11 @@ function restoreWysiwygState(state: EditorState): void {
       editorContainer.value.scrollTop = state.scrollTop
     }
 
-    // Focus the editor
-    editor.value.commands.focus()
-  })
-}
-
-/**
- * Restore source (CodeMirror) editor state.
- * Includes front-matter (if present) so it's visible and editable in source mode.
- */
-function restoreSourceState(state: EditorState): void {
-  let bodyMd = ''
-
-  // Prefer stored markdown; otherwise serialize from doc
-  if (state.markdown) {
-    bodyMd = state.markdown
-  } else if (state.doc && editor.value) {
-    // Temporarily load the doc into TipTap to serialize it to markdown
-    isRestoringContent = true
-    try {
-      editor.value.commands.setContent(state.doc, { emitUpdate: false })
-      bodyMd = htmlToMd(editor.value.getHTML())
-    } finally {
-      isRestoringContent = false
+    // A tab click/keyboard activation should leave focus on the tab strip;
+    // only focus the editor for open/restore flows that did not start there.
+    if (!document.activeElement?.closest('[role="tab"], [role="tablist"]')) {
+      editor.value.commands.focus()
     }
-  }
-
-  // Prepend front-matter if present
-  sourceContent.value = assembleFrontMatter(state.frontmatter, bodyMd)
-
-  nextTick(() => {
-    sourceEditorRef.value?.setScrollTop(state.scrollTop)
-    sourceEditorRef.value?.focus()
   })
 }
 
@@ -552,7 +458,7 @@ function restoreSourceState(state: EditorState): void {
  * Persist scroll position on WYSIWYG scroll events.
  */
 function handleScroll(): void {
-  const tabId = tabsStore.activeTabId
+  const tabId = renderedTabId
   if (tabId && editorContainer.value) {
     tabsStore.saveEditorState(tabId, {
       scrollTop: editorContainer.value.scrollTop,
@@ -592,14 +498,18 @@ watch(
     if (newTabId === oldTabId) return
 
     // Save state from the tab we're leaving
-    if (oldTabId) {
-      captureState(oldTabId)
+    if (renderedTabId) {
+      flushSnapshot()
     }
 
     // Restore state for the newly active tab
     if (newTabId) {
       const tab = tabsStore.tabs.find((t) => t.id === newTabId)
-      if (tab) {
+      // Image tabs (and a null active tab) unmount this component. Keep the
+      // rendered id until onBeforeUnmount captures it, since activeTabId has
+      // already moved by then.
+      if (tab && !tab.isImage) {
+        renderedTabId = newTabId
         restoreState(tab.editorState)
       }
     }
@@ -609,8 +519,11 @@ watch(
 // Handle external file reload — push new content into live TipTap editor
 function handleFileReloaded(e: Event) {
   const { tabId, markdown } = (e as CustomEvent<{ tabId: string; markdown: string }>).detail
-  if (tabId !== tabsStore.activeTabId || !editor.value) return
-  const html = mdToHtml(markdown)
+  if (tabId !== renderedTabId || !editor.value) return
+  cancelSnapshot()
+  const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+  const fullMarkdown = assembleFrontMatter(tab?.editorState.frontmatter ?? null, markdown)
+  const html = mdToHtml(fullMarkdown, tab?.filePath ?? null)
   isRestoringContent = true
   try {
     editor.value.commands.setContent(html, { emitUpdate: false })
@@ -618,6 +531,10 @@ function handleFileReloaded(e: Event) {
     isRestoringContent = false
   }
   outlineStore.updateFromEditor(editor.value)
+}
+
+function handleCaptureState() {
+  flushSnapshot()
 }
 
 // Handle insert-image event
@@ -775,12 +692,11 @@ defineExpose({
 
 onMounted(() => {
   // Load active tab's content into editor on mount
-  if (tabsStore.activeTab) {
-    restoreState(tabsStore.activeTab.editorState)
+  const tab = tabsStore.activeTab
+  if (tab && !tab.isImage) {
+    renderedTabId = tab.id
+    restoreState(tab.editorState)
   }
-
-  // Wire up the editor reference for auto-save serialization
-  editorRef = editor.value ?? null
 
   // Initial outline extraction
   if (editor.value) {
@@ -790,23 +706,24 @@ onMounted(() => {
   window.addEventListener('gdown:insert-image', handleInsertImage)
   window.addEventListener('gdown:toggle-mode', handleToggleMode as EventListener)
   window.addEventListener('gdown:file-reloaded', handleFileReloaded)
+  window.addEventListener('gdown:capture-state', handleCaptureState)
   window.addEventListener('keydown', handleKeydown)
 })
 
 onBeforeUnmount(() => {
-  // Save current tab state before unmount
-  if (tabsStore.activeTabId) {
-    captureState(tabsStore.activeTabId)
+  // Save current tab state unless this is the intentional WYSIWYG → Source
+  // handoff, which already wrote body markdown and cleared the TipTap snapshot.
+  if (unmountForModeSwitch) {
+    cancelSnapshot()
+  } else if (renderedTabId) {
+    flushSnapshot()
   }
-
-  // Clean up auto-save service
-  autoSave.dispose()
-  editorRef = null
 
   if (modeIndicatorTimer) clearTimeout(modeIndicatorTimer)
   window.removeEventListener('gdown:insert-image', handleInsertImage)
   window.removeEventListener('gdown:toggle-mode', handleToggleMode as EventListener)
   window.removeEventListener('gdown:file-reloaded', handleFileReloaded)
+  window.removeEventListener('gdown:capture-state', handleCaptureState)
   window.removeEventListener('keydown', handleKeydown)
 })
 </script>
@@ -823,19 +740,20 @@ onBeforeUnmount(() => {
 .editor-container {
   flex: 1;
   overflow-y: auto;
-  padding: 40px 60px;
+  padding: 40px clamp(16px, 5vw, 60px);
 }
 
 .editor-content {
-  max-width: 860px;
+  max-width: min(100%, var(--editor-max-width, 860px));
   margin: 0 auto;
 }
 
 /* TipTap/ProseMirror editor styles */
 .gdown-editor {
   outline: none;
-  font-size: 16px;
-  line-height: 1.7;
+  font-family: var(--editor-font-family, inherit);
+  font-size: var(--editor-font-size, 16px);
+  line-height: var(--editor-line-height, 1.6);
   color: var(--text-primary, #333);
 }
 

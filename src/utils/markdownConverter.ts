@@ -41,7 +41,10 @@ export function markdownToHtml(markdown: string): string {
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-    html += `<div data-type="frontmatter">${escapedYaml}</div>`
+    // Turndown collapses whitespace in ordinary HTML text nodes. Keep an
+    // encoded copy on the transient node so multiline YAML survives a rich
+    // mode round-trip byte-for-byte.
+    html += `<div data-type="frontmatter" data-raw-yaml="${encodeURIComponent(rawYaml)}">${escapedYaml}</div>`
   }
 
   html += md.render(body)
@@ -71,7 +74,15 @@ turndown.addRule('frontmatter', {
   },
   replacement(_content: string, node: HTMLElement) {
     // Get raw text content (not the turndown-processed content which may mangle YAML)
-    const rawYaml = node.textContent || ''
+    const encodedYaml = node.getAttribute('data-raw-yaml')
+    let rawYaml = node.textContent || ''
+    if (encodedYaml) {
+      try {
+        rawYaml = decodeURIComponent(encodedYaml)
+      } catch {
+        // Fall back to the visible node text for malformed external HTML.
+      }
+    }
     if (!rawYaml.trim()) return ''
     return assembleFrontMatter(rawYaml, '')
   },

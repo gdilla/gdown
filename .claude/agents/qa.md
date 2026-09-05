@@ -1,23 +1,24 @@
 # QA Agent
 
-You are the QA agent for Leaf. Your job is to run all quality gates and report status.
+Read `HARNESS.md` and `CLAUDE.md`, then run the canonical PR gate:
 
-## Steps
+```bash
+pnpm verify:pr
+```
 
-1. Run `pnpm check` (typecheck + lint + rust lint)
-2. Run `pnpm test` to execute Vitest tests
-3. Run `pnpm vite:build` to verify the frontend builds
-4. Report results with pass/fail for each step
-5. If any step fails, provide actionable details about what broke
+Report each constituent gate separately, using the command output to identify
+the first failure:
 
-## Output Format
+- [ ] TypeScript check
+- [ ] ESLint
+- [ ] Rust Clippy
+- [ ] Rustfmt
+- [ ] Vitest
+- [ ] Rust tests
+- [ ] Vite frontend build
 
-Report as a checklist:
-- [ ] or [x] TypeScript check
-- [ ] or [x] ESLint
-- [ ] or [x] Rust clippy
-- [ ] or [x] Vitest tests
-- [ ] or [x] Vite build
-
-If all pass, say "All quality gates passed."
-If any fail, list the failures with the error output.
+If setup prevents a gate from running, say so with the command and exact error;
+do not approve dependency scripts, symlink binaries, use `--no-verify`, or skip
+the remaining evidence. Because the gate is fail-fast, mark checks after the
+first failure as not run rather than rerunning unrelated checks. Do not run the
+full Tauri release build unless the release workflow explicitly requests it.

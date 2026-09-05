@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRecentFilesStore, type RecentEntry } from '../stores/recentFiles'
 import { useTabsStore } from '../stores/tabs'
 import { useSidebarStore } from '../stores/sidebar'
@@ -11,24 +11,28 @@ const sidebarStore = useSidebarStore()
 const recentFiles = computed(() => recentStore.recentFiles)
 const recentFolders = computed(() => recentStore.recentFolders)
 const hasAnyRecent = computed(() => recentStore.hasRecent)
+const openError = ref<string | null>(null)
 
 /** Open a recent file in a new tab (or switch to it if already open) */
-function openRecentFile(entry: RecentEntry) {
-  const existingTab = tabsStore.tabs.find((t) => t.filePath === entry.path)
-  if (existingTab) {
-    tabsStore.setActiveTab(existingTab.id)
-  } else {
-    tabsStore.createTab(entry.path)
+async function openRecentFile(entry: RecentEntry): Promise<void> {
+  openError.value = null
+  const tab = await tabsStore.openFile(entry.path)
+  if (!tab) {
+    openError.value = `Could not open ${entry.name}. The file may have moved or been deleted.`
+    return
   }
-  // Re-add to bump it to the top of recents
   recentStore.addRecentFile(entry.path)
 }
 
 /** Open a recent folder in the sidebar */
-function openRecentFolder(entry: RecentEntry) {
-  sidebarStore.openFolder(entry.path)
+async function openRecentFolder(entry: RecentEntry): Promise<void> {
+  openError.value = null
+  await sidebarStore.openFolder(entry.path)
+  if (sidebarStore.error) {
+    openError.value = `Could not open ${entry.name}. The folder may have moved or been deleted.`
+    return
+  }
   sidebarStore.showSidebar()
-  // Re-add to bump it to the top of recents
   recentStore.addRecentFolder(entry.path)
 }
 
@@ -69,6 +73,7 @@ function parentDir(path: string): string {
 
 <template>
   <div class="recent-files">
+    <div v-if="openError" class="recent-error" role="alert">{{ openError }}</div>
     <!-- No recent items -->
     <div v-if="!hasAnyRecent" class="recent-empty">
       <p class="recent-empty-text">No recent files or folders</p>
@@ -168,6 +173,13 @@ function parentDir(path: string): string {
 .recent-empty {
   text-align: center;
   padding: 24px 16px;
+}
+
+.recent-error {
+  padding: 8px 12px;
+  color: var(--error-color, #b42318);
+  font-size: 12px;
+  text-align: center;
 }
 
 .recent-empty-text {

@@ -35,7 +35,7 @@ export interface ExportConfig {
   /** The export format this config applies to. */
   format: ExportFormat
 
-  /** Pandoc input format string (e.g., "gfm+tex_math_dollars+raw_tex"). */
+  /** Pandoc input format string (e.g., "gfm+tex_math_dollars"). */
   from_format: string
 
   /** Whether to produce a standalone document (--standalone). */

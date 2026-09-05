@@ -17,11 +17,26 @@ export const useSidebarStore = defineStore('sidebar', () => {
   /** The file tree data loaded from the backend */
   const fileTree = ref<FileNode | null>(null)
 
+  /** Changes when a new root tree replaces the previous one. */
+  const treeVersion = ref(0)
+
   /** Loading state for async operations */
   const loading = ref(false)
 
   /** Error message if folder loading fails */
   const error = ref<string | null>(null)
+
+  /** Paths whose immediate children are currently loading. */
+  const loadingPaths = ref<string[]>([])
+
+  /** Per-directory errors so a failed lazy load can be retried in place. */
+  const directoryErrors = ref<Record<string, string>>({})
+
+  // Root loads and child loads can finish out of order. Keep monotonic request
+  // ids so a late response cannot replace the tree for a newer folder.
+  let folderRequestId = 0
+  let nextChildrenRequestId = 0
+  const childrenRequestIds = new Map<string, number>()
 
   /** Whether a folder is currently open */
   const hasFolderOpen = computed(() => rootPath.value !== null && fileTree.value !== null)
@@ -108,20 +123,70 @@ export const useSidebarStore = defineStore('sidebar', () => {
     visible.value = false
   }
 
+  function setPathLoading(path: string, isLoading: boolean) {
+    if (isLoading) {
+      if (!loadingPaths.value.includes(path)) {
+        loadingPaths.value = [...loadingPaths.value, path]
+      }
+      return
+    }
+
+    loadingPaths.value = loadingPaths.value.filter((loadingPath) => loadingPath !== path)
+  }
+
+  /** Whether a directory's immediate children are currently being read. */
+  function isDirectoryLoading(path: string): boolean {
+    return loadingPaths.value.includes(path)
+  }
+
+  /** Return the current lazy-load error for a directory, if any. */
+  function getDirectoryError(path: string): string | null {
+    return directoryErrors.value[path] ?? null
+  }
+
   /**
-   * Open a folder by path, invoking the Tauri backend to read the directory tree.
-   * Automatically shows the sidebar when a folder is opened.
+   * Replace the children on a loaded directory node.
+   * Returns false when the node is no longer part of the current tree.
    */
-  async function openFolder(path: string, maxDepth?: number): Promise<void> {
+  function setDirectoryChildren(node: FileNode, path: string, children: FileNode[]): boolean {
+    if (node.path === path && node.is_dir) {
+      node.children = children
+      return true
+    }
+
+    for (const child of node.children ?? []) {
+      if (child.is_dir && setDirectoryChildren(child, path, children)) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  /**
+   * Open a folder by path, reading only its immediate children.
+   * Child directories are loaded when the user expands them.
+   */
+  async function openFolder(path: string): Promise<void> {
+    const requestId = ++folderRequestId
+    childrenRequestIds.clear()
+    loadingPaths.value = []
+    directoryErrors.value = {}
     loading.value = true
     error.value = null
 
     try {
-      const tree = await invoke<FileNode>('read_directory_tree', {
+      const children = await invoke<FileNode[]>('read_directory_shallow', { path })
+      if (requestId !== folderRequestId) return
+
+      const rootName = path.split('/').filter(Boolean).pop() ?? path
+      fileTree.value = {
+        name: rootName,
         path,
-        maxDepth: maxDepth ?? 10,
-      })
-      fileTree.value = tree
+        is_dir: true,
+        children,
+      }
+      treeVersion.value++
       rootPath.value = path
       // Automatically show sidebar when opening a folder
       visible.value = true
@@ -129,10 +194,44 @@ export const useSidebarStore = defineStore('sidebar', () => {
       const recentFiles = useRecentFilesStore()
       recentFiles.addRecentFolder(path)
     } catch (e) {
-      error.value = typeof e === 'string' ? e : String(e)
-      console.error('Failed to open folder:', e)
+      if (requestId === folderRequestId) {
+        error.value = typeof e === 'string' ? e : String(e)
+        console.error('Failed to open folder:', e)
+      }
     } finally {
-      loading.value = false
+      if (requestId === folderRequestId) loading.value = false
+    }
+  }
+
+  /** Load one directory's immediate children after it is expanded. */
+  async function loadDirectoryChildren(path: string): Promise<void> {
+    if (!fileTree.value || !rootPath.value) return
+    if (childrenRequestIds.has(path)) return
+
+    const requestId = ++nextChildrenRequestId
+    childrenRequestIds.set(path, requestId)
+    setPathLoading(path, true)
+    const nextErrors = { ...directoryErrors.value }
+    delete nextErrors[path]
+    directoryErrors.value = nextErrors
+
+    try {
+      const children = await invoke<FileNode[]>('read_directory_shallow', { path })
+      if (childrenRequestIds.get(path) !== requestId || !fileTree.value) return
+      setDirectoryChildren(fileTree.value, path, children)
+    } catch (e) {
+      if (childrenRequestIds.get(path) === requestId) {
+        directoryErrors.value = {
+          ...directoryErrors.value,
+          [path]: typeof e === 'string' ? e : String(e),
+        }
+        console.error(`Failed to load directory '${path}':`, e)
+      }
+    } finally {
+      if (childrenRequestIds.get(path) === requestId) {
+        childrenRequestIds.delete(path)
+        setPathLoading(path, false)
+      }
     }
   }
 
@@ -148,6 +247,11 @@ export const useSidebarStore = defineStore('sidebar', () => {
    * Close the currently opened folder (clears tree and path but keeps sidebar visible).
    */
   function closeFolder() {
+    folderRequestId++
+    childrenRequestIds.clear()
+    loadingPaths.value = []
+    directoryErrors.value = {}
+    loading.value = false
     fileTree.value = null
     rootPath.value = null
     error.value = null
@@ -158,8 +262,7 @@ export const useSidebarStore = defineStore('sidebar', () => {
    * Reloads the file tree for the target directory.
    */
   async function navigateToFolder(path: string): Promise<void> {
-    // Use a shallow depth limit for breadcrumb navigation to avoid scanning huge parent trees
-    await openFolder(path, 3)
+    await openFolder(path)
   }
 
   /**
@@ -183,7 +286,10 @@ export const useSidebarStore = defineStore('sidebar', () => {
     visible,
     rootPath,
     fileTree,
+    treeVersion,
     loading,
+    loadingPaths,
+    directoryErrors,
     error,
     activePanel,
 
@@ -198,6 +304,9 @@ export const useSidebarStore = defineStore('sidebar', () => {
     showSidebar,
     hideSidebar,
     openFolder,
+    loadDirectoryChildren,
+    isDirectoryLoading,
+    getDirectoryError,
     refreshTree,
     closeFolder,
     navigateToFolder,

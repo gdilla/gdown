@@ -40,11 +40,38 @@ interface MathRange {
 /**
  * Find all math ranges in the document text.
  */
-function findMathRanges(text: string): MathRange[] {
+export function findMathRanges(text: string): MathRange[] {
   const ranges: MathRange[] = []
 
-  // Track positions that are already claimed
-  const claimed = new Set<number>()
+  // Track claimed intervals instead of allocating one Set entry per character.
+  // Each regex emits matches in document order, so binary lookup keeps dense
+  // math documents bounded by the number of expressions rather than text size.
+  const claimed: Array<Array<{ from: number; to: number }>> = [[], [], [], []]
+  const isClaimed = (position: number, beforeBucket: number) => {
+    for (let bucketIndex = 0; bucketIndex < beforeBucket; bucketIndex++) {
+      const bucket = claimed[bucketIndex]
+      if (!bucket) continue
+
+      let low = 0
+      let high = bucket.length
+      while (low < high) {
+        const middle = (low + high) >> 1
+        const candidate = bucket[middle]
+        if (candidate && candidate.from <= position) {
+          low = middle + 1
+        } else {
+          high = middle
+        }
+      }
+
+      const candidate = bucket[low - 1]
+      if (candidate && candidate.to > position) return true
+    }
+    return false
+  }
+  const claim = (bucketIndex: number, from: number, to: number) => {
+    claimed[bucketIndex]?.push({ from, to })
+  }
 
   // 1) Display math: $$...$$
   const displayDollarRe = /\$\$([\s\S]*?)\$\$/g
@@ -61,7 +88,7 @@ function findMathRanges(text: string): MathRange[] {
       delimToEnd: to,
       isBlock: true,
     })
-    for (let i = from; i < to; i++) claimed.add(i)
+    claim(0, from, to)
   }
 
   // 2) Display math: \[...\]
@@ -69,7 +96,7 @@ function findMathRanges(text: string): MathRange[] {
   while ((match = displayBracketRe.exec(text)) !== null) {
     const from = match.index
     const to = from + match[0].length
-    if (claimed.has(from)) continue
+    if (isClaimed(from, 1)) continue
     ranges.push({
       from,
       to,
@@ -79,7 +106,7 @@ function findMathRanges(text: string): MathRange[] {
       delimToEnd: to,
       isBlock: true,
     })
-    for (let i = from; i < to; i++) claimed.add(i)
+    claim(1, from, to)
   }
 
   // 3) Inline math: $...$  (no leading/trailing spaces, no nested $)
@@ -87,7 +114,7 @@ function findMathRanges(text: string): MathRange[] {
   while ((match = inlineDollarRe.exec(text)) !== null) {
     const from = match.index
     const to = from + match[0].length
-    if (claimed.has(from)) continue
+    if (isClaimed(from, 2)) continue
     // Ensure it's not part of a $$ delimiter
     if (from > 0 && text[from - 1] === '$') continue
     if (to < text.length && text[to] === '$') continue
@@ -100,7 +127,7 @@ function findMathRanges(text: string): MathRange[] {
       delimToEnd: to,
       isBlock: false,
     })
-    for (let i = from; i < to; i++) claimed.add(i)
+    claim(2, from, to)
   }
 
   // 4) Inline math: \(...\)
@@ -108,7 +135,7 @@ function findMathRanges(text: string): MathRange[] {
   while ((match = inlineParenRe.exec(text)) !== null) {
     const from = match.index
     const to = from + match[0].length
-    if (claimed.has(from)) continue
+    if (isClaimed(from, 3)) continue
     ranges.push({
       from,
       to,
@@ -118,7 +145,7 @@ function findMathRanges(text: string): MathRange[] {
       delimToEnd: to,
       isBlock: false,
     })
-    for (let i = from; i < to; i++) claimed.add(i)
+    claim(3, from, to)
   }
 
   // Sort by position
@@ -167,14 +194,14 @@ export const mathHighlightPlugin = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate) {
-      if (update.docChanged || update.viewportChanged) {
+      if (update.docChanged) {
         this.decorations = buildDecorations(update.view)
       }
     }
   },
   {
     decorations: (v) => v.decorations,
-  }
+  },
 )
 
 /**

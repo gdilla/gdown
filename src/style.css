@@ -12,6 +12,8 @@
   --tab-close-hover-bg: rgba(0, 0, 0, 0.1);
   --tab-close-hover-color: #333;
   --tab-modified-dot-color: #f59e0b;
+  --tab-focus-ring: rgba(0, 122, 255, 0.45);
+  --tab-menu-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
   --bg-primary: #ffffff;
   --text-primary: #333;
 
@@ -228,4 +230,39 @@ html, body, #app {
   --editor-font-size: 16px;
   --editor-line-height: 1.6;
   --editor-max-width: 800px;
+}
+
+/* ---- Bounded editor and source layout ---- */
+
+/* Keep flex children shrinkable when the sidebar and editor share a narrow window. */
+.editor-area,
+.editor-area > .editor-content,
+.editor-wrapper,
+.editor-wrapper > .editor-container,
+.editor-wrapper .editor-content,
+.source-editor-wrapper,
+.source-editor-container {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.editor-wrapper .editor-content {
+  width: 100%;
+  max-width: min(100%, var(--editor-max-width, 860px));
+}
+
+/* Preserve comfortable reading margins at large sizes without sacrificing the 800px window. */
+.editor-wrapper > .editor-container {
+  padding-inline: clamp(16px, 5vw, 60px);
+}
+
+.gdown-editor {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.gdown-editor pre {
+  max-width: 100%;
+  overflow-x: auto;
 }

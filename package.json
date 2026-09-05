@@ -2,6 +2,10 @@
   "name": "leaf",
   "private": true,
   "version": "0.0.0",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": "^22.12.0 || >=24.0.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
@@ -17,7 +21,10 @@
     "test:watch": "vitest",
     "rust:lint": "cd src-tauri && cargo clippy -- -D warnings",
     "rust:fmt": "cd src-tauri && cargo fmt --check",
-    "check": "pnpm typecheck && pnpm lint && pnpm rust:lint",
+    "rust:test": "cd src-tauri && cargo test",
+    "check": "pnpm typecheck && pnpm lint && pnpm rust:lint && pnpm rust:fmt",
+    "verify:pr": "pnpm check && pnpm test && pnpm rust:test && pnpm vite:build",
+    "verify:release": "pnpm verify:pr && pnpm build",
     "prepare": "husky"
   },
   "dependencies": {

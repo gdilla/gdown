@@ -11,7 +11,8 @@ All custom extensions use the `Gdown` prefix: `GdownTable`, `GdownMermaid`, `Mat
 4. Register in `Editor.vue`'s `useEditor()` extensions array
 5. Add corresponding Turndown rule in `src/utils/markdownConverter.ts` for HTML→MD
 6. Add markdown-it plugin/rule if needed for MD→HTML
-7. Write tests in `src/__tests__/extensions/`
+7. Write tests in the existing `src/__tests__/` tree, mirroring the extension
+   path when a focused extension test is needed.
 
 ## Conventions
 - Extensions should be self-contained — all schema, commands, and input rules in one file
