@@ -152,4 +152,16 @@ title: From disk
     await expect(restoredSession.restoreSession()).resolves.toBe(false)
     expect(useTabsStore().tabs).toHaveLength(0)
   })
+
+  it('surfaces session save failures through the existing save notification', async () => {
+    const session = useSessionStore()
+    mockedInvoke.mockRejectedValue(new Error('disk full'))
+
+    await session.saveSession()
+
+    expect(useAutoSaveStore().saveNotification?.message).toBe(
+      'Could not save session recovery data.',
+    )
+    expect(useAutoSaveStore().saveNotification?.type).toBe('error')
+  })
 })

@@ -50,6 +50,7 @@ export interface SessionState {
 
 const SESSION_VERSION = 2
 const AUTO_SAVE_INTERVAL_MS = 30_000 // 30 seconds
+const SESSION_SAVE_ERROR_MESSAGE = 'Could not save session recovery data.'
 
 export const useSessionStore = defineStore('session', () => {
   /** Whether session restore has completed */
@@ -62,6 +63,24 @@ export const useSessionStore = defineStore('session', () => {
   let autoSaveTimer: ReturnType<typeof setInterval> | null = null
   let savePromise: Promise<void> | null = null
   let queuedState: SessionState | null = null
+
+  async function notifySessionSaveFailure(): Promise<void> {
+    try {
+      const { useAutoSaveStore } = await import('./autoSave')
+      const autoSaveStore = useAutoSaveStore()
+      autoSaveStore.saveNotification = {
+        message: SESSION_SAVE_ERROR_MESSAGE,
+        type: 'error',
+      }
+      setTimeout(() => {
+        if (autoSaveStore.saveNotification?.message === SESSION_SAVE_ERROR_MESSAGE) {
+          autoSaveStore.saveNotification = null
+        }
+      }, 5000)
+    } catch {
+      // The notification store is unavailable during a non-UI teardown.
+    }
+  }
 
   /**
    * Capture the current session state from tabs and sidebar stores.
@@ -113,6 +132,7 @@ export const useSessionStore = defineStore('session', () => {
           await invoke('save_session_state', { state: JSON.stringify(nextState, null, 2) })
         } catch (err) {
           console.error('Failed to save session state:', err)
+          await notifySessionSaveFailure()
         }
         nextState = queuedState
       }

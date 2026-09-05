@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useTabsStore } from '../../stores/tabs'
+import { useTabsStore, type CloseDecision } from '../../stores/tabs'
 import { invoke } from '@tauri-apps/api/core'
+import { useAutoSaveStore } from '../../stores/autoSave'
 import { usePreferencesStore } from '../../stores/preferences'
 
 const mockedInvoke = vi.mocked(invoke)
@@ -111,6 +112,82 @@ describe('useTabsStore', () => {
       await expect(store.closeTab(tab.id)).resolves.toBe(false)
       expect(store.tabs).toHaveLength(1)
       expect(store.tabs[0]?.isModified).toBe(true)
+    })
+
+    it('pauses a pending autosave during the close prompt and resumes after Cancel', async () => {
+      vi.useFakeTimers()
+      try {
+        const store = useTabsStore()
+        const autoSaveStore = useAutoSaveStore()
+        const preferences = usePreferencesStore()
+        preferences.autoSaveEnabled = true
+        preferences.autoSaveIntervalMs = 500
+        const tab = store.createTab('/tmp/note.md', '# Draft')
+        store.setModified(tab.id, true)
+        autoSaveStore.scheduleAutoSave(tab.id)
+
+        const decision = deferred<CloseDecision>()
+        let promptOpen = false
+        store.setCloseDecisionHandler(async () => {
+          promptOpen = true
+          return decision.promise
+        })
+        mockedInvoke.mockImplementation(async (command) => {
+          if (command === 'get_file_modified_time') return 100
+          return undefined
+        })
+
+        const closing = store.closeTab(tab.id)
+        await vi.waitFor(() => expect(promptOpen).toBe(true))
+
+        await vi.advanceTimersByTimeAsync(1000)
+        expect(mockedInvoke.mock.calls.some(([command]) => command === 'write_file')).toBe(false)
+
+        decision.resolve('cancel')
+        await expect(closing).resolves.toBe(false)
+        await vi.advanceTimersByTimeAsync(500)
+        for (let i = 0; i < 10; i += 1) await Promise.resolve()
+
+        expect(mockedInvoke.mock.calls.some(([command]) => command === 'write_file')).toBe(true)
+        expect(store.tabs[0]?.isModified).toBe(false)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('resumes autosave when the requested close save fails', async () => {
+      vi.useFakeTimers()
+      try {
+        const store = useTabsStore()
+        const autoSaveStore = useAutoSaveStore()
+        const preferences = usePreferencesStore()
+        preferences.autoSaveEnabled = true
+        preferences.autoSaveIntervalMs = 500
+        const tab = store.createTab('/tmp/note.md', '# Draft')
+        store.setModified(tab.id, true)
+        const writes: string[] = []
+        mockedInvoke.mockImplementation(async (command) => {
+          if (command === 'get_file_modified_time') return 100
+          if (command === 'write_file') {
+            writes.push(command)
+            throw new Error('disk full')
+          }
+          return undefined
+        })
+        store.setCloseDecisionHandler(async () => 'save')
+
+        await expect(store.closeTab(tab.id)).resolves.toBe(false)
+        expect(writes).toHaveLength(1)
+
+        await vi.advanceTimersByTimeAsync(500)
+        for (let i = 0; i < 10; i += 1) await Promise.resolve()
+
+        expect(writes.length).toBeGreaterThanOrEqual(2)
+        expect(tab.isModified).toBe(true)
+        autoSaveStore.cancelPending(tab.id)
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('saves a dirty tab before closing it', async () => {

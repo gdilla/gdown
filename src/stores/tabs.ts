@@ -111,11 +111,21 @@ export const useTabsStore = defineStore('tabs', () => {
     const tab = tabs.value.find((candidate) => candidate.id === tabId)
     if (!tab || !tab.isModified) return true
 
+    // Do not let a pending autosave race the user's close decision. A failed
+    // save or Cancel below reschedules it while the draft remains dirty.
+    autoSaveStore.cancelPending(tabId)
+
     const decision = closeDecisionHandler ? await closeDecisionHandler(tab) : 'cancel'
-    if (decision === 'cancel') return false
+    if (decision === 'cancel') {
+      resumeAutoSave(tabId, autoSaveStore)
+      return false
+    }
 
     if (decision === 'save') {
-      if (!(await autoSaveStore.saveTab(tabId))) return false
+      if (!(await autoSaveStore.saveTab(tabId))) {
+        resumeAutoSave(tabId, autoSaveStore)
+        return false
+      }
       const savedTab = tabs.value.find((candidate) => candidate.id === tabId)
       return savedTab !== undefined && !savedTab.isModified
     }
@@ -135,6 +145,14 @@ export const useTabsStore = defineStore('tabs', () => {
 
     discardTab(tabId, clearDiscardedUntitled, autoSaveStore)
     return true
+  }
+
+  function resumeAutoSave(
+    tabId: string,
+    autoSaveStore: { scheduleAutoSave: (tabId: string) => void },
+  ): void {
+    const tab = tabs.value.find((candidate) => candidate.id === tabId)
+    if (tab?.isModified) autoSaveStore.scheduleAutoSave(tabId)
   }
 
   function discardTab(
