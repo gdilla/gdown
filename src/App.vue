@@ -188,7 +188,9 @@ async function handleExitRequested(): Promise<void> {
     }
 
     await autoSaveStore.waitForAllSaves()
-    await sessionStore.teardown()
+    // The live editor was captured before close decisions. Do not recapture
+    // it after an untitled draft has been discarded.
+    await sessionStore.teardown(false)
     // Keep the guard active while Rust tears down the window. This also stops
     // onUnmounted/beforeunload from recapturing discarded recovery text.
     exitApproved = true

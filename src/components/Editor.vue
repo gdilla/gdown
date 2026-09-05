@@ -147,8 +147,8 @@ function scheduleSnapshot(): void {
 }
 
 function flushSnapshot(): void {
-  if (!snapshotPending) return
-  snapshotScheduler.flush()
+  if (renderedTabId && editor.value) captureNavigation(renderedTabId)
+  if (snapshotPending) snapshotScheduler.flush()
 }
 
 function cancelSnapshot(): void {
@@ -266,7 +266,7 @@ const editor = useEditor({
       },
     },
   },
-  onUpdate: ({ editor: ed }) => {
+  onUpdate: () => {
     // Don't mark as modified during content restoration or mode switching
     if (isRestoringContent || isSwitchingMode) return
 
@@ -277,8 +277,6 @@ const editor = useEditor({
       scheduleSnapshot()
     }
 
-    // Update outline headings whenever document changes
-    outlineStore.updateFromEditor(ed)
   },
   onSelectionUpdate: ({ editor: ed }) => {
     if (isRestoringContent || isSwitchingMode) return
@@ -361,6 +359,17 @@ function captureState(tabId: string): void {
     markdown: body,
     frontmatter: hasFrontMatter ? rawYaml : null,
     frontmatterAttributes: hasFrontMatter ? attributes : {},
+    scrollTop: editorContainer.value?.scrollTop ?? 0,
+    selection: { from, to },
+  })
+  outlineStore.updateFromEditor(editor.value)
+}
+
+/** Persist selection and scroll without serializing the full document. */
+function captureNavigation(tabId: string): void {
+  if (!editor.value) return
+  const { from, to } = editor.value.state.selection
+  tabsStore.saveEditorState(tabId, {
     scrollTop: editorContainer.value?.scrollTop ?? 0,
     selection: { from, to },
   })
@@ -706,7 +715,7 @@ onBeforeUnmount(() => {
   // handoff, which already wrote body markdown and cleared the TipTap snapshot.
   if (unmountForModeSwitch) {
     cancelSnapshot()
-  } else if (snapshotPending && renderedTabId) {
+  } else if (renderedTabId) {
     flushSnapshot()
   }
 

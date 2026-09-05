@@ -140,6 +140,59 @@ describe('useAutoSaveStore', () => {
     expect(writeCount).toBe(2)
   })
 
+  it('flushes a queued tab again when its save lane reaches the write boundary', async () => {
+    const tabsStore = useTabsStore()
+    const autoSaveStore = useAutoSaveStore()
+    disableAutoSave()
+
+    const firstTab = tabsStore.createTab('/tmp/first.md', '# First')
+    const secondTab = tabsStore.createTab('/tmp/second.md', '# Second')
+    tabsStore.setModified(firstTab.id, true)
+    tabsStore.setModified(secondTab.id, true)
+    const firstWrite = deferred<void>()
+    const writes: Array<{ path: string; content: string }> = []
+    let writeCount = 0
+    let queuedEditReady = false
+    const capture = () => {
+      if (queuedEditReady) {
+        tabsStore.saveEditorState(secondTab.id, { markdown: '# Second latest' })
+        tabsStore.setModified(secondTab.id, true)
+      }
+    }
+    window.addEventListener('gdown:capture-state', capture)
+    mockedInvoke.mockImplementation(async (command, args) => {
+      if (command === 'get_file_modified_time') return 100
+      if (command === 'write_file') {
+        writes.push(args as { path: string; content: string })
+        writeCount += 1
+        if (writeCount === 1) return firstWrite.promise
+      }
+      return undefined
+    })
+
+    try {
+      const firstSave = autoSaveStore.saveTab(firstTab.id)
+      const secondSave = autoSaveStore.saveTab(secondTab.id)
+      await vi.waitFor(() => expect(writeCount).toBe(1))
+
+      // Model a rich edit after the queued save's initial capture. The
+      // mounted Editor's capture listener publishes it at performSave().
+      queuedEditReady = true
+      tabsStore.markContentChanged(secondTab.id)
+      tabsStore.setModified(secondTab.id, true)
+      firstWrite.resolve()
+
+      await Promise.all([firstSave, secondSave])
+    } finally {
+      window.removeEventListener('gdown:capture-state', capture)
+    }
+
+    expect(writes).toEqual([
+      { path: '/tmp/first.md', content: '# First' },
+      { path: '/tmp/second.md', content: '# Second latest' },
+    ])
+  })
+
   it('writes once after Keep mine resolves an external dirty conflict', async () => {
     const tabsStore = useTabsStore()
     const autoSaveStore = useAutoSaveStore()

@@ -246,6 +246,9 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
   }
 
   async function performSave(tabId: string): Promise<boolean> {
+    // The save may have waited behind another file's conflict dialog. Flush
+    // again at the actual write boundary so its revision and markdown agree.
+    flushLiveEditorState()
     const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
     if (!tab || !tab.filePath || tab.isUntitled) return false
     const filePath = tab.filePath

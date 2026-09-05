@@ -116,8 +116,8 @@ export const useSessionStore = defineStore('session', () => {
    * Save current session state to the Tauri app data directory.
    * Debounced to prevent excessive writes.
    */
-  async function saveSession(): Promise<void> {
-    flushLiveEditorState()
+  async function saveSession(captureLive = true): Promise<void> {
+    if (captureLive) flushLiveEditorState()
     const state = captureSessionState()
     if (savePromise) {
       // Keep the newest snapshot for the write already in progress.
@@ -319,9 +319,9 @@ export const useSessionStore = defineStore('session', () => {
    * Teardown: save final session state and stop auto-save.
    * Should be called on app close / beforeunload.
    */
-  async function teardown(): Promise<void> {
+  async function teardown(captureLive = true): Promise<void> {
     stopAutoSave()
-    await saveSession()
+    await saveSession(captureLive)
   }
 
   return {

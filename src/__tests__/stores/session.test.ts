@@ -156,13 +156,23 @@ title: From disk
     tabsStore.setModified(tab.id, true)
     tabsStore.setCloseDecisionHandler(async () => 'discard')
 
+    // Source mode may still be mounted while close decisions run. Its live
+    // capture must happen before discard, then teardown must keep the cleared
+    // recovery state instead of recapturing the discarded text.
+    const capture = () => tabsStore.saveEditorState(tab.id, { markdown: '# Source draft' })
+    window.addEventListener('gdown:capture-state', capture)
+
     // App captures the live editor before asking for discard decisions.
     expect(session.captureSessionState().tabs[0]?.markdown).toBe('# Live draft')
-    await expect(tabsStore.prepareCloseAll()).resolves.toBe(true)
-    expect(tabsStore.tabs[0]?.editorState.markdown).toBe('')
+    try {
+      await expect(tabsStore.prepareCloseAll()).resolves.toBe(true)
+      expect(tabsStore.tabs[0]?.editorState.markdown).toBe('')
 
-    mockedInvoke.mockResolvedValueOnce(undefined)
-    await session.saveSession()
+      mockedInvoke.mockResolvedValueOnce(undefined)
+      await session.teardown(false)
+    } finally {
+      window.removeEventListener('gdown:capture-state', capture)
+    }
     const saveCall = mockedInvoke.mock.calls.find(([command]) => command === 'save_session_state')
     const savedState = JSON.parse((saveCall?.[1] as { state: string }).state) as SessionState
     expect(savedState.tabs).toHaveLength(1)

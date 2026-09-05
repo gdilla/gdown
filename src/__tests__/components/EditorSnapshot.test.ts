@@ -78,6 +78,40 @@ describe('Editor rich snapshot boundaries', () => {
     expect(tabsStore.activeTabId).toBe(second.id)
   })
 
+  it('keeps navigation state when switching away after the rich snapshot settled', async () => {
+    const tabsStore = useTabsStore()
+    const first = tabsStore.createTab(null, '# First')
+    const second = tabsStore.createTab(null, '# Second')
+    tabsStore.setActiveTab(first.id)
+    wrapper = mount(Editor, {
+      global: {
+        stubs: {
+          EditorContent: { template: '<div />' },
+          LinkTooltip: true,
+          InsertLinkDialog: true,
+          FindReplace: true,
+        },
+      },
+    })
+    await nextTick()
+
+    const richEditor = (wrapper.vm as unknown as { getEditor: () => any }).getEditor()
+    richEditor.commands.setContent('<p>First latest</p>')
+    vi.advanceTimersByTime(200)
+    const container = wrapper.find('.editor-container')
+    ;(container.element as HTMLElement).scrollTop = 123
+    await container.trigger('scroll')
+
+    tabsStore.setActiveTab(second.id)
+    await nextTick()
+    tabsStore.setActiveTab(first.id)
+    await nextTick()
+
+    expect(first.editorState.markdown).toBe('First latest')
+    expect(first.editorState.scrollTop).toBe(123)
+    expect((container.element as HTMLElement).scrollTop).toBe(123)
+  })
+
   it('flushes the pending snapshot before the WYSIWYG to source handoff', async () => {
     const tabsStore = useTabsStore()
     const modeStore = useEditorModeStore()
