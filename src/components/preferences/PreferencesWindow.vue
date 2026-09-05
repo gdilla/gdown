@@ -1,17 +1,37 @@
 <template>
   <Teleport to="body">
-    <Transition name="prefs-fade">
+    <Transition name="prefs-fade" @after-leave="restoreFocus">
       <div v-if="prefsStore.visible" class="prefs-overlay" @mousedown.self="prefsStore.close()">
-        <div class="prefs-window" @keydown.escape="prefsStore.close()">
+        <div
+          ref="prefsWindow"
+          class="prefs-window"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="preferences-title"
+          aria-describedby="preferences-description"
+          tabindex="-1"
+          @keydown="handleKeydown"
+        >
+          <h2 id="preferences-title" class="sr-only">Preferences</h2>
+          <p id="preferences-description" class="sr-only">
+            Leaf preferences. Use the tab buttons to choose a settings category.
+          </p>
           <!-- macOS-style toolbar with tab icons -->
           <div class="prefs-toolbar">
-            <div class="prefs-toolbar-inner">
+            <div class="prefs-toolbar-inner" role="tablist" aria-label="Preference categories">
               <button
                 v-for="tab in PREFERENCES_TABS"
+                :id="`preferences-tab-${tab.id}`"
                 :key="tab.id"
                 :class="['prefs-tab-btn', { active: prefsStore.activeTab === tab.id }]"
-                @click="prefsStore.setTab(tab.id)"
+                role="tab"
+                type="button"
+                :aria-selected="prefsStore.activeTab === tab.id"
+                :aria-controls="'preferences-panel'"
+                :tabindex="prefsStore.activeTab === tab.id ? 0 : -1"
                 :title="tab.label"
+                @click="prefsStore.setTab(tab.id)"
+                @keydown="handleTabKeydown($event, tab.id)"
               >
                 <span class="prefs-tab-icon">
                   <PrefsIcon :name="tab.icon" />
@@ -22,16 +42,33 @@
           </div>
 
           <!-- Content area -->
-          <div class="prefs-content">
+          <div
+            id="preferences-panel"
+            class="prefs-content"
+            role="tabpanel"
+            :aria-labelledby="`preferences-tab-${prefsStore.activeTab}`"
+            tabindex="0"
+          >
             <KeepAlive>
               <component :is="activeComponent" />
             </KeepAlive>
           </div>
 
           <!-- Close button (top-left, macOS style) -->
-          <button class="prefs-close-btn" @click="prefsStore.close()" title="Close">
+          <button
+            class="prefs-close-btn"
+            type="button"
+            title="Close Preferences"
+            aria-label="Close Preferences"
+            @click="prefsStore.close()"
+          >
             <svg width="12" height="12" viewBox="0 0 12 12">
-              <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              <path
+                d="M3 3l6 6M9 3l-6 6"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
             </svg>
           </button>
         </div>
@@ -41,49 +78,149 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
-import { usePreferencesStore, PREFERENCES_TABS } from '../../stores/preferences'
+import { computed, nextTick, onUnmounted, ref, watch, type Component } from 'vue'
+import {
+  usePreferencesStore,
+  PREFERENCES_TABS,
+  type PreferencesTab,
+} from '../../stores/preferences'
 import PrefsIcon from './PrefsIcon.vue'
 import GeneralPane from './GeneralPane.vue'
 import AppearancePane from './AppearancePane.vue'
 import EditorPane from './EditorPane.vue'
-import ImagePane from './ImagePane.vue'
 import ExportPane from './ExportPane.vue'
-import AdvancedPane from './AdvancedPane.vue'
 
 const prefsStore = usePreferencesStore()
+const prefsWindow = ref<HTMLElement | null>(null)
+let previouslyFocused: HTMLElement | null = null
 
-const paneMap: Record<string, any> = {
+const paneMap: Record<PreferencesTab, Component> = {
   general: GeneralPane,
   appearance: AppearancePane,
   editor: EditorPane,
-  image: ImagePane,
   export: ExportPane,
-  advanced: AdvancedPane,
 }
 
 const activeComponent = computed(() => {
   return paneMap[prefsStore.activeTab] || GeneralPane
 })
 
-function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && prefsStore.visible) {
-    e.preventDefault()
-    e.stopPropagation()
-    prefsStore.close()
+function focusableElements(): HTMLElement[] {
+  if (!prefsWindow.value) return []
+  return Array.from(
+    prefsWindow.value.querySelectorAll<HTMLElement>(
+      'button:not([disabled]):not([tabindex="-1"]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  )
+}
+
+function focusFirstElement() {
+  const first = focusableElements()[0]
+  if (first) {
+    first.focus()
+  } else {
+    prefsWindow.value?.focus()
   }
 }
 
-onMounted(() => {
-  window.addEventListener('keydown', handleKeydown, true)
-})
+function handleKeydown(e: KeyboardEvent) {
+  if (!prefsStore.visible) return
+  // Keep app-level shortcuts from acting on the document behind the modal.
+  e.stopPropagation()
+
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    e.stopPropagation()
+    prefsStore.close()
+    return
+  }
+
+  if (e.key !== 'Tab') return
+
+  const elements = focusableElements()
+  if (elements.length === 0) {
+    e.preventDefault()
+    prefsWindow.value?.focus()
+    return
+  }
+
+  const currentIndex = elements.indexOf(document.activeElement as HTMLElement)
+  const nextIndex = e.shiftKey
+    ? currentIndex <= 0
+      ? elements.length - 1
+      : currentIndex - 1
+    : currentIndex === elements.length - 1
+      ? 0
+      : currentIndex + 1
+
+  e.preventDefault()
+  elements[nextIndex]?.focus()
+}
+
+function handleTabKeydown(e: KeyboardEvent, tab: PreferencesTab) {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
+
+  const index = PREFERENCES_TABS.findIndex((item) => item.id === tab)
+  if (index < 0) return
+
+  let nextIndex: number | null = null
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+    nextIndex = (index + 1) % PREFERENCES_TABS.length
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+    nextIndex = (index - 1 + PREFERENCES_TABS.length) % PREFERENCES_TABS.length
+  } else if (e.key === 'Home') {
+    nextIndex = 0
+  } else if (e.key === 'End') {
+    nextIndex = PREFERENCES_TABS.length - 1
+  }
+
+  if (nextIndex === null) return
+  e.preventDefault()
+  const nextTab = PREFERENCES_TABS[nextIndex]
+  if (!nextTab) return
+  prefsStore.setTab(nextTab.id)
+  nextTick(() => {
+    document.getElementById(`preferences-tab-${nextTab.id}`)?.focus()
+  })
+}
+
+watch(
+  () => prefsStore.visible,
+  (visible) => {
+    if (visible) {
+      previouslyFocused =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null
+      nextTick(focusFirstElement)
+    }
+  },
+)
+
+function restoreFocus() {
+  const target = previouslyFocused
+  previouslyFocused = null
+  if (target && document.contains(target)) {
+    target.focus()
+  }
+}
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeydown, true)
+  restoreFocus()
 })
 </script>
 
 <style scoped>
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ── Overlay ── */
 .prefs-overlay {
   position: fixed;
@@ -260,7 +397,7 @@ onUnmounted(() => {
 }
 
 /* ── Dark theme overrides ── */
-:root[data-theme="dark"] .prefs-window,
+:root[data-theme='dark'] .prefs-window,
 .dark .prefs-window {
   --prefs-bg: #2d2d2d;
   --prefs-toolbar-bg: #383838;
@@ -513,7 +650,7 @@ onUnmounted(() => {
 }
 
 /* ── Dark theme for pane elements ── */
-:root[data-theme="dark"] .pref-group,
+:root[data-theme='dark'] .pref-group,
 .dark .pref-group {
   --pref-group-bg: #383838;
   --pref-group-border: #4a4a4a;

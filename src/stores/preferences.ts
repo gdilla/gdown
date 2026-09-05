@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
+import { useEditorSettingsStore } from './editorSettings'
 
 export type ThemeMode = 'light' | 'dark' | 'auto' | 'solarized-light' | 'solarized-dark' | 'github'
 export type EditorDefaultMode = 'wysiwyg' | 'source'
-export type PreferencesTab = 'general' | 'appearance' | 'editor' | 'image' | 'export' | 'advanced'
+export type PreferencesTab = 'general' | 'appearance' | 'editor' | 'export'
 
 export interface PreferencesTabInfo {
   id: PreferencesTab
@@ -16,14 +17,15 @@ export const PREFERENCES_TABS: PreferencesTabInfo[] = [
   { id: 'general', label: 'General', icon: 'gear' },
   { id: 'appearance', label: 'Appearance', icon: 'paintbrush' },
   { id: 'editor', label: 'Editor', icon: 'pencil' },
-  { id: 'image', label: 'Image', icon: 'photo' },
   { id: 'export', label: 'Export', icon: 'square.and.arrow.up' },
-  { id: 'advanced', label: 'Advanced', icon: 'gearshape.2' },
 ]
 
 export interface PreferencesState {
-  // Appearance
+  // Theme is still owned here.
   theme: ThemeMode
+
+  // Editor typography remains in the serialized shape for compatibility;
+  // visible editor controls use editorSettings as the canonical store.
   fontSize: number
   lineHeight: number
   editorWidth: number // max-width in px, 0 = full width
@@ -129,7 +131,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
   })
 
   const activeTabInfo = computed(() => {
-    return PREFERENCES_TABS.find(t => t.id === activeTab.value)!
+    return PREFERENCES_TABS.find((t) => t.id === activeTab.value)!
   })
 
   /** Auto-save interval in seconds for display */
@@ -195,12 +197,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
   }
 
   function applyEditorStyles() {
-    document.documentElement.style.setProperty('--editor-font-size', `${fontSize.value}px`)
-    document.documentElement.style.setProperty('--editor-line-height', `${lineHeight.value}`)
-    document.documentElement.style.setProperty(
-      '--editor-max-width',
-      editorWidth.value > 0 ? `${editorWidth.value}px` : '100%'
-    )
+    useEditorSettingsStore().applyEditorStyles()
   }
 
   function resetToDefaults() {
@@ -263,7 +260,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
     ],
     () => {
       persist()
-    }
+    },
   )
 
   return {

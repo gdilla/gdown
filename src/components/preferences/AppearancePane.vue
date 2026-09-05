@@ -9,6 +9,9 @@
           :key="opt.value"
           class="theme-option"
           :class="{ active: prefs.theme === opt.value }"
+          type="button"
+          :aria-pressed="prefs.theme === opt.value"
+          :aria-label="`${opt.label} theme`"
           @click="prefs.theme = opt.value"
         >
           <div class="theme-preview" :class="`preview-${opt.value}`">
@@ -32,50 +35,60 @@
       <h3 class="pref-group-title">Typography</h3>
 
       <div class="pref-row">
-        <label class="pref-label">Font size</label>
+        <span class="pref-label">Font size</span>
         <div class="stepper-control">
           <button
             class="stepper-btn"
+            type="button"
+            :disabled="settings.fontSize <= 10"
+            aria-label="Decrease editor font size"
             @click="adjustFontSize(-1)"
-            :disabled="prefs.fontSize <= 10"
-          >−</button>
-          <span class="stepper-value">{{ prefs.fontSize }}px</span>
+          >
+            −
+          </button>
+          <span class="stepper-value">{{ settings.fontSize }}px</span>
           <button
             class="stepper-btn"
+            type="button"
+            :disabled="settings.fontSize >= 32"
+            aria-label="Increase editor font size"
             @click="adjustFontSize(1)"
-            :disabled="prefs.fontSize >= 32"
-          >+</button>
+          >
+            +
+          </button>
         </div>
       </div>
 
       <div class="pref-row">
-        <label class="pref-label">Line height</label>
+        <label class="pref-label" for="appearance-line-height">Line height</label>
         <div class="range-control">
           <input
+            id="appearance-line-height"
+            v-model.number="settings.lineHeight"
             type="range"
             class="pref-range"
             :min="1.0"
             :max="2.5"
             :step="0.1"
-            v-model.number="prefs.lineHeight"
           />
-          <span class="range-value">{{ prefs.lineHeight.toFixed(1) }}</span>
+          <span class="range-value">{{ settings.lineHeight.toFixed(1) }}</span>
         </div>
       </div>
 
       <div class="pref-row">
-        <label class="pref-label">Editor max width</label>
+        <label class="pref-label" for="appearance-max-width">Editor max width</label>
         <div class="range-control">
           <input
+            id="appearance-max-width"
+            v-model.number="settings.maxEditorWidth"
             type="range"
             class="pref-range"
             :min="0"
             :max="1200"
             :step="50"
-            v-model.number="prefs.editorWidth"
           />
           <span class="range-value">
-            {{ prefs.editorWidth === 0 ? 'Full' : `${prefs.editorWidth}px` }}
+            {{ settings.maxEditorWidth === 0 ? 'Full' : `${settings.maxEditorWidth}px` }}
           </span>
         </div>
       </div>
@@ -87,8 +100,8 @@
       <div
         class="font-preview"
         :style="{
-          fontSize: prefs.fontSize + 'px',
-          lineHeight: prefs.lineHeight,
+          fontSize: settings.fontSize + 'px',
+          lineHeight: settings.lineHeight,
         }"
       >
         The quick brown fox jumps over the lazy dog.
@@ -100,8 +113,10 @@
 
 <script setup lang="ts">
 import { usePreferencesStore, type ThemeMode } from '../../stores/preferences'
+import { useEditorSettingsStore } from '../../stores/editorSettings'
 
 const prefs = usePreferencesStore()
+const settings = useEditorSettingsStore()
 
 const themeOptions: { value: ThemeMode; label: string }[] = [
   { value: 'light', label: 'Light' },
@@ -113,9 +128,9 @@ const themeOptions: { value: ThemeMode; label: string }[] = [
 ]
 
 function adjustFontSize(delta: number) {
-  const newSize = prefs.fontSize + delta
+  const newSize = settings.fontSize + delta
   if (newSize >= 10 && newSize <= 32) {
-    prefs.fontSize = newSize
+    settings.fontSize = newSize
   }
 }
 </script>
@@ -124,7 +139,8 @@ function adjustFontSize(delta: number) {
 /* Theme picker */
 .theme-picker {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 4px;
 }
 
@@ -177,38 +193,90 @@ function adjustFontSize(delta: number) {
   width: 100%;
 }
 
-.preview-line.short { width: 50%; }
-.preview-line.medium { width: 75%; }
+.preview-line.short {
+  width: 50%;
+}
+.preview-line.medium {
+  width: 75%;
+}
 
 /* Light */
-.preview-light { background: #fff; }
-.preview-light .preview-sidebar { background: #f0f0f0; border-right: 1px solid #ddd; }
-.preview-light .preview-line { background: #ddd; }
+.preview-light {
+  background: #fff;
+}
+.preview-light .preview-sidebar {
+  background: #f0f0f0;
+  border-right: 1px solid #ddd;
+}
+.preview-light .preview-line {
+  background: #ddd;
+}
 
 /* Dark */
-.preview-dark { background: #1e1e1e; border-color: #333; }
-.preview-dark .preview-sidebar { background: #252525; border-right: 1px solid #333; }
-.preview-dark .preview-line { background: #444; }
+.preview-dark {
+  background: #1e1e1e;
+  border-color: #333;
+}
+.preview-dark .preview-sidebar {
+  background: #252525;
+  border-right: 1px solid #333;
+}
+.preview-dark .preview-line {
+  background: #444;
+}
 
 /* Auto (split) */
-.preview-auto { background: linear-gradient(135deg, #fff 50%, #1e1e1e 50%); border-color: #999; }
-.preview-auto .preview-sidebar { background: linear-gradient(135deg, #f0f0f0 50%, #252525 50%); border-right: 1px solid #999; }
-.preview-auto .preview-line { background: linear-gradient(135deg, #ddd 50%, #444 50%); }
+.preview-auto {
+  background: linear-gradient(135deg, #fff 50%, #1e1e1e 50%);
+  border-color: #999;
+}
+.preview-auto .preview-sidebar {
+  background: linear-gradient(135deg, #f0f0f0 50%, #252525 50%);
+  border-right: 1px solid #999;
+}
+.preview-auto .preview-line {
+  background: linear-gradient(135deg, #ddd 50%, #444 50%);
+}
 
 /* Solarized Light */
-.preview-solarized-light { background: #fdf6e3; border-color: #ddd6c1; }
-.preview-solarized-light .preview-sidebar { background: #eee8d5; border-right: 1px solid #ddd6c1; }
-.preview-solarized-light .preview-line { background: #b58900; opacity: 0.3; }
+.preview-solarized-light {
+  background: #fdf6e3;
+  border-color: #ddd6c1;
+}
+.preview-solarized-light .preview-sidebar {
+  background: #eee8d5;
+  border-right: 1px solid #ddd6c1;
+}
+.preview-solarized-light .preview-line {
+  background: #b58900;
+  opacity: 0.3;
+}
 
 /* Solarized Dark */
-.preview-solarized-dark { background: #002b36; border-color: #0a4f5e; }
-.preview-solarized-dark .preview-sidebar { background: #073642; border-right: 1px solid #0a4f5e; }
-.preview-solarized-dark .preview-line { background: #586e75; }
+.preview-solarized-dark {
+  background: #002b36;
+  border-color: #0a4f5e;
+}
+.preview-solarized-dark .preview-sidebar {
+  background: #073642;
+  border-right: 1px solid #0a4f5e;
+}
+.preview-solarized-dark .preview-line {
+  background: #586e75;
+}
 
 /* GitHub */
-.preview-github { background: #ffffff; border-color: #d0d7de; }
-.preview-github .preview-sidebar { background: #f6f8fa; border-right: 1px solid #d0d7de; }
-.preview-github .preview-line { background: #d0d7de; }
+.preview-github {
+  background: #ffffff;
+  border-color: #d0d7de;
+}
+.preview-github .preview-sidebar {
+  background: #f6f8fa;
+  border-right: 1px solid #d0d7de;
+}
+.preview-github .preview-line {
+  background: #d0d7de;
+}
 
 .theme-label {
   font-size: 12px;
@@ -309,12 +377,12 @@ function adjustFontSize(delta: number) {
   font-size: 0.9em;
 }
 
-:root[data-theme="dark"] .font-preview code,
+:root[data-theme='dark'] .font-preview code,
 .dark .font-preview code {
   background: rgba(255, 255, 255, 0.1);
 }
 
-:root[data-theme="dark"] .stepper-btn:hover:not(:disabled),
+:root[data-theme='dark'] .stepper-btn:hover:not(:disabled),
 .dark .stepper-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.08);
 }

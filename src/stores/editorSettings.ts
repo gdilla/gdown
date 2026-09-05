@@ -9,7 +9,7 @@ export type PairMatchMode = 'always' | 'never'
 export type LinkMode = 'browse' | 'edit'
 
 export interface EditorSettings {
-  /** Default editing mode when opening files */
+  /** Initial editing mode at startup */
   defaultMode: EditorMode
   /** Show line numbers in source mode */
   showLineNumbers: boolean
@@ -83,6 +83,44 @@ function loadSettings(): EditorSettings {
       const parsed = JSON.parse(stored)
       return { ...DEFAULT_SETTINGS, ...parsed }
     }
+
+    // Migrate values from the original preferences store when this store has
+    // not been written yet. Keep the old storage key intact for compatibility.
+    const legacyStored = localStorage.getItem('gdown-preferences')
+    if (legacyStored) {
+      const legacy = JSON.parse(legacyStored) as Record<string, unknown>
+      const migrated = { ...DEFAULT_SETTINGS }
+      if (legacy.defaultEditorMode === 'source' || legacy.defaultEditorMode === 'wysiwyg') {
+        migrated.defaultMode = legacy.defaultEditorMode
+      }
+      if (typeof legacy.showLineNumbers === 'boolean') {
+        migrated.showLineNumbers = legacy.showLineNumbers
+      }
+      if (typeof legacy.spellCheckEnabled === 'boolean') {
+        migrated.spellCheck = legacy.spellCheckEnabled
+      }
+      if (legacy.indentSize === 2 || legacy.indentSize === 4 || legacy.indentSize === 8) {
+        migrated.indentSize = legacy.indentSize
+      }
+      if (typeof legacy.fontSize === 'number' && Number.isFinite(legacy.fontSize)) {
+        migrated.fontSize = legacy.fontSize
+      }
+      if (typeof legacy.lineHeight === 'number' && Number.isFinite(legacy.lineHeight)) {
+        migrated.lineHeight = legacy.lineHeight
+      }
+      if (typeof legacy.editorWidth === 'number' && Number.isFinite(legacy.editorWidth)) {
+        migrated.maxEditorWidth = legacy.editorWidth
+      }
+      if (legacy.autoSaveEnabled === false) {
+        migrated.autoSaveDelay = 0
+      } else if (
+        typeof legacy.autoSaveIntervalMs === 'number' &&
+        Number.isFinite(legacy.autoSaveIntervalMs)
+      ) {
+        migrated.autoSaveDelay = legacy.autoSaveIntervalMs
+      }
+      return migrated
+    }
   } catch (e) {
     console.warn('Failed to load editor settings:', e)
   }
@@ -95,6 +133,20 @@ function saveSettings(settings: EditorSettings) {
   } catch (e) {
     console.warn('Failed to save editor settings:', e)
   }
+}
+
+function applyEditorStyles(settings: EditorSettings): void {
+  if (typeof document === 'undefined') return
+  document.documentElement.style.setProperty('--editor-font-size', `${settings.fontSize}px`)
+  document.documentElement.style.setProperty('--editor-line-height', `${settings.lineHeight}`)
+  document.documentElement.style.setProperty(
+    '--editor-max-width',
+    settings.maxEditorWidth > 0 ? `${settings.maxEditorWidth}px` : '100%',
+  )
+  document.documentElement.style.setProperty(
+    '--editor-font-family',
+    settings.fontFamily || 'inherit',
+  )
 }
 
 export const useEditorSettingsStore = defineStore('editorSettings', () => {
@@ -176,9 +228,12 @@ export const useEditorSettingsStore = defineStore('editorSettings', () => {
     () => getSettings(),
     (settings) => {
       saveSettings(settings)
+      applyEditorStyles(settings)
     },
-    { deep: true }
+    { deep: true },
   )
+
+  applyEditorStyles(getSettings())
 
   return {
     defaultMode,
@@ -203,5 +258,6 @@ export const useEditorSettingsStore = defineStore('editorSettings', () => {
     linkMode,
     getSettings,
     resetToDefaults,
+    applyEditorStyles: () => applyEditorStyles(getSettings()),
   }
 })

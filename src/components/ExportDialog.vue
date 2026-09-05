@@ -6,29 +6,34 @@
       @click.self="handleOverlayClick"
       @keydown.escape="exportStore.closeDialog"
     >
-      <div class="export-dialog" role="dialog" aria-labelledby="export-title">
+      <div class="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
         <!-- Header -->
         <div class="export-header">
           <h2 id="export-title" class="export-title">Export Document</h2>
           <button
             class="export-close-btn"
-            @click="exportStore.closeDialog"
+            type="button"
             title="Close"
             :disabled="exportStore.isExporting"
+            @click="exportStore.closeDialog"
           >
             &times;
           </button>
         </div>
 
         <!-- Pandoc Not Installed Warning -->
-        <div v-if="exportStore.pandocChecked && !exportStore.isPandocAvailable" class="pandoc-missing">
+        <div
+          v-if="exportStore.pandocChecked && !exportStore.isPandocAvailable"
+          class="pandoc-missing"
+        >
           <div class="pandoc-missing-header">
             <span class="pandoc-missing-icon">&#9888;</span>
             <div>
               <strong class="pandoc-missing-title">Pandoc is required for export</strong>
               <p class="pandoc-missing-subtitle">
-                gdown uses <a href="#" @click.prevent="openPandocHomepage" class="inline-link">Pandoc</a> to convert Markdown to other formats.
-                It was not found on your system.
+                gdown uses
+                <a href="#" class="inline-link" @click.prevent="openPandocHomepage">Pandoc</a> to
+                convert Markdown to other formats. It was not found on your system.
               </p>
             </div>
           </div>
@@ -69,7 +74,9 @@
               </div>
               <p class="method-description">
                 Download the macOS installer from the
-                <a href="#" @click.prevent="openPandocInstallPage" class="inline-link">Pandoc releases page</a>.
+                <a href="#" class="inline-link" @click.prevent="openPandocInstallPage"
+                  >Pandoc releases page</a
+                >.
               </p>
             </div>
           </div>
@@ -77,13 +84,14 @@
           <div class="pandoc-missing-actions">
             <button
               class="retry-btn"
-              @click="retryPandocCheck"
+              type="button"
               :disabled="isRetrying"
+              @click="retryPandocCheck"
             >
               <span v-if="isRetrying" class="spinner small"></span>
               {{ isRetrying ? 'Checking...' : '↻ Re-check Pandoc' }}
             </button>
-            <button class="help-btn" @click="openPandocInstallPage">
+            <button class="help-btn" type="button" @click="openPandocInstallPage">
               Open Install Guide ↗
             </button>
           </div>
@@ -100,15 +108,16 @@
 
         <!-- Format Selection -->
         <div class="export-section">
-          <label class="export-label">Format</label>
-          <div class="format-grid">
+          <span id="export-format-label" class="export-label">Format</span>
+          <div class="format-grid" role="group" aria-labelledby="export-format-label">
             <button
               v-for="format in exportStore.formats"
               :key="format.id"
               class="format-option"
+              type="button"
               :class="{ selected: exportStore.selectedFormatId === format.id }"
-              @click="selectFormat(format.id)"
               :disabled="exportStore.isExporting || !exportStore.isPandocAvailable"
+              @click="selectFormat(format.id)"
             >
               <span class="format-icon">{{ formatIcon(format.id) }}</span>
               <span class="format-label">{{ format.label }}</span>
@@ -119,9 +128,10 @@
 
         <!-- Output Path -->
         <div class="export-section">
-          <label class="export-label">Output Path</label>
+          <label class="export-label" for="export-output-path">Output Path</label>
           <div class="output-path-row">
             <input
+              id="export-output-path"
               type="text"
               class="output-path-input"
               :value="displayOutputPath"
@@ -130,8 +140,9 @@
             />
             <button
               class="browse-btn"
-              @click="exportStore.chooseOutputPath"
+              type="button"
               :disabled="exportStore.isExporting || !exportStore.isPandocAvailable"
+              @click="exportStore.chooseOutputPath()"
             >
               Browse...
             </button>
@@ -140,12 +151,12 @@
 
         <!-- Options -->
         <div class="export-section">
-          <label class="export-label">Options</label>
-          <div class="export-options">
+          <span id="export-options-label" class="export-label">Options</span>
+          <div class="export-options" role="group" aria-labelledby="export-options-label">
             <label class="option-checkbox">
               <input
-                type="checkbox"
                 v-model="exportStore.includeToc"
+                type="checkbox"
                 :disabled="exportStore.isExporting || !exportStore.isPandocAvailable"
               />
               <span>Include Table of Contents</span>
@@ -157,11 +168,12 @@
         <details class="export-advanced">
           <summary class="advanced-summary">Advanced Options</summary>
           <div class="export-section">
-            <label class="export-label">Extra Pandoc Flags</label>
+            <label class="export-label" for="export-extra-flags">Extra Pandoc Flags</label>
             <input
+              id="export-extra-flags"
+              v-model="exportStore.extraFlags"
               type="text"
               class="extra-flags-input"
-              v-model="exportStore.extraFlags"
               placeholder="e.g., --highlight-style=tango --number-sections"
               :disabled="exportStore.isExporting || !exportStore.isPandocAvailable"
             />
@@ -193,15 +205,17 @@
         <div class="export-actions">
           <button
             class="export-btn secondary"
-            @click="exportStore.closeDialog"
+            type="button"
             :disabled="exportStore.isExporting"
+            @click="exportStore.closeDialog"
           >
             Cancel
           </button>
           <button
             class="export-btn primary"
-            @click="handleExport"
+            type="button"
             :disabled="!exportStore.canExport"
+            @click="handleExport"
           >
             {{ exportStore.isExporting ? 'Exporting...' : 'Export' }}
           </button>
@@ -316,7 +330,9 @@ async function copyToClipboard(text: string) {
 .export-dialog {
   background: var(--bg-primary, #ffffff);
   border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(0, 0, 0, 0.08);
   width: 520px;
   max-width: 90vw;
   max-height: 85vh;
@@ -724,7 +740,7 @@ async function copyToClipboard(text: string) {
   cursor: pointer;
 }
 
-.option-checkbox input[type="checkbox"] {
+.option-checkbox input[type='checkbox'] {
   width: 16px;
   height: 16px;
   accent-color: #4a9eff;
