@@ -143,6 +143,8 @@ const editor = useEditor({
       italic: false,
       strike: false,
       code: false,
+      link: false,
+      underline: false,
       // Disable built-in block nodes — we use custom Gdown* versions
       heading: false,
       blockquote: false,
