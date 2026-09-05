@@ -300,6 +300,14 @@ pub fn run() {
                 .build(app)?;
             let clear_recent =
                 MenuItemBuilder::with_id("clear_recent", "Clear Recent Files").build(app)?;
+            // Use a regular menu item so quit goes through the frontend's dirty-document guard.
+            let quit_label = format!(
+                "Quit {}",
+                app.config().product_name.as_deref().unwrap_or("Leaf")
+            );
+            let quit = MenuItemBuilder::with_id("quit", quit_label)
+                .accelerator("CmdOrCtrl+Q")
+                .build(app)?;
 
             let open_recent_menu = SubmenuBuilder::new(app, "Open Recent")
                 .item(&clear_recent)
@@ -323,7 +331,7 @@ pub fn run() {
                 .separator()
                 .item(&print_pdf)
                 .separator()
-                .quit()
+                .item(&quit)
                 .build()?;
 
             let theme_light = CheckMenuItemBuilder::with_id("theme-light", "Light")
@@ -394,7 +402,7 @@ pub fn run() {
                 .hide_others()
                 .show_all()
                 .separator()
-                .quit()
+                .item(&quit)
                 .build()?;
 
             let menu = MenuBuilder::new(app)
@@ -531,6 +539,7 @@ pub fn run() {
                             let _ = window.emit("menu-clear-recent", ());
                         }
                     }
+                    "quit" => request_frontend_exit(app_handle),
                     id if id.starts_with("theme-") => {
                         let theme = id.strip_prefix("theme-").unwrap_or("light");
                         let theme_value = match theme {
