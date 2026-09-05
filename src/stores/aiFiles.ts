@@ -18,11 +18,17 @@ export interface AiFile {
 }
 
 export const useAiFilesStore = defineStore('aiFiles', () => {
+  const SCAN_REUSE_MS = 30_000
   const loading = ref(false)
   const error = ref<string | null>(null)
   const claudeProjectPath = ref<string | null>(null)
   const instructions = ref<AiFile[]>([])
   const memoryFiles = ref<AiFile[]>([])
+
+  let requestId = 0
+  let inFlightRoot: string | null = null
+  let lastScannedRoot: string | null = null
+  let lastScanAt = 0
 
   /** Whether any AI files were discovered */
   const hasAnyFiles = computed(() => instructions.value.length > 0 || memoryFiles.value.length > 0)
@@ -32,7 +38,19 @@ export const useAiFilesStore = defineStore('aiFiles', () => {
    * Calls three Tauri backend commands to find instruction files,
    * session/memory files in the Claude project directory.
    */
-  async function discoverFiles(projectRootPath: string): Promise<void> {
+  async function discoverFiles(projectRootPath: string, force = false): Promise<void> {
+    if (
+      !force &&
+      ((loading.value && inFlightRoot === projectRootPath) ||
+        (!loading.value &&
+          lastScannedRoot === projectRootPath &&
+          Date.now() - lastScanAt < SCAN_REUSE_MS))
+    ) {
+      return
+    }
+
+    const currentRequestId = ++requestId
+    inFlightRoot = projectRootPath
     loading.value = true
     error.value = null
 
@@ -41,25 +59,23 @@ export const useAiFilesStore = defineStore('aiFiles', () => {
       const projectDir = await invoke<string | null>('find_claude_project_dir', {
         projectPath: projectRootPath,
       })
-      claudeProjectPath.value = projectDir
+      if (currentRequestId !== requestId) return
 
       // Find instruction files (CLAUDE.md, AGENTS.md) in project tree + global
       const instructionPaths = await invoke<string[]>('find_instruction_files', {
         projectPath: projectRootPath,
       })
-      instructions.value = instructionPaths.map((p) => ({
-        name: p.split('/').pop() ?? p,
-        path: p,
-        category: 'instruction' as const,
-      }))
+      if (currentRequestId !== requestId) return
 
-      // If Claude project dir exists, list session and memory files
+      let nextMemoryFiles: AiFile[] = []
       if (projectDir) {
         const allFiles = await invoke<FileInfo[]>('list_files_with_mtime', {
           dirPath: projectDir,
         })
 
-        memoryFiles.value = allFiles
+        if (currentRequestId !== requestId) return
+
+        nextMemoryFiles = allFiles
           .filter((f) => f.name.endsWith('.md'))
           .map((f) => ({
             name: f.name,
@@ -67,24 +83,43 @@ export const useAiFilesStore = defineStore('aiFiles', () => {
             category: 'memory' as const,
             modifiedAt: f.modified_at,
           }))
-      } else {
-        memoryFiles.value = []
       }
+
+      if (currentRequestId !== requestId) return
+      claudeProjectPath.value = projectDir
+      instructions.value = instructionPaths.map((p) => ({
+        name: p.split('/').pop() ?? p,
+        path: p,
+        category: 'instruction' as const,
+      }))
+
+      memoryFiles.value = nextMemoryFiles
+      lastScannedRoot = projectRootPath
+      lastScanAt = Date.now()
     } catch (e) {
-      error.value = typeof e === 'string' ? e : String(e)
-      console.error('Failed to discover AI files:', e)
+      if (currentRequestId === requestId) {
+        error.value = typeof e === 'string' ? e : String(e)
+        console.error('Failed to discover AI files:', e)
+      }
     } finally {
-      loading.value = false
+      if (currentRequestId === requestId) {
+        inFlightRoot = null
+        loading.value = false
+      }
     }
   }
 
   /** Reset all state */
   function reset() {
+    requestId++
+    inFlightRoot = null
     loading.value = false
     error.value = null
     claudeProjectPath.value = null
     instructions.value = []
     memoryFiles.value = []
+    lastScannedRoot = null
+    lastScanAt = 0
   }
 
   return {

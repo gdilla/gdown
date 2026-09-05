@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useSidebarStore } from '../../stores/sidebar'
 import { invoke } from '@tauri-apps/api/core'
+import type { FileNode } from '../../types/filetree'
 
 const mockedInvoke = vi.mocked(invoke)
 
@@ -173,29 +174,122 @@ describe('useSidebarStore', () => {
       // Sidebar stays visible — user can open another folder
       expect(store.visible).toBe(true)
     })
+
+    it('cancels a pending folder load', async () => {
+      const store = useSidebarStore()
+      let resolveLoad: (children: FileNode[]) => void = () => undefined
+      const pendingLoad = new Promise<FileNode[]>((resolve) => {
+        resolveLoad = resolve
+      })
+      mockedInvoke.mockReturnValueOnce(pendingLoad)
+
+      const opening = store.openFolder('/project')
+      expect(store.loading).toBe(true)
+
+      store.closeFolder()
+      expect(store.loading).toBe(false)
+      resolveLoad([])
+      await opening
+
+      expect(store.fileTree).toBeNull()
+      expect(store.rootPath).toBeNull()
+    })
   })
 
   describe('navigateToFolder', () => {
     it('calls openFolder with the given path', async () => {
       const store = useSidebarStore()
 
-      const mockTree = {
-        name: 'projects',
-        path: '/Users/test/projects',
-        is_dir: true,
-        children: [],
-      }
-      mockedInvoke.mockResolvedValueOnce(mockTree)
+      const mockChildren = [
+        {
+          name: 'notes',
+          path: '/Users/test/projects/notes',
+          is_dir: true,
+          children: null,
+        },
+      ]
+      mockedInvoke.mockResolvedValueOnce(mockChildren)
 
       await store.navigateToFolder('/Users/test/projects')
 
-      expect(mockedInvoke).toHaveBeenCalledWith('read_directory_tree', {
+      expect(mockedInvoke).toHaveBeenCalledWith('read_directory_shallow', {
         path: '/Users/test/projects',
-        maxDepth: 3,
       })
       expect(store.rootPath).toBe('/Users/test/projects')
-      expect(store.fileTree).toEqual(mockTree)
+      expect(store.fileTree).toEqual({
+        name: 'projects',
+        path: '/Users/test/projects',
+        is_dir: true,
+        children: mockChildren,
+      })
       expect(store.visible).toBe(true)
+    })
+  })
+
+  describe('lazy directory loading', () => {
+    it('loads and attaches immediate children on demand', async () => {
+      const store = useSidebarStore()
+      const root = {
+        name: 'project',
+        path: '/project',
+        is_dir: true,
+        children: [{ name: 'src', path: '/project/src', is_dir: true, children: null }],
+      }
+      store.fileTree = root
+      store.rootPath = '/project'
+      mockedInvoke.mockResolvedValueOnce([
+        { name: 'main.md', path: '/project/src/main.md', is_dir: false },
+      ])
+
+      const loading = store.loadDirectoryChildren('/project/src')
+      expect(store.isDirectoryLoading('/project/src')).toBe(true)
+      await loading
+
+      expect(mockedInvoke).toHaveBeenCalledWith('read_directory_shallow', {
+        path: '/project/src',
+      })
+      expect(store.fileTree?.children?.[0]?.children).toEqual([
+        { name: 'main.md', path: '/project/src/main.md', is_dir: false },
+      ])
+      expect(store.isDirectoryLoading('/project/src')).toBe(false)
+    })
+
+    it('keeps a lazy-load error available for an in-place retry', async () => {
+      const store = useSidebarStore()
+      store.rootPath = '/project'
+      store.fileTree = {
+        name: 'project',
+        path: '/project',
+        is_dir: true,
+        children: [{ name: 'src', path: '/project/src', is_dir: true, children: null }],
+      }
+      mockedInvoke.mockRejectedValueOnce('Permission denied')
+
+      await store.loadDirectoryChildren('/project/src')
+
+      expect(store.getDirectoryError('/project/src')).toBe('Permission denied')
+      expect(store.isDirectoryLoading('/project/src')).toBe(false)
+    })
+
+    it('ignores a late folder response after a newer folder opens', async () => {
+      const store = useSidebarStore()
+      let resolveFirst: (children: FileNode[]) => void = () => undefined
+      const firstResponse = new Promise<FileNode[]>((resolve) => {
+        resolveFirst = resolve
+      })
+      mockedInvoke
+        .mockReturnValueOnce(firstResponse)
+        .mockResolvedValueOnce([{ name: 'new.md', path: '/new/new.md', is_dir: false }])
+
+      const firstOpen = store.openFolder('/old')
+      const secondOpen = store.openFolder('/new')
+      resolveFirst([{ name: 'old.md', path: '/old/old.md', is_dir: false }])
+      await Promise.all([firstOpen, secondOpen])
+
+      expect(store.rootPath).toBe('/new')
+      expect(store.fileTree?.children).toEqual([
+        { name: 'new.md', path: '/new/new.md', is_dir: false },
+      ])
     })
   })
 })

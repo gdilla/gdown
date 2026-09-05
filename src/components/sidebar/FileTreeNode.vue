@@ -2,6 +2,7 @@
 import { ref, computed, nextTick } from 'vue'
 import { startDrag } from '@crabnebula/tauri-plugin-drag'
 import type { FileNode } from '../../types/filetree'
+import { useSidebarStore } from '../../stores/sidebar'
 
 const props = defineProps<{
   node: FileNode
@@ -13,8 +14,10 @@ const emit = defineEmits<{
   (e: 'select-file', path: string): void
 }>()
 
+const sidebar = useSidebarStore()
+
 /** Whether this directory node is expanded */
-const expanded = ref(props.depth === 0)
+const expanded = ref(false)
 
 /** Whether the children section is currently animating */
 const animating = ref(false)
@@ -22,8 +25,14 @@ const animating = ref(false)
 /** Reference to the children container for animation */
 const childrenRef = ref<HTMLDivElement | null>(null)
 
+/** Whether this directory is waiting for its immediate children. */
+const childrenLoading = computed(() => sidebar.isDirectoryLoading(props.node.path))
+
+/** Error from the last lazy-load attempt, if any. */
+const childrenError = computed(() => sidebar.getDirectoryError(props.node.path))
+
 /** Toggle expand/collapse for directory nodes with animation */
-function toggleExpand() {
+async function toggleExpand() {
   if (!props.node.is_dir) return
 
   const el = childrenRef.value
@@ -31,16 +40,20 @@ function toggleExpand() {
   if (!expanded.value) {
     // Expanding: set expanded first so children render, then animate
     expanded.value = true
-    nextTick(() => {
-      const el2 = childrenRef.value
-      if (el2) {
-        animating.value = true
-        el2.style.height = '0px'
-        requestAnimationFrame(() => {
-          el2.style.height = `${el2.scrollHeight}px`
-        })
-      }
-    })
+    if (props.node.children === undefined || props.node.children === null) {
+      await sidebar.loadDirectoryChildren(props.node.path)
+    }
+    if (!expanded.value) return
+
+    await nextTick()
+    const el2 = childrenRef.value
+    if (el2) {
+      animating.value = true
+      el2.style.height = '0px'
+      requestAnimationFrame(() => {
+        el2.style.height = `${el2.scrollHeight}px`
+      })
+    }
   } else if (el) {
     // Collapsing: animate from current height to 0
     animating.value = true
@@ -153,6 +166,7 @@ const indentStyle = computed(() => ({
       :title="node.path"
       role="treeitem"
       :aria-expanded="node.is_dir ? expanded : undefined"
+      :aria-busy="node.is_dir && childrenLoading ? 'true' : undefined"
       :aria-selected="isSelected"
       tabindex="0"
       @click="handleClick"
@@ -263,6 +277,17 @@ const indentStyle = computed(() => ({
       role="group"
       @transitionend.self="onTransitionEnd"
     >
+      <div v-if="childrenLoading" class="node-loading">Loading...</div>
+      <div v-else-if="childrenError" class="node-error">
+        <span>{{ childrenError }}</span>
+        <button
+          class="node-retry"
+          type="button"
+          @click.stop="sidebar.loadDirectoryChildren(node.path)"
+        >
+          Retry
+        </button>
+      </div>
       <FileTreeNode
         v-for="child in sortedChildren"
         :key="child.path"
@@ -429,5 +454,36 @@ const indentStyle = computed(() => ({
 
 .node-children-animating {
   transition: height 0.15s ease;
+}
+
+.node-loading {
+  padding: 3px 8px 3px 24px;
+  color: var(--sidebar-title-color, #888);
+  font-size: 12px;
+}
+
+.node-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 24px;
+  color: var(--sidebar-error-color, #d32f2f);
+  font-size: 12px;
+}
+
+.node-error span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.node-retry {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--sidebar-border, #ddd);
+  border-radius: 3px;
+  background: var(--sidebar-bg, #fff);
+  color: var(--sidebar-text-color, #333);
+  font-size: 11px;
+  cursor: pointer;
 }
 </style>

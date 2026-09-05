@@ -146,5 +146,56 @@ describe('useAiFilesStore', () => {
 
       expect(store.memoryFiles).toEqual([])
     })
+
+    it('reuses a recent scan for the same project until explicitly refreshed', async () => {
+      const store = useAiFilesStore()
+
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'find_claude_project_dir') return Promise.resolve(null)
+        if (cmd === 'find_instruction_files') return Promise.resolve(['/project/CLAUDE.md'])
+        return Promise.resolve([])
+      })
+
+      await store.discoverFiles('/project')
+      const initialCallCount = mockInvoke.mock.calls.length
+
+      await store.discoverFiles('/project')
+      expect(mockInvoke.mock.calls).toHaveLength(initialCallCount)
+
+      await store.discoverFiles('/project', true)
+      expect(mockInvoke.mock.calls.length).toBeGreaterThan(initialCallCount)
+    })
+
+    it('ignores a stale scan when the project changes', async () => {
+      const store = useAiFilesStore()
+      let resolveFirst: (projectDir: string | null) => void = () => undefined
+      const firstResponse = new Promise<string | null>((resolve) => {
+        resolveFirst = resolve
+      })
+
+      mockInvoke.mockImplementation((cmd: string, args: { projectPath?: string }) => {
+        if (cmd === 'find_claude_project_dir' && args.projectPath === '/old') {
+          return firstResponse
+        }
+        if (cmd === 'find_claude_project_dir') return Promise.resolve(null)
+        if (cmd === 'find_instruction_files') {
+          return Promise.resolve([`${args.projectPath}/CLAUDE.md`])
+        }
+        return Promise.resolve([])
+      })
+
+      const oldScan = store.discoverFiles('/old')
+      const newScan = store.discoverFiles('/new')
+      resolveFirst(null)
+      await Promise.all([oldScan, newScan])
+
+      expect(store.instructions).toEqual([
+        {
+          name: 'CLAUDE.md',
+          path: '/new/CLAUDE.md',
+          category: 'instruction',
+        },
+      ])
+    })
   })
 })

@@ -10,7 +10,7 @@ export interface FileNode {
   /** Whether this node is a directory */
   is_dir: boolean
   /** Child nodes (only populated for directories) */
-  children?: FileNode[]
+  children?: FileNode[] | null
 }
 
 /**

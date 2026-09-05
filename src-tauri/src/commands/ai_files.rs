@@ -12,7 +12,7 @@ pub struct FileInfo {
 }
 
 /// Convert an absolute project path to the Claude projects directory name.
-/// Claude uses the convention: replace `/` with `-`, strip leading `-`.
+/// Claude uses the convention: replace `/` with `-`, retaining the leading `-`.
 fn project_path_to_claude_dir_name(project_path: &str) -> String {
     project_path.replace('/', "-")
 }
@@ -150,11 +150,11 @@ mod tests {
     fn test_project_path_to_claude_dir_name() {
         assert_eq!(
             project_path_to_claude_dir_name("/Users/test/projects/my-app"),
-            "Users-test-projects-my-app"
+            "-Users-test-projects-my-app"
         );
         assert_eq!(
             project_path_to_claude_dir_name("/home/user/code"),
-            "home-user-code"
+            "-home-user-code"
         );
     }
 

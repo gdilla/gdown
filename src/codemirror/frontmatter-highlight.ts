@@ -164,14 +164,14 @@ export const frontmatterHighlightPlugin = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate) {
-      if (update.docChanged || update.viewportChanged) {
+      if (update.docChanged) {
         this.decorations = buildFrontMatterDecorations(update.view)
       }
     }
   },
   {
     decorations: (v) => v.decorations,
-  }
+  },
 )
 
 /**

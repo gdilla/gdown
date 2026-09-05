@@ -115,6 +115,44 @@ pub struct FileNode {
     pub children: Option<Vec<FileNode>>,
 }
 
+/// Whether a file belongs in the sidebar's supported document/image set.
+fn is_supported_file(path: &Path) -> bool {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
+    matches!(
+        ext.as_deref(),
+        Some("md")
+            | Some("markdown")
+            | Some("mdown")
+            | Some("mkd")
+            | Some("txt")
+            | Some("text")
+            | Some("rst")
+            | Some("adoc")
+            | Some("org")
+            | Some("json")
+            | Some("yaml")
+            | Some("yml")
+            | Some("toml")
+            | Some("html")
+            | Some("htm")
+            | Some("css")
+            | Some("js")
+            | Some("ts")
+            | Some("xml")
+            | Some("csv")
+            | Some("png")
+            | Some("jpg")
+            | Some("jpeg")
+            | Some("gif")
+            | Some("bmp")
+            | Some("svg")
+            | Some("webp")
+            | Some("ico")
+            | Some("tiff")
+            | Some("tif")
+    )
+}
+
 /// Recursively reads a directory tree starting from `dir_path` and returns the
 /// file/folder structure as a JSON-serializable tree.
 ///
@@ -152,52 +190,13 @@ fn read_dir_recursive(dir_path: &Path, max_depth: u32) -> Result<Vec<FileNode>, 
                 is_dir: true,
                 children: Some(children),
             });
-        } else if metadata.is_file() {
-            let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
-
-            // Include markdown files, common text files, and images
-            let include = matches!(
-                ext.as_deref(),
-                Some("md")
-                    | Some("markdown")
-                    | Some("mdown")
-                    | Some("mkd")
-                    | Some("txt")
-                    | Some("text")
-                    | Some("rst")
-                    | Some("adoc")
-                    | Some("org")
-                    | Some("json")
-                    | Some("yaml")
-                    | Some("yml")
-                    | Some("toml")
-                    | Some("html")
-                    | Some("htm")
-                    | Some("css")
-                    | Some("js")
-                    | Some("ts")
-                    | Some("xml")
-                    | Some("csv")
-                    | Some("png")
-                    | Some("jpg")
-                    | Some("jpeg")
-                    | Some("gif")
-                    | Some("bmp")
-                    | Some("svg")
-                    | Some("webp")
-                    | Some("ico")
-                    | Some("tiff")
-                    | Some("tif")
-            );
-
-            if include {
-                nodes.push(FileNode {
-                    name: file_name,
-                    path: path.to_string_lossy().to_string(),
-                    is_dir: false,
-                    children: None,
-                });
-            }
+        } else if metadata.is_file() && is_supported_file(&path) {
+            nodes.push(FileNode {
+                name: file_name,
+                path: path.to_string_lossy().to_string(),
+                is_dir: false,
+                children: None,
+            });
         }
     }
 
@@ -289,7 +288,7 @@ pub fn read_directory_shallow(path: String) -> Result<Vec<FileNode>, String> {
                 is_dir: true,
                 children: None, // Not populated in shallow mode
             });
-        } else if metadata.is_file() {
+        } else if metadata.is_file() && is_supported_file(&entry_path) {
             nodes.push(FileNode {
                 name: file_name,
                 path: entry_path.to_string_lossy().to_string(),
@@ -576,13 +575,15 @@ mod tests {
 
         assert!(result.is_dir);
         let children = result.children.unwrap();
-        // Should have: notes/ directory and hello.md (hidden and png excluded)
-        assert_eq!(children.len(), 2);
+        // Should have: notes/ directory, hello.md, and image.png (hidden excluded)
+        assert_eq!(children.len(), 3);
         // Directories come first
         assert_eq!(children[0].name, "notes");
         assert!(children[0].is_dir);
         assert_eq!(children[1].name, "hello.md");
         assert!(!children[1].is_dir);
+        assert_eq!(children[2].name, "image.png");
+        assert!(!children[2].is_dir);
 
         // Check nested
         let notes_children = children[0].children.as_ref().unwrap();
@@ -616,6 +617,7 @@ mod tests {
         fs::create_dir(root.join("subdir")).unwrap();
         fs::File::create(root.join("subdir/nested.md")).unwrap();
         fs::File::create(root.join("top.md")).unwrap();
+        fs::File::create(root.join("binary.bin")).unwrap();
 
         let result = read_directory_shallow(root.to_string_lossy().to_string()).unwrap();
 
@@ -623,6 +625,7 @@ mod tests {
         let subdir = result.iter().find(|n| n.name == "subdir").unwrap();
         assert!(subdir.is_dir);
         assert!(subdir.children.is_none()); // shallow = no children populated
+        assert!(result.iter().all(|node| node.name != "binary.bin"));
     }
 
     #[test]
