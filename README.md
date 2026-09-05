@@ -19,7 +19,7 @@ Leaf gives you a seamless WYSIWYG editing experience with the ability to switch 
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) 22+
+- [Node.js](https://nodejs.org/) 22.12+ (the repository pin is in `.nvmrc`)
 - [pnpm](https://pnpm.io/) (do **not** use npm or yarn)
 - [Rust](https://www.rust-lang.org/tools/install) (stable toolchain)
 - Tauri 2 CLI — installed automatically via `pnpm`

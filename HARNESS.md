@@ -59,7 +59,8 @@ authorization and review scope before editing.
 
 CI installs with `pnpm install --frozen-lockfile` and runs the same
 `pnpm verify:pr` gate. Keep `pnpm-lock.yaml` and dependency specifications in
-sync; pnpm is the repository package manager.
+sync; pnpm is the repository package manager. Use the Node version in `.nvmrc`
+for local checks; CI reads the same file.
 
 ## Review evidence
 
