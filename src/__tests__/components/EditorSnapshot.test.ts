@@ -38,7 +38,7 @@ describe('Editor rich snapshot boundaries', () => {
     })
     await nextTick()
 
-    const richEditor = (wrapper.vm as { getEditor: () => any }).getEditor()
+    const richEditor = (wrapper.vm as unknown as { getEditor: () => any }).getEditor()
     expect(richEditor).toBeTruthy()
     richEditor.commands.setContent('<p>Latest</p>')
 
@@ -69,7 +69,7 @@ describe('Editor rich snapshot boundaries', () => {
     })
     await nextTick()
 
-    const richEditor = (wrapper.vm as { getEditor: () => any }).getEditor()
+    const richEditor = (wrapper.vm as unknown as { getEditor: () => any }).getEditor()
     richEditor.commands.setContent('<p>First latest</p>')
     tabsStore.setActiveTab(second.id)
     await nextTick()
@@ -94,7 +94,7 @@ describe('Editor rich snapshot boundaries', () => {
     })
     await nextTick()
 
-    const richEditor = (wrapper.vm as { getEditor: () => any }).getEditor()
+    const richEditor = (wrapper.vm as unknown as { getEditor: () => any }).getEditor()
     richEditor.commands.setContent('<p>Mode latest</p>')
     window.dispatchEvent(new Event('gdown:toggle-mode'))
 
@@ -119,7 +119,7 @@ describe('Editor rich snapshot boundaries', () => {
     })
     await nextTick()
 
-    const richEditor = (wrapper.vm as { getEditor: () => any }).getEditor()
+    const richEditor = (wrapper.vm as unknown as { getEditor: () => any }).getEditor()
     richEditor.commands.setContent('<p>Close latest</p>')
     mockedInvoke
       .mockResolvedValueOnce(100)
