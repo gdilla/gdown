@@ -60,7 +60,7 @@ pub struct ExportConfig {
     /// The export format this config applies to.
     pub format: ExportFormat,
 
-    /// Pandoc input format string (e.g., "gfm+tex_math_dollars+raw_tex").
+    /// Pandoc input format string (e.g., "gfm+tex_math_dollars").
     pub from_format: String,
 
     /// Whether to produce a standalone document (--standalone).
@@ -143,7 +143,7 @@ impl ExportConfig {
         match format {
             ExportFormat::Pdf => Self {
                 format: ExportFormat::Pdf,
-                from_format: "gfm+tex_math_dollars+raw_tex".to_string(),
+                from_format: "gfm+tex_math_dollars".to_string(),
                 standalone: true,
                 pdf_engine: Some("xelatex".to_string()),
                 math_method: None,
@@ -170,7 +170,7 @@ impl ExportConfig {
             },
             ExportFormat::Html => Self {
                 format: ExportFormat::Html,
-                from_format: "gfm+tex_math_dollars+raw_tex".to_string(),
+                from_format: "gfm+tex_math_dollars".to_string(),
                 standalone: true,
                 pdf_engine: None,
                 math_method: Some("mathjax".to_string()),
@@ -197,7 +197,7 @@ impl ExportConfig {
             },
             ExportFormat::Word => Self {
                 format: ExportFormat::Word,
-                from_format: "gfm+tex_math_dollars+raw_tex".to_string(),
+                from_format: "gfm+tex_math_dollars".to_string(),
                 standalone: true,
                 pdf_engine: None,
                 math_method: None,
@@ -224,7 +224,7 @@ impl ExportConfig {
             },
             ExportFormat::Latex => Self {
                 format: ExportFormat::Latex,
-                from_format: "gfm+tex_math_dollars+raw_tex".to_string(),
+                from_format: "gfm+tex_math_dollars".to_string(),
                 standalone: true,
                 pdf_engine: None,
                 math_method: None,
@@ -251,7 +251,7 @@ impl ExportConfig {
             },
             ExportFormat::Epub => Self {
                 format: ExportFormat::Epub,
-                from_format: "gfm+tex_math_dollars+raw_tex".to_string(),
+                from_format: "gfm+tex_math_dollars".to_string(),
                 standalone: true,
                 pdf_engine: None,
                 math_method: Some("mathml".to_string()),
@@ -278,7 +278,7 @@ impl ExportConfig {
             },
             ExportFormat::Rtf => Self {
                 format: ExportFormat::Rtf,
-                from_format: "gfm+tex_math_dollars+raw_tex".to_string(),
+                from_format: "gfm+tex_math_dollars".to_string(),
                 standalone: true,
                 pdf_engine: None,
                 math_method: None,
@@ -835,7 +835,7 @@ mod tests {
         let config = ExportConfig::default_for(&ExportFormat::Pdf);
         let args = config.build_pandoc_args();
 
-        assert!(args.contains(&"--from=gfm+tex_math_dollars+raw_tex".to_string()));
+        assert!(args.contains(&"--from=gfm+tex_math_dollars".to_string()));
         assert!(args.contains(&"--pdf-engine=xelatex".to_string()));
         assert!(args.contains(&"--standalone".to_string()));
         assert!(args.contains(&"--highlight-style=tango".to_string()));
