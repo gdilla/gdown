@@ -17,7 +17,7 @@ pnpm verify:pr    # typecheck, lint, clippy, rustfmt, Vitest, Rust tests, Vite b
 For an explicitly requested release, run:
 
 ```bash
-pnpm verify:release  # PR gate plus full Tauri build
+pnpm verify:release  # PR gate plus optimized macOS .app build
 ```
 
 ## Feature Development Protocol
@@ -144,19 +144,25 @@ The WYSIWYG/source switch uses `v-if` in App.vue — **two separate components**
 pnpm dev          # Start Tauri dev server (hot reload, Vite on :1420)
 pnpm vite:dev     # Frontend only (no Tauri window)
 pnpm verify:pr    # PR gate: typecheck, lint, clippy, rustfmt, tests, Vite build
-pnpm verify:release # PR gate plus full Tauri build → Leaf.app + Leaf.dmg
+pnpm verify:release # PR gate plus optimized macOS .app build → Leaf.app
 ```
 
 ## Build & Install (macOS)
 
 Use `/release` after the user has explicitly requested a release. It runs
-`pnpm verify:release` before the signing and installation steps below.
+`pnpm verify:release` before the signing and installation steps below. The
+release gate builds and validates the `.app`; `pnpm build` remains an optional
+full-distribution command when a DMG is needed.
 
 ```bash
-# 1. Build release bundle
-pnpm build
+# 1. Build and validate the release app bundle
+pnpm verify:release
 # Output: src-tauri/target/release/bundle/macos/Leaf.app
-#         src-tauri/target/release/bundle/dmg/Leaf_0.1.0_aarch64.dmg
+
+# Optional full distribution package (including DMG)
+# pnpm build
+# Outputs: src-tauri/target/release/bundle/macos/Leaf.app
+#          src-tauri/target/release/bundle/dmg/Leaf_0.1.0_aarch64.dmg
 
 # 2. Ad-hoc sign (no Apple Developer account needed — personal use only)
 codesign --force --deep --sign - \
