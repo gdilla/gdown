@@ -1,22 +1,26 @@
 <template>
-  <node-view-wrapper class="frontmatter-block" :class="{ 'is-collapsed': collapsed, 'is-editing-raw': editingRaw }">
+  <node-view-wrapper
+    class="frontmatter-block"
+    :class="{ 'is-collapsed': collapsed, 'is-editing-raw': editingRaw }"
+  >
     <!-- Header bar with collapse toggle -->
     <div class="frontmatter-header" @click="toggleCollapse">
       <span class="frontmatter-chevron">{{ collapsed ? '▶' : '▼' }}</span>
       <span class="frontmatter-label">Front Matter</span>
       <div class="frontmatter-actions" @click.stop>
         <button
+          v-if="!complexYaml"
           class="frontmatter-btn"
-          @click="toggleRawEdit"
           :title="editingRaw ? 'Switch to fields view' : 'Edit raw YAML'"
+          @click="toggleRawEdit"
         >
           {{ editingRaw ? 'Fields' : 'Raw' }}
         </button>
         <button
-          class="frontmatter-btn frontmatter-btn-add"
-          @click="addField"
-          title="Add field"
           v-if="!editingRaw && !collapsed"
+          class="frontmatter-btn frontmatter-btn-add"
+          title="Add field"
+          @click="addField"
         >
           +
         </button>
@@ -25,39 +29,30 @@
 
     <!-- Collapsible content area -->
     <div v-show="!collapsed" class="frontmatter-body">
-
       <!-- Structured fields view -->
       <div v-if="!editingRaw" class="frontmatter-fields">
-        <div
-          v-for="(field, index) in fields"
-          :key="index"
-          class="frontmatter-field"
-        >
+        <div v-for="(field, index) in fields" :key="index" class="frontmatter-field">
           <input
             class="frontmatter-key"
             :value="field.key"
+            placeholder="key"
+            spellcheck="false"
             @input="(e) => updateFieldKey(index, (e.target as HTMLInputElement).value)"
             @blur="commitChanges"
             @keydown.enter="commitChanges"
-            placeholder="key"
-            spellcheck="false"
           />
           <span class="frontmatter-separator">:</span>
           <input
             class="frontmatter-value"
             :value="field.value"
-            @input="(e) => updateFieldValue(index, (e.target as HTMLInputElement).value)"
-            @blur="commitChanges"
-            @keydown.enter="commitChanges"
             :placeholder="'value'"
             spellcheck="false"
             :class="{ [`type-${detectType(field.value)}`]: true }"
+            @input="(e) => updateFieldValue(index, (e.target as HTMLInputElement).value)"
+            @blur="commitChanges"
+            @keydown.enter="commitChanges"
           />
-          <button
-            class="frontmatter-field-remove"
-            @click="removeField(index)"
-            title="Remove field"
-          >
+          <button class="frontmatter-field-remove" title="Remove field" @click="removeField(index)">
             ×
           </button>
         </div>
@@ -71,12 +66,15 @@
         <textarea
           ref="rawTextarea"
           :value="rawYaml"
-          @input="handleRawInput"
-          @blur="commitRawChanges"
           spellcheck="false"
           placeholder="Enter YAML metadata..."
           rows="4"
+          @input="handleRawInput"
+          @blur="commitRawChanges"
         ></textarea>
+        <p v-if="complexYaml" class="frontmatter-raw-hint">
+          Complex YAML stays in the raw editor so its structure is preserved.
+        </p>
       </div>
     </div>
   </node-view-wrapper>
@@ -96,6 +94,7 @@ interface FieldEntry {
 
 const collapsed = ref(false)
 const editingRaw = ref(false)
+const complexYaml = ref(false)
 const rawTextarea = ref<HTMLTextAreaElement | null>(null)
 
 // Reactive local field state (parsed from the node's text content)
@@ -106,11 +105,37 @@ const rawYaml = ref('')
 let isUpdating = false
 
 /**
+ * The fields editor only supports top-level scalar values. Keep comments,
+ * nested values, and block scalars in raw mode instead of flattening them.
+ */
+function isComplexYaml(content: string): boolean {
+  if (!content.trim()) return false
+
+  return content.split('\n').some((line) => {
+    if (!line.trim() || line.trimStart().startsWith('#')) return true
+    if (/^\s/.test(line)) return true
+
+    const match = line.match(/^([a-zA-Z_][\w.-]*)\s*:\s*(.*)$/)
+    if (!match) return true
+
+    // `|`, `>`, and their chomping/indent variants introduce a block scalar.
+    return /^[|>]/.test((match[2] ?? '').trim())
+  })
+}
+
+/**
  * Parse the YAML text content from the ProseMirror node into fields.
  */
 function parseNodeContent(): void {
   const content = props.node.textContent || ''
   rawYaml.value = content
+
+  complexYaml.value = isComplexYaml(content)
+  if (complexYaml.value) {
+    fields.value = []
+    editingRaw.value = true
+    return
+  }
 
   const parsed: FieldEntry[] = []
   if (!content.trim()) {
@@ -135,9 +160,6 @@ function parseNodeContent(): void {
       }
       currentKey = kvMatch[1] ?? ''
       currentValue = (kvMatch[2] ?? '').trim()
-    } else if (currentKey && (line.startsWith('  ') || line.startsWith('\t') || line.match(/^\s*-\s/))) {
-      // Continuation/array line
-      currentValue += '\n' + line
     }
   }
 
@@ -156,8 +178,8 @@ function commitChanges(): void {
   if (isUpdating) return
 
   const yaml = fields.value
-    .filter(f => f.key.trim())
-    .map(f => {
+    .filter((f) => f.key.trim())
+    .map((f) => {
       if (f.value.includes('\n')) {
         return `${f.key}:\n${f.value}`
       }
@@ -183,11 +205,7 @@ function updateNodeContent(newContent: string): void {
     const nodeEnd = pos + props.node.nodeSize - 1
 
     if (newContent) {
-      tr.replaceWith(
-        nodeStart,
-        nodeEnd,
-        props.editor.state.schema.text(newContent)
-      )
+      tr.replaceWith(nodeStart, nodeEnd, props.editor.state.schema.text(newContent))
     } else {
       tr.delete(nodeStart, nodeEnd)
     }
@@ -207,6 +225,7 @@ function toggleRawEdit(): void {
   if (editingRaw.value) {
     // Switching back to fields view - commit raw changes and re-parse
     commitRawChanges()
+    if (complexYaml.value) return
     editingRaw.value = false
     parseNodeContent()
   } else {
@@ -229,6 +248,7 @@ function handleRawInput(event: Event): void {
 }
 
 function commitRawChanges(): void {
+  complexYaml.value = isComplexYaml(rawYaml.value)
   updateNodeContent(rawYaml.value)
 }
 
@@ -285,7 +305,7 @@ watch(
     if (!isUpdating) {
       parseNodeContent()
     }
-  }
+  },
 )
 </script>
 
@@ -296,7 +316,7 @@ watch(
   border-radius: 6px;
   overflow: hidden;
   background: #fafbfc;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
   transition: border-color 0.2s;
 }
 
@@ -347,8 +367,10 @@ watch(
   font-size: 11px;
   color: #586069;
   cursor: pointer;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  transition: background 0.15s, color 0.15s;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  transition:
+    background 0.15s,
+    color 0.15s;
   line-height: 1.6;
 }
 
@@ -399,12 +421,14 @@ watch(
   border: 1px solid transparent;
   border-radius: 3px;
   font-size: 13px;
-  font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+  font-family: 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
   font-weight: 600;
   color: #005cc5;
   background: transparent;
   outline: none;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 
 .frontmatter-key:focus {
@@ -418,7 +442,7 @@ watch(
 
 .frontmatter-separator {
   color: #959da5;
-  font-family: "SF Mono", Menlo, monospace;
+  font-family: 'SF Mono', Menlo, monospace;
   font-size: 13px;
   flex-shrink: 0;
 }
@@ -430,11 +454,13 @@ watch(
   border: 1px solid transparent;
   border-radius: 3px;
   font-size: 13px;
-  font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+  font-family: 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
   color: #24292e;
   background: transparent;
   outline: none;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 
 .frontmatter-value:focus {
@@ -508,7 +534,7 @@ watch(
   border: none;
   outline: none;
   resize: vertical;
-  font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+  font-family: 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.5;
   color: #24292e;
@@ -526,29 +552,29 @@ watch(
 }
 
 /* Dark theme support via CSS variables */
-:root[data-theme="dark"] .frontmatter-block,
+:root[data-theme='dark'] .frontmatter-block,
 .dark .frontmatter-block {
   background: #1e1e1e;
   border-color: #333;
 }
 
-:root[data-theme="dark"] .frontmatter-header,
+:root[data-theme='dark'] .frontmatter-header,
 .dark .frontmatter-header {
   background: #252526;
   border-bottom-color: #333;
 }
 
-:root[data-theme="dark"] .frontmatter-key,
+:root[data-theme='dark'] .frontmatter-key,
 .dark .frontmatter-key {
   color: #79b8ff;
 }
 
-:root[data-theme="dark"] .frontmatter-value,
+:root[data-theme='dark'] .frontmatter-value,
 .dark .frontmatter-value {
   color: #e1e4e8;
 }
 
-:root[data-theme="dark"] .frontmatter-raw textarea,
+:root[data-theme='dark'] .frontmatter-raw textarea,
 .dark .frontmatter-raw textarea {
   background: #1e1e1e;
   color: #e1e4e8;
