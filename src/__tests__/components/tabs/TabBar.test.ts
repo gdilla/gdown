@@ -89,6 +89,23 @@ describe('TabBar', () => {
     expect(document.activeElement).toBe(summary.element)
   })
 
+  it('keeps mouse selection when summary focus leaves before the click', async () => {
+    const { wrapper, tabsStore, secondTab } = mountTabBar()
+    const details = wrapper.get('details')
+    const summary = wrapper.get('summary')
+    const documentItem = wrapper.findAll('.document-list-item')[1]!
+
+    ;(details.element as HTMLDetailsElement).open = true
+    await details.trigger('toggle')
+    await summary.trigger('focus')
+    await documentItem.trigger('mousedown')
+    await summary.trigger('focusout', { relatedTarget: document.body })
+    await documentItem.trigger('click')
+
+    expect(tabsStore.activeTabId).toBe(secondTab.id)
+    expect((details.element as HTMLDetailsElement).open).toBe(false)
+  })
+
   it('keeps the active tab when the async close guard cancels', async () => {
     const { wrapper, tabsStore, firstTab } = mountTabBar()
     const closeTab = vi

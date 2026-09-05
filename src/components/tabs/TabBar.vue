@@ -71,14 +71,6 @@ function handleDocumentListToggle() {
   }
 }
 
-function handleDocumentListFocusOut(event: FocusEvent) {
-  const list = documentList.value
-  if (!list?.open || (event.relatedTarget instanceof Node && list.contains(event.relatedTarget)))
-    return
-
-  closeDocumentList(false)
-}
-
 function handleDocumentSelect(tabId: string) {
   handleSelect(tabId)
   closeDocumentList(false)
@@ -175,7 +167,6 @@ onBeforeUnmount(() => {
         class="document-list"
         @toggle="handleDocumentListToggle"
         @keydown.esc.prevent="closeDocumentList()"
-        @focusout="handleDocumentListFocusOut"
       >
         <summary
           class="tab-action-button"
