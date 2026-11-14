@@ -93,13 +93,6 @@ const ALLOWLIST: AllowEntry[] = [
     file: '/src/assets/main.css',
     reason: 'Unused Vite scaffold stylesheet (not imported anywhere).',
   },
-  // Pending migration — each later commit on this branch removes its files.
-  ...[
-    '/src/components/RecentFiles.vue',
-    '/src/components/SaveNotification.vue',
-    '/src/components/source/SourceEditor.vue',
-    '/src/codemirror/frontmatter-highlight.ts',
-  ].map((file) => ({ file, reason: 'pending migration' })),
 ]
 
 const COLOR_LITERAL = /#[0-9a-fA-F]{3,8}\b|\b(?:rgb|hsl)a?\(\s*[\d.][^)]*\)|\b(?:white|black)\b/g

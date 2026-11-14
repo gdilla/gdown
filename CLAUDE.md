@@ -192,6 +192,24 @@ Themes are CSS-only. To add a new theme:
 5. Add `CheckMenuItemBuilder` entry in `src-tauri/src/lib.rs` Themes submenu + event handler
 
 Current themes: `light`, `dark`, `auto`, `solarized-light`, `solarized-dark`, `github`
+(`auto` is resolved to `light`/`dark` in `preferences.ts`; it has no CSS block).
+
+Semantic colour tokens (every colour token in `:root` needs a value in every theme block —
+`src/__tests__/theme/colorLiterals.test.ts` enforces this and rejects new colour literals):
+- Neutral: `--ink-rgb` (use `rgba(var(--ink-rgb), a)` for hover/pressed tints), `--text-secondary`,
+  `--text-emphasis`, `--text-muted`, `--text-faint`, `--text-placeholder`, `--bg-secondary`,
+  `--surface-hover`, `--surface-muted`, `--border-color`, `--border-subtle`, `--border-faint`,
+  `--border-strong`, `--input-border`, `--button-*`, `--dialog-*`
+- Accent: `--accent-color`, `--accent-rgb`, `--accent-hover`, `--accent-text`, `--control-accent(-rgb)`,
+  `--link-color`, `--focus-outline(-rgb)`, `--focus-surface`
+- Status: `--error-rgb`, `--success-color`, `--success-text`, `--danger-text`, `--system-{green,red}-rgb`,
+  `--save-{ok,error}-*`, `--notice-{success,danger,warning}-{bg,text,border}`,
+  `--status-{success,danger,info}-{bg,text}`, `--warning-panel-*`, `--math-error-*`
+- Code/content: `--code-inline-*`, `--code-block-*`, `--syntax-*`, `--math-source-*`, `--blockquote-*`,
+  `--mark-bg`, `--search-{match,current}-{bg,ring}`, `--block-*` (front matter)
+- Preferences: `--prefs-*`, `--pref-*`
+Exported HTML copies only `.gdown-editor` rules, so content tokens also get light values on
+`.gdown-editor.content` in `style.css` — add new content tokens there too.
 
 ## Git
 

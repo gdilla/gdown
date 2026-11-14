@@ -22,10 +22,14 @@ const autoSaveStore = useAutoSaveStore()
 const icon = computed(() => {
   if (!autoSaveStore.saveNotification) return ''
   switch (autoSaveStore.saveNotification.type) {
-    case 'success': return '✓'
-    case 'error': return '✕'
-    case 'warning': return '⚠'
-    default: return ''
+    case 'success':
+      return '✓'
+    case 'error':
+      return '✕'
+    case 'warning':
+      return '⚠'
+    default:
+      return ''
   }
 })
 </script>
@@ -53,21 +57,21 @@ const icon = computed(() => {
 }
 
 .notification-success {
-  background: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
+  background: var(--notice-success-bg);
+  color: var(--notice-success-text);
+  border: 1px solid var(--notice-success-border);
 }
 
 .notification-error {
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
+  background: var(--notice-danger-bg);
+  color: var(--notice-danger-text);
+  border: 1px solid var(--notice-danger-border);
 }
 
 .notification-warning {
-  background: #fff3cd;
-  color: #856404;
-  border: 1px solid #ffeeba;
+  background: var(--notice-warning-bg);
+  color: var(--notice-warning-text);
+  border: 1px solid var(--notice-warning-border);
 }
 
 /* Transition */
@@ -84,24 +88,5 @@ const icon = computed(() => {
 .notification-leave-to {
   opacity: 0;
   transform: translateY(10px);
-}
-
-/* Dark mode */
-@media (prefers-color-scheme: dark) {
-  .notification-success {
-    background: #1e3a2a;
-    color: #8fd4a0;
-    border-color: #2d5a3a;
-  }
-  .notification-error {
-    background: #3a1e1e;
-    color: #d48f8f;
-    border-color: #5a2d2d;
-  }
-  .notification-warning {
-    background: #3a3a1e;
-    color: #d4c48f;
-    border-color: #5a5a2d;
-  }
 }
 </style>
