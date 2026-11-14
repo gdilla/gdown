@@ -186,7 +186,12 @@ fn allow_exit(app: tauri::AppHandle, state: tauri::State<'_, ExitState>) {
     exit.allowed = true;
     exit.pending = false;
     drop(exit);
-    app.exit(0);
+    // Writes and exports run off the main thread; let any in flight finish
+    // (off the main thread, so the window stays responsive) before exiting.
+    std::thread::spawn(move || {
+        commands::wait_for_in_flight_io();
+        app.exit(0);
+    });
 }
 
 #[tauri::command]
