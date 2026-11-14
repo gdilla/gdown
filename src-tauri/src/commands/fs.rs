@@ -64,6 +64,7 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// permission bits are kept (best effort). Returns the conflict baseline mtime
 /// (see `baseline_mtime`).
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<u64, String> {
+    let _in_flight = super::InFlightIo::begin();
     let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let dir = match target.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
@@ -399,6 +400,7 @@ fn resolve_assets_dir(document_path: &Path) -> Result<std::path::PathBuf, String
 /// The relative path from the document to the copied image (e.g., `assets/photo.png`).
 #[tauri::command(async)]
 pub fn copy_image_to_assets(image_path: String, document_path: String) -> Result<String, String> {
+    let _in_flight = super::InFlightIo::begin();
     let img_path = Path::new(&image_path);
 
     if !img_path.exists() {
@@ -465,6 +467,7 @@ pub fn write_image_to_assets(
     document_path: String,
     file_name: String,
 ) -> Result<String, String> {
+    let _in_flight = super::InFlightIo::begin();
     let assets_dir = resolve_assets_dir(Path::new(&document_path))?;
 
     // Determine target file name with deduplication

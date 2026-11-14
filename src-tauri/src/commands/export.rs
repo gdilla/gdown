@@ -676,6 +676,7 @@ pub fn export_document(
     config: Option<ExportConfig>,
 ) -> Result<ExportResult, String> {
     let _destination = ExportDestination::claim(&output_path)?;
+    let _in_flight = super::InFlightIo::begin();
 
     // Locate Pandoc
     let pandoc_path = find_pandoc_path().ok_or_else(|| {
