@@ -26,7 +26,8 @@
         "font-src": "'self' data:",
         "connect-src": "'self' ipc: http://ipc.localhost",
         "object-src": "'none'",
-        "base-uri": "'none'"
+        "base-uri": "'none'",
+        "form-action": "'none'"
       },
       "devCsp": {
         "default-src": "'self'",
@@ -36,7 +37,8 @@
         "font-src": "'self' data:",
         "connect-src": "'self' ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420",
         "object-src": "'none'",
-        "base-uri": "'none'"
+        "base-uri": "'none'",
+        "form-action": "'none'"
       },
       "assetProtocol": {
         "enable": true,
