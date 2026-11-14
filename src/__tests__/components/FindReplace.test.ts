@@ -71,6 +71,15 @@ describe('FindReplace panel', () => {
     expect(w.emitted('replace')).toEqual([['bar']])
   })
 
+  it('runs a pending search as soon as focus leaves the search box', async () => {
+    const { wrapper: w } = mountPanel()
+    await type(w, 'foo')
+    await w.find('input.find-input').trigger('blur')
+    expect(w.emitted('search')).toEqual([['foo', false, false]])
+    vi.advanceTimersByTime(500)
+    expect(w.emitted('search')).toHaveLength(1)
+  })
+
   it('does not search after the panel closes with a search pending', async () => {
     const { store, wrapper: w } = mountPanel()
     await type(w, 'foo')

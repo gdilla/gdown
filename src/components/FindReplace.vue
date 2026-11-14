@@ -21,6 +21,7 @@
             class="find-input"
             placeholder="Find"
             @input="onSearchInput"
+            @blur="flushSearch"
             @keydown.enter.exact.prevent="onNext"
             @keydown.shift.enter.exact.prevent="onPrev"
           />

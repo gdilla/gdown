@@ -53,6 +53,34 @@ describe('Editor find/replace store sync', () => {
     expect(store.currentMatchIndex).toBe(1)
   })
 
+  it('a search arriving while the editor has focus does not move the caret', async () => {
+    const tabsStore = useTabsStore()
+    tabsStore.createTab(null, 'foo bar foo tail')
+    const { richEditor, panel } = await mountEditor()
+
+    // The user clicked at the end of the document before the debounced search fired.
+    const end = richEditor.state.doc.content.size - 1
+    richEditor.commands.setTextSelection(end)
+    vi.spyOn(richEditor.view, 'hasFocus').mockReturnValue(true)
+    panel.vm.$emit('search', 'foo', false, false)
+    richEditor.commands.insertContent('!')
+
+    expect(richEditor.getText()).toBe('foo bar foo tail!')
+    expect(useFindReplaceStore().matchCount).toBe(2)
+  })
+
+  it('a search from the focused panel still selects the first match', async () => {
+    const tabsStore = useTabsStore()
+    tabsStore.createTab(null, 'x foo')
+    const { richEditor, panel } = await mountEditor()
+
+    vi.spyOn(richEditor.view, 'hasFocus').mockReturnValue(false)
+    panel.vm.$emit('search', 'foo', false, false)
+
+    const { from, to } = richEditor.state.selection
+    expect(richEditor.state.doc.textBetween(from, to)).toBe('foo')
+  })
+
   it('updates the match count when switching tabs with the panel open', async () => {
     const tabsStore = useTabsStore()
     const first = tabsStore.createTab(null, 'foo foo foo')

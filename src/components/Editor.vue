@@ -622,7 +622,9 @@ function handleFindSearch(query: string, caseSensitive: boolean, useRegex: boole
   if (!editor.value) return
   // Dispatch setSearchTerm command which recomputes all matches and decorations
   editor.value.commands.setSearchTerm(query, caseSensitive, useRegex)
-  scrollToCurrentMatch()
+  // A (debounced) search that lands after the user clicked back into the
+  // document must not move their caret; only jump while focus is elsewhere.
+  if (!editor.value.view.hasFocus()) scrollToCurrentMatch()
 }
 
 function handleFindNext(): void {
