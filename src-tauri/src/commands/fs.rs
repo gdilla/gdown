@@ -72,9 +72,9 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<u64, String> {
     };
 
     let existing = fs::metadata(&target).ok();
-    let (tmp_path, mut tmp_file) = create_temp_file(dir, existing.is_some())?;
+    let (tmp_path, tmp_file) = create_temp_file(dir, existing.is_some())?;
 
-    let result = (|| -> std::io::Result<SystemTime> {
+    let result = (|mut tmp_file: fs::File| -> std::io::Result<SystemTime> {
         // Set the final mode before any content lands in the temp file. Best
         // effort: some volumes (SMB/NAS, FUSE) reject chmod, and that must not
         // fail the save; the temp file then stays 0600.
@@ -90,19 +90,33 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<u64, String> {
         tmp_file.write_all(bytes)?;
         tmp_file.sync_all()?;
         let ours = WrittenFile::of(&tmp_file.metadata()?)?;
-        // Rename is atomic on the same filesystem.
-        fs::rename(&tmp_path, &target)?;
-        let on_disk = fs::metadata(&target)
-            .ok()
-            .and_then(|m| WrittenFile::of(&m).ok());
-        Ok(baseline_mtime(&ours, on_disk.as_ref()))
-    })();
+        close_and_rename(tmp_file, &ours, &tmp_path, &target)
+    })(tmp_file);
 
     let modified = result.map_err(|e| {
         let _ = fs::remove_file(&tmp_path);
         format!("Failed to write '{}': {}", target.display(), e)
     })?;
     millis_since_epoch(modified)
+}
+
+/// Close our temp file, rename it over `target`, and return the conflict baseline
+/// mtime. The writer is closed before the final stat: filesystems that set the
+/// mtime at close (SMB/NFS) would otherwise change it after the baseline was chosen.
+/// `ours` was captured from the open handle, so a replacement is still recognised.
+fn close_and_rename<W>(
+    writer: W,
+    ours: &WrittenFile,
+    tmp_path: &Path,
+    target: &Path,
+) -> std::io::Result<SystemTime> {
+    drop(writer);
+    // Rename is atomic on the same filesystem.
+    fs::rename(tmp_path, target)?;
+    let on_disk = fs::metadata(target)
+        .ok()
+        .and_then(|m| WrittenFile::of(&m).ok());
+    Ok(baseline_mtime(ours, on_disk.as_ref()))
 }
 
 /// Claim a short, hidden, unique temp file in `dir` with `create_new`. The name is
@@ -624,6 +638,32 @@ mod tests {
 
         let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(&file), mode(&reference));
+    }
+
+    /// Test double for a filesystem that sets the mtime when the writer closes.
+    struct SetsMtimeOnClose(fs::File, SystemTime);
+
+    impl Drop for SetsMtimeOnClose {
+        fn drop(&mut self) {
+            self.0.set_modified(self.1).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_baseline_is_sampled_after_the_writer_closes() {
+        let dir = tempdir().unwrap();
+        let (tmp_path, mut file) = create_temp_file(dir.path(), false).unwrap();
+        file.write_all(b"saved").unwrap();
+        let ours = WrittenFile::of(&file.metadata().unwrap()).unwrap();
+        let closed_at = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(2_000_000_000);
+        let target = dir.path().join("note.md");
+
+        let baseline =
+            close_and_rename(SetsMtimeOnClose(file, closed_at), &ours, &tmp_path, &target).unwrap();
+
+        // What the next get_file_modified_time poll will see.
+        assert_eq!(baseline, fs::metadata(&target).unwrap().modified().unwrap());
+        assert_eq!(baseline, closed_at);
     }
 
     fn stamp(ino: u64, len: u64, secs: u64) -> WrittenFile {
