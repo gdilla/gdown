@@ -1,5 +1,4 @@
 use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
 use tauri::Manager;
 
@@ -36,37 +35,7 @@ fn session_file_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 pub fn save_session_state(app: tauri::AppHandle, state: String) -> Result<(), String> {
     let file_path = session_file_path(&app)?;
 
-    // Atomic write: write to temp file first, then rename
-    let tmp_path = file_path.with_extension("json.tmp");
-
-    let mut tmp_file = fs::File::create(&tmp_path).map_err(|e| {
-        format!(
-            "Failed to create temp session file '{}': {}",
-            tmp_path.display(),
-            e
-        )
-    })?;
-
-    tmp_file.write_all(state.as_bytes()).map_err(|e| {
-        let _ = fs::remove_file(&tmp_path);
-        format!("Failed to write session state: {}", e)
-    })?;
-
-    tmp_file.sync_all().map_err(|e| {
-        let _ = fs::remove_file(&tmp_path);
-        format!("Failed to sync session file: {}", e)
-    })?;
-
-    fs::rename(&tmp_path, &file_path).map_err(|e| {
-        let _ = fs::remove_file(&tmp_path);
-        format!(
-            "Failed to finalize session file '{}': {}",
-            file_path.display(),
-            e
-        )
-    })?;
-
-    Ok(())
+    super::fs::atomic_write(&file_path, state.as_bytes())
 }
 
 /// Tauri command: Load session state from the app data directory.

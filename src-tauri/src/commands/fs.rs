@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::fs;
 use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
 /// Tauri command: Reads a file's contents as a UTF-8 string.
@@ -45,31 +46,56 @@ pub fn write_file(path: String, content: String) -> Result<(), String> {
         }
     }
 
-    // Atomic write: write to a temporary file in the same directory, then rename.
-    // This prevents data loss if the process crashes mid-write.
-    let tmp_path = file_path.with_extension("gdown-tmp");
+    atomic_write(file_path, content.as_bytes())
+}
 
-    let mut tmp_file = fs::File::create(&tmp_path)
-        .map_err(|e| format!("Failed to create temp file '{}': {}", tmp_path.display(), e))?;
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-    tmp_file.write_all(content.as_bytes()).map_err(|e| {
-        // Clean up temp file on write failure
+/// Atomically replace `path` with `bytes`: write a uniquely named hidden temp
+/// file in the same directory, fsync it, then rename it over the target. The
+/// temp name is claimed with `create_new`, so overlapping writes (commands run
+/// off the main thread) never share a temp file. It is removed on any failure.
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let dir = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+
+    // Short and independent of the target name, so long file names still fit.
+    let (tmp_path, mut tmp_file) = loop {
+        let candidate = dir.join(format!(
+            ".leaf-{}-{}.tmp",
+            std::process::id(),
+            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(file) => break (candidate, file),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                return Err(format!(
+                    "Failed to create temp file '{}': {}",
+                    candidate.display(),
+                    e
+                ))
+            }
+        }
+    };
+
+    let result = (|| -> std::io::Result<()> {
+        tmp_file.write_all(bytes)?;
+        tmp_file.sync_all()?;
+        // Rename is atomic on the same filesystem.
+        fs::rename(&tmp_path, path)
+    })();
+
+    result.map_err(|e| {
         let _ = fs::remove_file(&tmp_path);
-        format!("Failed to write to temp file: {}", e)
-    })?;
-
-    tmp_file.sync_all().map_err(|e| {
-        let _ = fs::remove_file(&tmp_path);
-        format!("Failed to sync file: {}", e)
-    })?;
-
-    // Rename temp file to target (atomic on same filesystem)
-    fs::rename(&tmp_path, file_path).map_err(|e| {
-        let _ = fs::remove_file(&tmp_path);
-        format!("Failed to rename temp file to '{}': {}", path, e)
-    })?;
-
-    Ok(())
+        format!("Failed to write '{}': {}", path.display(), e)
+    })
 }
 
 /// Tauri command: Returns the last modified time of a file as milliseconds since UNIX epoch.
@@ -455,6 +481,46 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::tempdir;
+
+    #[test]
+    fn test_concurrent_writes_sharing_a_stem_keep_their_own_bytes() {
+        // Commands run off the main thread, so an autosave of notes.md and an
+        // HTML export to notes.html can overlap in the same directory.
+        let dir = tempdir().unwrap();
+        let paths: Vec<String> = ["notes.md", "notes.html"]
+            .iter()
+            .map(|n| dir.path().join(n).to_string_lossy().to_string())
+            .collect();
+        for round in 0..50 {
+            let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let handles: Vec<_> = paths
+                .iter()
+                .map(|p| {
+                    let (p, barrier) = (p.clone(), barrier.clone());
+                    std::thread::spawn(move || {
+                        let body = format!("{}:{}", p, round).repeat(2000);
+                        barrier.wait();
+                        write_file(p.clone(), body.clone()).unwrap();
+                        (p, body)
+                    })
+                })
+                .collect();
+            for h in handles {
+                let (p, body) = h.join().unwrap();
+                assert!(
+                    fs::read_to_string(&p).unwrap() == body,
+                    "{} got foreign bytes",
+                    p
+                );
+            }
+        }
+        let mut names: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["notes.html", "notes.md"]);
+    }
 
     #[test]
     fn test_read_directory_shallow() {
