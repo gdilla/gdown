@@ -179,6 +179,36 @@ Some paragraph.
       expect(store.headings[0]!.pos).toBe(doc.indexOf('# Body'))
       expect(store.headings[1]!.pos).toBe(doc.indexOf('## Next'))
     })
+
+    it('reads CRLF markdown, including fences, with correct offsets', () => {
+      const store = useOutlineStore()
+      const doc = '# A\r\n\r\n```\r\n# code\r\n```\r\n## B ##\r\n'
+
+      store.updateFromMarkdown(doc)
+
+      expect(store.headings.map((h) => h.text)).toEqual(['A', 'B'])
+      expect(store.headings[1]!.pos).toBe(doc.indexOf('## B'))
+    })
+
+    it('keeps a # that is not a closing sequence', () => {
+      const store = useOutlineStore()
+
+      store.updateFromMarkdown('# C#\n## ###')
+
+      expect(store.headings.map((h) => h.text)).toEqual(['C#'])
+    })
+
+    it('scans a pathological long heading line in linear time', () => {
+      const store = useOutlineStore()
+      const line = '# a' + ' '.repeat(100_000) + 'b'
+
+      const start = performance.now()
+      store.updateFromMarkdown(line)
+      const elapsed = performance.now() - start
+
+      expect(store.headings[0]!.text).toBe('a' + ' '.repeat(100_000) + 'b')
+      expect(elapsed).toBeLessThan(500)
+    })
   })
 
   describe('setActiveHeading', () => {
@@ -332,6 +362,13 @@ Some paragraph.
 
       expect(store.getSectionContent(-1)).toBeNull()
       expect(store.getSectionContent(99)).toBeNull()
+    })
+
+    it('finds sections in CRLF markdown', () => {
+      const md = '# A\r\n\r\na text\r\n\r\n# B\r\nb text'
+      const store = setupWithMarkdown(md)
+
+      expect(store.getSectionContent(1)!.markdown).toBe('# B\r\nb text')
     })
 
     it('does not treat # lines inside fenced code as section boundaries', () => {

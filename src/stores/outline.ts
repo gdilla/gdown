@@ -266,12 +266,26 @@ function extractTextFromNode(node: any): string {
   return ''
 }
 
-const ATX_HEADING = /^(#{1,6})\s+(.+)$/
-const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
+// Prefix-only patterns (no `$`), so a match never backtracks across the line.
+const ATX_OPEN = /^#{1,6}[ \t]/
+const FENCE = /^ {0,3}(`{3,}|~{3,})/
+
+/** Heading text without its optional closing `#` sequence. Linear in the line length. */
+function atxHeadingText(content: string): string {
+  const text = content.trim()
+  let end = text.length
+  while (end > 0 && text[end - 1] === '#') end--
+  if (end === 0) return '' // only hashes: an empty heading
+  if (end < text.length && (text[end - 1] === ' ' || text[end - 1] === '\t')) {
+    return text.slice(0, end).trimEnd()
+  }
+  return text
+}
 
 /**
  * Find non-empty ATX headings in markdown, skipping fenced code blocks.
  * `line` is the 0-based line index; `offset` the character offset of the line.
+ * CRLF-safe: a trailing `\r` is ignored for matching but counted in offsets.
  */
 function scanAtxHeadings(
   markdown: string,
@@ -281,10 +295,11 @@ function scanAtxHeadings(
   let fence: string | null = null
   let offset = 0
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!
-    const fenceMatch = line.match(FENCE)
+    const rawLine = lines[i]!
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
+    const fenceMatch = FENCE.exec(line)
     const marker = fenceMatch?.[1]
-    const info = fenceMatch?.[2] ?? ''
+    const info = fenceMatch ? line.slice(fenceMatch[0].length) : ''
     if (fence) {
       // A closing fence uses the same character, is at least as long, and has no info string.
       if (marker && marker[0] === fence[0] && marker.length >= fence.length && !info.trim()) {
@@ -293,13 +308,14 @@ function scanAtxHeadings(
     } else if (marker && !(marker[0] === '`' && info.includes('`'))) {
       fence = marker
     } else {
-      const match = line.match(ATX_HEADING)
-      if (match) {
-        const text = match[2]!.replace(/\s*#+\s*$/, '').trim() // Remove trailing hashes
-        if (text) found.push({ line: i, offset, level: match[1]!.length, text })
+      const open = ATX_OPEN.exec(line)
+      if (open) {
+        const level = open[0].length - 1
+        const text = atxHeadingText(line.slice(open[0].length))
+        if (text) found.push({ line: i, offset, level, text })
       }
     }
-    offset += line.length + 1 // +1 for newline
+    offset += rawLine.length + 1 // +1 for newline
   }
   return found
 }
