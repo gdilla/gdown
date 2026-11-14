@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::fs;
 use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
 /// Tauri command: Reads a file's contents as a UTF-8 string.
@@ -45,31 +46,79 @@ pub fn write_file(path: String, content: String) -> Result<(), String> {
         }
     }
 
-    // Atomic write: write to a temporary file in the same directory, then rename.
-    // This prevents data loss if the process crashes mid-write.
-    let tmp_path = file_path.with_extension("gdown-tmp");
+    atomic_write(file_path, content.as_bytes())
+}
 
-    let mut tmp_file = fs::File::create(&tmp_path)
-        .map_err(|e| format!("Failed to create temp file '{}': {}", tmp_path.display(), e))?;
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-    tmp_file.write_all(content.as_bytes()).map_err(|e| {
-        // Clean up temp file on write failure
+/// Where a write to `path` should land so a symlink at `path` survives: follow
+/// the link chain (relative targets against the link's own directory) to the
+/// final target, which need not exist yet. A path that is not a symlink, or does
+/// not exist, is its own target; symlinked parent directories are left for the
+/// OS to traverse. A loop (or over 40 hops) is an error.
+pub(crate) fn resolve_write_target(path: &Path) -> Result<PathBuf, String> {
+    let mut current = path.to_path_buf();
+    for _ in 0..40 {
+        match fs::read_link(&current) {
+            Ok(target) => {
+                let base = current.parent().unwrap_or(Path::new(""));
+                current = base.join(target);
+            }
+            // Not a symlink (or missing): this is where the bytes go.
+            Err(_) => return Ok(current),
+        }
+    }
+    Err(format!(
+        "Too many levels of symbolic links: '{}'",
+        path.display()
+    ))
+}
+
+/// Atomically replace `path` with `bytes`: write a uniquely named hidden temp
+/// file in the same directory, fsync it, then rename it over the target. The
+/// temp name is claimed with `create_new`, so it never collides with another
+/// write's temp file or a real file. It is removed on any failure.
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let dir = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+
+    // Short and independent of the target name, so long file names still fit.
+    let (tmp_path, mut tmp_file) = loop {
+        let candidate = dir.join(format!(
+            ".leaf-{}-{}.tmp",
+            std::process::id(),
+            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(file) => break (candidate, file),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                return Err(format!(
+                    "Failed to create temp file '{}': {}",
+                    candidate.display(),
+                    e
+                ))
+            }
+        }
+    };
+
+    let result = (|| -> std::io::Result<()> {
+        tmp_file.write_all(bytes)?;
+        tmp_file.sync_all()?;
+        // Rename is atomic on the same filesystem.
+        fs::rename(&tmp_path, path)
+    })();
+
+    result.map_err(|e| {
         let _ = fs::remove_file(&tmp_path);
-        format!("Failed to write to temp file: {}", e)
-    })?;
-
-    tmp_file.sync_all().map_err(|e| {
-        let _ = fs::remove_file(&tmp_path);
-        format!("Failed to sync file: {}", e)
-    })?;
-
-    // Rename temp file to target (atomic on same filesystem)
-    fs::rename(&tmp_path, file_path).map_err(|e| {
-        let _ = fs::remove_file(&tmp_path);
-        format!("Failed to rename temp file to '{}': {}", path, e)
-    })?;
-
-    Ok(())
+        format!("Failed to write '{}': {}", path.display(), e)
+    })
 }
 
 /// Tauri command: Returns the last modified time of a file as milliseconds since UNIX epoch.
@@ -150,7 +199,7 @@ fn is_supported_file(path: &Path) -> bool {
 
 /// Tauri command: Lists only the immediate children of a directory (non-recursive).
 /// Useful for lazy-loading large directory trees.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_directory_shallow(path: String) -> Result<Vec<FileNode>, String> {
     let dir_path = Path::new(&path);
 
@@ -224,30 +273,49 @@ fn is_image_file(path: &Path) -> bool {
     }
 }
 
-/// Generate a deduplicated filename in the target directory.
-/// If `target_dir/stem.ext` already exists, tries `stem_1.ext`, `stem_2.ext`, etc.
-fn deduplicate_filename(target_dir: &Path, stem: &str, extension: &str) -> String {
-    let candidate = format!("{}.{}", stem, extension);
-    if !target_dir.join(&candidate).exists() {
-        return candidate;
-    }
-
-    let mut counter = 1u32;
-    loop {
-        let candidate = format!("{}_{}.{}", stem, counter, extension);
-        if !target_dir.join(&candidate).exists() {
-            return candidate;
+/// Create a new, uniquely named file in the target directory and return its name.
+/// Tries `stem.ext`, then `stem_1.ext`, `stem_2.ext`, etc. The name is claimed with
+/// `create_new`, so concurrent callers can never receive the same file.
+fn create_unique_file(
+    target_dir: &Path,
+    stem: &str,
+    extension: &str,
+) -> Result<(String, fs::File), String> {
+    let ts = || {
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    };
+    for counter in 0..=10001u32 {
+        let candidate = match counter {
+            0 => format!("{}.{}", stem, extension),
+            // Fallback to timestamp after 10000 collisions
+            10001 => format!("{}_{}.{}", stem, ts(), extension),
+            n => format!("{}_{}.{}", stem, n, extension),
+        };
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(target_dir.join(&candidate))
+        {
+            Ok(file) => return Ok((candidate, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                return Err(format!(
+                    "Failed to create '{}': {}",
+                    target_dir.join(&candidate).display(),
+                    e
+                ))
+            }
         }
-        counter += 1;
-        if counter > 10000 {
-            // Fallback to timestamp to guarantee uniqueness
-            let ts = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            return format!("{}_{}.{}", stem, ts, extension);
-        }
     }
+    Err(format!(
+        "No free file name for '{}.{}' in '{}'",
+        stem,
+        extension,
+        target_dir.display()
+    ))
 }
 
 /// Resolve the assets directory for a given document, creating it if needed.
@@ -316,11 +384,13 @@ pub fn copy_image_to_assets(image_path: String, document_path: String) -> Result
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "png".to_string());
 
-    let target_name = deduplicate_filename(&assets_dir, &stem, &extension);
+    let (target_name, placeholder) = create_unique_file(&assets_dir, &stem, &extension)?;
+    drop(placeholder);
     let target_path = assets_dir.join(&target_name);
 
-    // Copy the image file
+    // Copy the image file over the claimed placeholder
     fs::copy(img_path, &target_path).map_err(|e| {
+        let _ = fs::remove_file(&target_path);
         format!(
             "Failed to copy image '{}' to '{}': {}",
             image_path,
@@ -364,17 +434,8 @@ pub fn write_image_to_assets(
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "png".to_string());
 
-    let target_name = deduplicate_filename(&assets_dir, &stem, &ext);
+    let (target_name, mut file) = create_unique_file(&assets_dir, &stem, &ext)?;
     let target_path = assets_dir.join(&target_name);
-
-    // Write the image bytes to the file
-    let mut file = fs::File::create(&target_path).map_err(|e| {
-        format!(
-            "Failed to create image file '{}': {}",
-            target_path.display(),
-            e
-        )
-    })?;
 
     file.write_all(&image_bytes).map_err(|e| {
         let _ = fs::remove_file(&target_path);
@@ -443,6 +504,89 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::tempdir;
+
+    #[test]
+    fn test_resolve_write_target_follows_symlinks_like_a_write_would() {
+        use std::os::unix::fs::symlink;
+        let dir = tempdir().unwrap();
+        let d = dir.path();
+        let resolve = |p: &Path| resolve_write_target(p);
+        fs::write(d.join("real.md"), "x").unwrap();
+        fs::create_dir(d.join("realdir")).unwrap();
+        symlink(d.join("real.md"), d.join("abs-link.md")).unwrap();
+        symlink("real.md", d.join("rel-link.md")).unwrap();
+        symlink("rel-link.md", d.join("chain.md")).unwrap();
+        symlink("not-yet.md", d.join("dangling.md")).unwrap();
+        symlink("loop-b.md", d.join("loop-a.md")).unwrap();
+        symlink("loop-a.md", d.join("loop-b.md")).unwrap();
+        symlink(d.join("realdir"), d.join("linkdir")).unwrap();
+
+        // Regular and missing files resolve to themselves.
+        assert_eq!(resolve(&d.join("real.md")).unwrap(), d.join("real.md"));
+        assert_eq!(resolve(&d.join("new.md")).unwrap(), d.join("new.md"));
+        // Links (absolute, relative, chained) resolve to the final target.
+        assert_eq!(resolve(&d.join("abs-link.md")).unwrap(), d.join("real.md"));
+        assert_eq!(resolve(&d.join("rel-link.md")).unwrap(), d.join("real.md"));
+        assert_eq!(resolve(&d.join("chain.md")).unwrap(), d.join("real.md"));
+        // A dangling link resolves to the target it names, not to itself.
+        assert_eq!(
+            resolve(&d.join("dangling.md")).unwrap(),
+            d.join("not-yet.md")
+        );
+        // A loop is an error, never the link itself.
+        assert!(resolve(&d.join("loop-a.md")).is_err());
+        // A file under a symlinked directory is reached through that directory.
+        let under = resolve(&d.join("linkdir").join("f.md")).unwrap();
+        fs::write(&under, "y").unwrap();
+        assert_eq!(
+            fs::read_to_string(d.join("realdir").join("f.md")).unwrap(),
+            "y"
+        );
+        assert!(fs::symlink_metadata(d.join("linkdir"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[test]
+    fn test_concurrent_writes_sharing_a_stem_keep_their_own_bytes() {
+        // Two writes sharing a stem (notes.md, notes.html) must never share a
+        // temp file, even if they overlap.
+        let dir = tempdir().unwrap();
+        let paths: Vec<String> = ["notes.md", "notes.html"]
+            .iter()
+            .map(|n| dir.path().join(n).to_string_lossy().to_string())
+            .collect();
+        for round in 0..50 {
+            let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let handles: Vec<_> = paths
+                .iter()
+                .map(|p| {
+                    let (p, barrier) = (p.clone(), barrier.clone());
+                    std::thread::spawn(move || {
+                        let body = format!("{}:{}", p, round).repeat(2000);
+                        barrier.wait();
+                        write_file(p.clone(), body.clone()).unwrap();
+                        (p, body)
+                    })
+                })
+                .collect();
+            for h in handles {
+                let (p, body) = h.join().unwrap();
+                assert!(
+                    fs::read_to_string(&p).unwrap() == body,
+                    "{} got foreign bytes",
+                    p
+                );
+            }
+        }
+        let mut names: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["notes.html", "notes.md"]);
+    }
 
     #[test]
     fn test_read_directory_shallow() {
@@ -522,26 +666,54 @@ mod tests {
     }
 
     #[test]
-    fn test_deduplicate_filename_no_conflict() {
+    fn test_create_unique_file_no_conflict() {
         let dir = tempdir().unwrap();
-        let result = deduplicate_filename(dir.path(), "photo", "png");
+        let (result, _) = create_unique_file(dir.path(), "photo", "png").unwrap();
         assert_eq!(result, "photo.png");
     }
 
     #[test]
-    fn test_deduplicate_filename_with_conflicts() {
+    fn test_create_unique_file_with_conflicts() {
         let dir = tempdir().unwrap();
         let root = dir.path();
 
         // Create photo.png
         fs::File::create(root.join("photo.png")).unwrap();
-        let result = deduplicate_filename(root, "photo", "png");
+        let (result, _) = create_unique_file(root, "photo", "png").unwrap();
         assert_eq!(result, "photo_1.png");
 
         // Create photo_1.png too
         fs::File::create(root.join("photo_1.png")).unwrap();
-        let result = deduplicate_filename(root, "photo", "png");
+        let (result, _) = create_unique_file(root, "photo", "png").unwrap();
         assert_eq!(result, "photo_2.png");
+    }
+
+    #[test]
+    fn test_concurrent_image_writes_never_share_a_name() {
+        // Commands run off the main thread, so simultaneous pastes with the
+        // same name must each get their own file.
+        let dir = tempdir().unwrap();
+        let doc = dir.path().join("doc.md").to_string_lossy().to_string();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
+        let handles: Vec<_> = (0..16u8)
+            .map(|i| {
+                let (doc, barrier) = (doc.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    let rel = write_image_to_assets(vec![i; 4096], doc, "p.png".into()).unwrap();
+                    (i, rel)
+                })
+            })
+            .collect();
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        for (i, rel) in &results {
+            assert_eq!(
+                fs::read(dir.path().join(rel)).unwrap(),
+                vec![*i; 4096],
+                "{}",
+                rel
+            );
+        }
     }
 
     #[test]

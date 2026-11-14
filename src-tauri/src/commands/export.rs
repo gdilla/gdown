@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 /// Supported export formats with their Pandoc output format names and typical file extensions.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -509,6 +512,10 @@ fn extended_path() -> String {
 
 /// Execute Pandoc with the given config, markdown input, and output path.
 /// This is the core export function used by both the Tauri command and tests.
+///
+/// Pandoc writes to a hidden temp file beside the destination, which is renamed
+/// into place only on success, so an interrupted or failed export never leaves a
+/// partial file at the destination.
 pub fn run_pandoc_export(
     pandoc_path: &str,
     config: &ExportConfig,
@@ -517,6 +524,115 @@ pub fn run_pandoc_export(
     title: Option<&str>,
     resource_path: Option<&str>,
 ) -> Result<ExportResult, String> {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    // Export through a symlink to its target, so the link survives the rename.
+    let resolved = super::fs::resolve_write_target(Path::new(output_path))?;
+    let destination = resolved.as_path();
+    // Pandoc infers PDF output from the -o extension, so the temp file takes the
+    // format's extension, never the (possibly symlinked) destination's name.
+    let extension = format!(".{}", config.format.default_extension());
+    let prefix = export_temp_prefix(destination);
+    // Remove temps an earlier export to this destination abandoned (quit or
+    // crash), but only ones that cannot be live: this process's own (export_document
+    // holds this destination's claim, so none is running here) and other
+    // processes' temps untouched for an hour.
+    // ponytail: age heuristic; a Pandoc run over an hour in another instance loses its temp.
+    const ABANDONED_AFTER: std::time::Duration = std::time::Duration::from_secs(3600);
+    let own = format!("{}{}-", prefix, std::process::id());
+    let dir = match destination.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with(&prefix) {
+                continue;
+            }
+            let abandoned = name.starts_with(&own)
+                || entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|age| age > ABANDONED_AFTER);
+            if abandoned {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    let tmp_path = destination.with_file_name(format!(
+        "{}{}-{}{}",
+        prefix,
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed),
+        extension
+    ));
+
+    // Pandoc truncates an existing -o file in place, so pre-creating the temp
+    // with the destination's mode keeps a restricted (e.g. 0600) export private
+    // across the rename. Starts at 0600 so content is never wider than that.
+    // A new destination is left to Pandoc and gets the default mode.
+    if let Ok(existing) = std::fs::metadata(destination) {
+        use std::os::unix::fs::OpenOptionsExt;
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp_path)
+            .map_err(|e| format!("Failed to create '{}': {}", tmp_path.display(), e))?;
+        if let Err(e) = file.set_permissions(existing.permissions()) {
+            eprintln!(
+                "Leaf: could not keep permissions of '{}': {}",
+                output_path, e
+            );
+        }
+    }
+
+    let result = run_pandoc(
+        pandoc_path,
+        config,
+        markdown,
+        &tmp_path.to_string_lossy(),
+        title,
+        resource_path,
+    )
+    .and_then(|()| {
+        std::fs::rename(&tmp_path, destination)
+            .map_err(|e| format!("Failed to finalize export '{}': {}", output_path, e))
+    });
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    result.map(|()| ExportResult {
+        success: true,
+        output_path: output_path.to_string(),
+        message: format!("Successfully exported to {}", output_path),
+    })
+}
+
+/// Hidden temp-file prefix for exports to `destination`: short (any file name
+/// still fits) and stable, so temps left by an abandoned export can be found.
+fn export_temp_prefix(destination: &Path) -> String {
+    let name = destination
+        .file_name()
+        .unwrap_or_default()
+        .as_encoded_bytes();
+    // FNV-1a: stable across Rust releases, unlike DefaultHasher.
+    let hash = name.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!(".leaf-export-{:016x}-", hash)
+}
+
+fn run_pandoc(
+    pandoc_path: &str,
+    config: &ExportConfig,
+    markdown: &str,
+    output_path: &str,
+    title: Option<&str>,
+    resource_path: Option<&str>,
+) -> Result<(), String> {
     let mut cmd = Command::new(pandoc_path);
 
     // Add all config-derived arguments
@@ -566,11 +682,7 @@ pub fn run_pandoc_export(
         .map_err(|e| format!("Failed to wait for Pandoc: {}", e))?;
 
     if output.status.success() {
-        Ok(ExportResult {
-            success: true,
-            output_path: output_path.to_string(),
-            message: format!("Successfully exported to {}", output_path),
-        })
+        Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -589,7 +701,8 @@ pub fn run_pandoc_export(
 
 /// Tauri command: Check if Pandoc is installed and return its path and version.
 /// Returns an error string if Pandoc is not found.
-#[tauri::command]
+/// `async` keeps process spawns (and Pandoc runs below) off the main thread.
+#[tauri::command(async)]
 pub fn check_pandoc() -> Result<PandocInfo, String> {
     let pandoc_path = find_pandoc_path().ok_or_else(|| {
         "Pandoc is not installed. Please install Pandoc from https://pandoc.org/installing.html to enable export functionality.".to_string()
@@ -623,6 +736,37 @@ pub fn get_export_config(format: ExportFormat) -> ExportConfig {
     ExportConfig::default_for(&format)
 }
 
+/// Destinations with an export in progress. export_document runs off the main
+/// thread, so two exports to one file would otherwise run Pandoc concurrently.
+// ponytail: keyed by the literal path; aliases via symlinks are not detected.
+static EXPORTS_IN_FLIGHT: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
+
+/// Claim on one export destination, released when dropped.
+struct ExportDestination(PathBuf);
+
+impl ExportDestination {
+    fn claim(output_path: &str) -> Result<Self, String> {
+        let path = PathBuf::from(output_path);
+        let mut in_flight = EXPORTS_IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+        if !in_flight.insert(path.clone()) {
+            return Err(format!(
+                "'{}' is already being exported; wait for that export to finish.",
+                output_path
+            ));
+        }
+        Ok(Self(path))
+    }
+}
+
+impl Drop for ExportDestination {
+    fn drop(&mut self) {
+        EXPORTS_IN_FLIGHT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
+    }
+}
+
 /// Tauri command: Export markdown content to a specified format using Pandoc.
 ///
 /// # Arguments
@@ -632,7 +776,7 @@ pub fn get_export_config(format: ExportFormat) -> ExportConfig {
 /// * `title` - Optional document title for metadata
 /// * `resource_path` - Optional base directory for resolving relative image/resource paths
 /// * `config` - Optional export configuration; if None, uses sensible defaults for the format
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_document(
     markdown: String,
     output_path: String,
@@ -641,6 +785,8 @@ pub fn export_document(
     resource_path: Option<String>,
     config: Option<ExportConfig>,
 ) -> Result<ExportResult, String> {
+    let _destination = ExportDestination::claim(&output_path)?;
+
     // Locate Pandoc
     let pandoc_path = find_pandoc_path().ok_or_else(|| {
         "Pandoc is not installed. Please install Pandoc from https://pandoc.org/installing.html"
@@ -661,8 +807,9 @@ pub fn export_document(
 }
 
 /// Tauri command: Open a native "Save As" dialog for export, with format-appropriate extension filter.
+/// Async so `blocking_save_file` runs off the main thread, as tauri-plugin-dialog requires.
 #[tauri::command]
-pub fn export_save_dialog(
+pub async fn export_save_dialog(
     app: tauri::AppHandle,
     format: ExportFormat,
     default_name: Option<String>,
@@ -1018,6 +1165,304 @@ mod tests {
     /// Helper: return pandoc path or skip test gracefully.
     fn pandoc_or_skip() -> Option<String> {
         find_pandoc_path()
+    }
+
+    /// A fake `pandoc` running `body` (a shell snippet; `$out` is the -o path).
+    fn fake_pandoc(dir: &std::path::Path, body: &str) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let fake = dir.join("pandoc");
+        let script = format!(
+            "#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = -o ] && out=\"$2\"; shift; done\ncat > /dev/null\n{}\n",
+            body
+        );
+        fs::write(&fake, script).unwrap();
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+        fake.to_string_lossy().to_string()
+    }
+
+    fn html_export(pandoc: &str, output: &std::path::Path) -> Result<ExportResult, String> {
+        let config = ExportConfig::default_for(&ExportFormat::Html);
+        run_pandoc_export(
+            pandoc,
+            &config,
+            "# Doc",
+            &output.to_string_lossy(),
+            None,
+            None,
+        )
+    }
+
+    #[test]
+    fn test_export_through_a_symlink_updates_its_target() {
+        let bin = tempfile::tempdir().unwrap();
+        let pandoc = fake_pandoc(bin.path(), "printf done > \"$out\"");
+        let out_dir = tempfile::tempdir().unwrap();
+        let target = out_dir.path().join("real.html");
+        let link = out_dir.path().join("link.html");
+        fs::write(&target, "old").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        html_export(&pandoc, &link).unwrap();
+
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "done");
+    }
+
+    #[test]
+    fn test_export_through_a_dangling_symlink_creates_its_target() {
+        let bin = tempfile::tempdir().unwrap();
+        let pandoc = fake_pandoc(bin.path(), "printf done > \"$out\"");
+        let out_dir = tempfile::tempdir().unwrap();
+        let link = out_dir.path().join("report.html");
+        std::os::unix::fs::symlink("exports/report-final.html", &link).unwrap();
+        fs::create_dir(out_dir.path().join("exports")).unwrap();
+
+        html_export(&pandoc, &link).unwrap();
+
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        let target = out_dir.path().join("exports/report-final.html");
+        assert_eq!(fs::read_to_string(target).unwrap(), "done");
+    }
+
+    #[test]
+    fn test_pdf_export_through_a_symlink_keeps_the_pdf_extension() {
+        // Pandoc infers PDF output from the -o extension; the temp file must
+        // carry the format's extension, not the symlink target's.
+        let bin = tempfile::tempdir().unwrap();
+        let pandoc = fake_pandoc(bin.path(), "printf '%s' \"${out##*.}\" > \"$out\"");
+        let out_dir = tempfile::tempdir().unwrap();
+        let target = out_dir.path().join("target.dat");
+        let link = out_dir.path().join("report.pdf");
+        fs::write(&target, "old").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let config = ExportConfig::default_for(&ExportFormat::Pdf);
+        run_pandoc_export(
+            &pandoc,
+            &config,
+            "# Doc",
+            &link.to_string_lossy(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(fs::read_to_string(&target).unwrap(), "pdf");
+    }
+
+    #[test]
+    fn test_integration_docx_export_through_a_symlink_to_another_extension() {
+        let pandoc_path = match pandoc_or_skip() {
+            Some(p) => p,
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
+        };
+        let out_dir = tempfile::tempdir().unwrap();
+        let target = out_dir.path().join("target.dat");
+        let link = out_dir.path().join("out.docx");
+        fs::write(&target, "old").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let config = ExportConfig::default_for(&ExportFormat::Word);
+        run_pandoc_export(
+            &pandoc_path,
+            &config,
+            "# Doc",
+            &link.to_string_lossy(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // A .docx is a zip archive.
+        assert!(fs::read(&target).unwrap().starts_with(b"PK"));
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[test]
+    fn test_export_keeps_the_destinations_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = tempfile::tempdir().unwrap();
+        let pandoc = fake_pandoc(bin.path(), "printf done > \"$out\"");
+        let out_dir = tempfile::tempdir().unwrap();
+        let mode = |p: &std::path::Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+
+        let private = out_dir.path().join("private.html");
+        fs::write(&private, "old").unwrap();
+        fs::set_permissions(&private, fs::Permissions::from_mode(0o600)).unwrap();
+        html_export(&pandoc, &private).unwrap();
+        assert_eq!(mode(&private), 0o600);
+
+        // A brand-new export keeps the default mode.
+        let reference = out_dir.path().join("reference");
+        fs::File::create(&reference).unwrap();
+        let fresh = out_dir.path().join("fresh.html");
+        html_export(&pandoc, &fresh).unwrap();
+        assert_eq!(mode(&fresh), mode(&reference));
+    }
+
+    #[test]
+    fn test_a_new_export_removes_only_temps_that_cannot_be_live() {
+        let bin = tempfile::tempdir().unwrap();
+        let pandoc = fake_pandoc(bin.path(), "printf done > \"$out\"");
+        let out_dir = tempfile::tempdir().unwrap();
+        let output = out_dir.path().join("report.html");
+        let prefix = export_temp_prefix(&output);
+        let temp = |owner: u32| out_dir.path().join(format!("{}{}-0.html", prefix, owner));
+        let own = temp(std::process::id()); // left by an earlier export in this process
+        let foreign_fresh = temp(4242); // another Leaf instance may still be writing it
+        let foreign_old = temp(4343); // abandoned by a quit or crash long ago
+        let other_destination = out_dir.path().join(format!(
+            "{}4343-0.html",
+            export_temp_prefix(&out_dir.path().join("other.html"))
+        ));
+        for path in [&own, &foreign_fresh, &foreign_old, &other_destination] {
+            fs::write(path, "partial").unwrap();
+        }
+        let two_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+        for path in [&foreign_old, &other_destination] {
+            fs::File::options()
+                .write(true)
+                .open(path)
+                .and_then(|f| f.set_modified(two_hours_ago))
+                .unwrap();
+        }
+
+        html_export(&pandoc, &output).unwrap();
+
+        assert_eq!(fs::read_to_string(&output).unwrap(), "done");
+        assert!(!own.exists(), "this process's leftover was kept");
+        assert!(
+            foreign_fresh.exists(),
+            "another instance's live export was removed"
+        );
+        assert!(!foreign_old.exists(), "an hour-old abandoned temp was kept");
+        assert!(
+            other_destination.exists(),
+            "temp for a different destination was removed"
+        );
+    }
+
+    #[test]
+    fn test_an_abandoned_export_never_touches_the_destination() {
+        // Quitting during an export abandons it: Pandoc only ever writes to the
+        // hidden temp path, and only Leaf renames it, after Pandoc succeeds.
+        let bin = tempfile::tempdir().unwrap();
+        let go = bin.path().join("go");
+        let pandoc = fake_pandoc(
+            bin.path(),
+            &format!(
+                "printf partial > \"$out\"\nwhile [ ! -f '{}' ]; do sleep 0.02; done\nexit 1",
+                go.display()
+            ),
+        );
+        let out_dir = tempfile::tempdir().unwrap();
+        let output = out_dir.path().join("report.html");
+        fs::write(&output, "previous").unwrap();
+
+        let running = {
+            let (pandoc, output) = (pandoc.clone(), output.clone());
+            std::thread::spawn(move || html_export(&pandoc, &output))
+        };
+        let prefix = export_temp_prefix(&output);
+        let temp_written = || {
+            fs::read_dir(out_dir.path()).unwrap().flatten().any(|e| {
+                e.file_name().to_string_lossy().starts_with(&prefix)
+                    && fs::read_to_string(e.path()).unwrap_or_default() == "partial"
+            })
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !temp_written() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "fake pandoc never ran"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(fs::read_to_string(&output).unwrap(), "previous");
+
+        fs::write(&go, "").unwrap();
+        assert!(running.join().unwrap().is_err());
+        assert_eq!(fs::read_to_string(&output).unwrap(), "previous");
+    }
+
+    #[test]
+    fn test_an_interrupted_export_leaves_nothing_at_the_destination() {
+        use std::os::unix::fs::PermissionsExt;
+        // Stand-in for a Pandoc run cut off midway (crash, forced quit):
+        // it writes partial output to its -o path and then fails.
+        let bin = tempfile::tempdir().expect("create temp dir");
+        let fake = bin.path().join("pandoc");
+        fs::write(
+            &fake,
+            "#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = -o ] && printf partial > \"$2\"; shift; done\ncat > /dev/null\nexit 1\n",
+        )
+        .unwrap();
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+        let out_dir = tempfile::tempdir().expect("create temp dir");
+        let output = out_dir.path().join("report.html");
+
+        let result = run_pandoc_export(
+            &fake.to_string_lossy(),
+            &ExportConfig::default_for(&ExportFormat::Html),
+            "# Doc",
+            &output.to_string_lossy(),
+            None,
+            None,
+        );
+
+        assert!(result.is_err());
+        assert!(!output.exists(), "partial output reached the destination");
+        assert_eq!(
+            fs::read_dir(out_dir.path()).unwrap().count(),
+            0,
+            "temp file left behind"
+        );
+    }
+
+    #[test]
+    fn test_overlapping_exports_to_one_destination_run_one_at_a_time() {
+        if pandoc_or_skip().is_none() {
+            eprintln!("SKIP: pandoc not found");
+            return;
+        }
+        // export_document runs off the main thread, so a second export to the
+        // same file must not start while the first Pandoc is still writing it.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let output = dir.path().join("same.html").to_string_lossy().to_string();
+        let markdown = "# Heading\n\nSome *text* with `code`.\n\n".repeat(20_000);
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let (output, markdown, barrier) =
+                    (output.clone(), markdown.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    export_document(markdown, output, ExportFormat::Html, None, None, None)
+                })
+            })
+            .collect();
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        assert_eq!(
+            results.iter().filter(|r| r.is_ok()).count(),
+            1,
+            "{:?}",
+            results.iter().map(|r| r.as_ref().err()).collect::<Vec<_>>()
+        );
+        let err = results.into_iter().find_map(|r| r.err()).unwrap();
+        assert!(err.contains("already being exported"), "{}", err);
     }
 
     /// Sample markdown with various elements for testing exports.

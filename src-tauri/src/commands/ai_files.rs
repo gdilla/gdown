@@ -82,11 +82,14 @@ pub fn list_files_with_mtime(dir_path: String) -> Result<Vec<FileInfo>, String> 
     Ok(files)
 }
 
+/// Directory levels below the project root searched for instruction files.
+const MAX_INSTRUCTION_DEPTH: usize = 8;
+
 /// Tauri command: Finds instruction files (CLAUDE.md, AGENTS.md) in the project tree
 /// and checks ~/.claude/CLAUDE.md.
 ///
 /// Walks the project directory recursively, skipping hidden directories.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn find_instruction_files(project_path: String) -> Result<Vec<String>, String> {
     let mut results: Vec<String> = Vec::new();
 
@@ -101,43 +104,39 @@ pub fn find_instruction_files(project_path: String) -> Result<Vec<String>, Strin
     // Walk project tree
     let root = Path::new(&project_path);
     if root.is_dir() {
-        walk_for_instruction_files(root, &mut results)?;
+        walk_for_instruction_files(root, 0, &mut results);
     }
 
     Ok(results)
 }
 
-/// Recursively walk a directory for CLAUDE.md and AGENTS.md files, skipping hidden dirs.
-fn walk_for_instruction_files(dir: &Path, results: &mut Vec<String>) -> Result<(), String> {
-    let entries = fs::read_dir(dir)
-        .map_err(|e| format!("Failed to read directory '{}': {}", dir.display(), e))?;
+/// Walk a directory for CLAUDE.md and AGENTS.md files, skipping hidden dirs,
+/// `node_modules`, `target`, symlinks (no cycles) and unreadable entries,
+/// and stopping `MAX_INSTRUCTION_DEPTH` levels below the root.
+fn walk_for_instruction_files(dir: &Path, depth: usize, results: &mut Vec<String>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
 
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+    for entry in entries.flatten() {
         let file_name = entry.file_name().to_string_lossy().to_string();
-
-        // Skip hidden directories and files
         if file_name.starts_with('.') {
             continue;
         }
+        // `file_type` does not follow symlinks.
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
 
-        let path = entry.path();
-        let metadata = entry
-            .metadata()
-            .map_err(|e| format!("Failed to read metadata: {}", e))?;
-
-        if metadata.is_dir() {
-            // Skip node_modules and target dirs for performance
-            if file_name == "node_modules" || file_name == "target" {
-                continue;
+        if file_type.is_dir() {
+            if depth < MAX_INSTRUCTION_DEPTH && file_name != "node_modules" && file_name != "target"
+            {
+                walk_for_instruction_files(&entry.path(), depth + 1, results);
             }
-            walk_for_instruction_files(&path, results)?;
-        } else if metadata.is_file() && (file_name == "CLAUDE.md" || file_name == "AGENTS.md") {
-            results.push(path.to_string_lossy().to_string());
+        } else if file_type.is_file() && (file_name == "CLAUDE.md" || file_name == "AGENTS.md") {
+            results.push(entry.path().to_string_lossy().to_string());
         }
     }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -241,5 +240,62 @@ mod tests {
         assert!(project_files
             .iter()
             .any(|p| p.contains("src") && p.ends_with("CLAUDE.md")));
+    }
+
+    fn project_results(root: &Path) -> Vec<String> {
+        let prefix = root.to_string_lossy().to_string();
+        find_instruction_files(prefix.clone())
+            .unwrap()
+            .into_iter()
+            .filter(|p| p.starts_with(&prefix))
+            .collect()
+    }
+
+    #[test]
+    fn test_find_instruction_files_stops_at_depth_cap() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let mut at_cap = root.to_path_buf();
+        for i in 0..MAX_INSTRUCTION_DEPTH {
+            at_cap = at_cap.join(format!("d{}", i));
+        }
+        let below_cap = at_cap.join("deeper");
+        fs::create_dir_all(&below_cap).unwrap();
+        fs::write(at_cap.join("CLAUDE.md"), "# at cap").unwrap();
+        fs::write(below_cap.join("CLAUDE.md"), "# below cap").unwrap();
+
+        let found = project_results(root);
+        assert_eq!(
+            found,
+            vec![at_cap.join("CLAUDE.md").to_string_lossy().to_string()]
+        );
+    }
+
+    #[test]
+    fn test_find_instruction_files_skips_unreadable_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let locked = root.join("locked");
+        fs::create_dir_all(locked.join("inner")).unwrap();
+        fs::create_dir(root.join("open")).unwrap();
+        fs::write(root.join("open").join("AGENTS.md"), "# open").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = find_instruction_files(root.to_string_lossy().to_string());
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let found = result.expect("an unreadable directory must not abort the scan");
+        assert!(found.iter().any(|p| p.ends_with("open/AGENTS.md")));
+    }
+
+    #[test]
+    fn test_find_instruction_files_does_not_follow_symlinked_dirs() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("CLAUDE.md"), "# root").unwrap();
+        std::os::unix::fs::symlink(root, root.join("loop")).unwrap();
+
+        assert_eq!(project_results(root).len(), 1);
     }
 }
