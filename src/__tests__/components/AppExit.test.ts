@@ -83,4 +83,40 @@ describe('App quit during an export', () => {
     expect(calls('cancel_exit')).toHaveLength(0)
     expect(exportStore.isExporting).toBe(true)
   })
+
+  it('cancels the quit when an edit lands during the final document write', async () => {
+    const tabs = useTabsStore()
+    const tab = tabs.createTab('/tmp/notes.md', '# Before')
+    tabs.setModified(tab.id, true)
+    let finishWrite!: (mtime: number) => void
+    mockedInvoke.mockImplementation(async (command) => {
+      if (command === 'get_file_modified_time') return 100 as never
+      if (command === 'write_file') {
+        return new Promise((resolve) => {
+          finishWrite = resolve
+        }) as never
+      }
+      if (command === 'get_pending_open_files') return [] as never
+      return null as never
+    })
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+
+    listeners.get('app-exit-requested')!()
+    await vi.waitFor(() => expect(wrapper!.find('.close-prompt').exists()).toBe(true))
+    const save = wrapper.findAll('.close-prompt button').find((b) => b.text() === 'Save')!
+    await save.trigger('click')
+    await vi.waitFor(() => expect(calls('write_file')).toHaveLength(1))
+
+    // write_file runs off the main thread, so the editor can still take input.
+    tabs.saveEditorState(tab.id, { markdown: '# Typed during the write' })
+    tabs.markContentChanged(tab.id)
+    tabs.setModified(tab.id, true)
+    finishWrite(101)
+
+    await vi.waitFor(() => expect(calls('cancel_exit')).toHaveLength(1))
+    expect(calls('allow_exit')).toHaveLength(0)
+    expect(tabs.tabs[0]?.isModified).toBe(true)
+    expect(tabs.tabs[0]?.editorState.markdown).toBe('# Typed during the write')
+  })
 })

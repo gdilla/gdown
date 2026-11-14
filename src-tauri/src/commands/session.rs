@@ -31,7 +31,10 @@ fn session_file_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// The frontend serializes the session data (open tabs, active tab index,
 /// sidebar folder path, scroll positions) into a JSON string and passes it here.
 /// We write it atomically to prevent data loss on crash.
-#[tauri::command(async)]
+///
+/// Deliberately synchronous (main thread): the quit handshake's final session
+/// save must not leave the window editable while it runs. It is a small write.
+#[tauri::command]
 pub fn save_session_state(app: tauri::AppHandle, state: String) -> Result<(), String> {
     let file_path = session_file_path(&app)?;
 
@@ -71,4 +74,16 @@ mod tests {
     // Session commands require a Tauri AppHandle, so integration-level testing
     // is more appropriate. The logic is straightforward file I/O that is
     // covered by the atomic write pattern already tested in fs.rs.
+
+    #[test]
+    fn test_save_session_state_stays_on_the_main_thread() {
+        // The quit handshake depends on this: the window cannot take input while
+        // the final session write runs on the main thread, so nothing typed after
+        // App.vue's final capture can be missing from the recovery snapshot.
+        let source = include_str!("session.rs");
+        assert!(
+            source.contains("#[tauri::command]\npub fn save_session_state("),
+            "save_session_state must be a synchronous (main-thread) command"
+        );
+    }
 }
