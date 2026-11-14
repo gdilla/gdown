@@ -3,6 +3,21 @@ import ListItem from '@tiptap/extension-list-item'
 import { wrappingInputRule } from '@tiptap/core'
 
 /**
+ * Whether the markdown list was tight (no blank lines between items). Set by
+ * markdownToHtml (`data-tight`) and read back by htmlToMarkdown; lists created
+ * in the editor default to tight.
+ */
+export const tightListAttribute = {
+  tight: {
+    default: true,
+    parseHTML: (element: HTMLElement) => element.getAttribute('data-tight') !== 'false',
+    renderHTML: (attributes: { tight?: boolean }) => ({
+      'data-tight': String(attributes.tight !== false),
+    }),
+  },
+}
+
+/**
  * GdownListItem: Custom list item with Typora-like indentation behavior.
  *
  * Features:
@@ -98,6 +113,10 @@ export const GdownListItem = ListItem.extend({
  * - Keyboard shortcut: Cmd+Shift+U (Typora shortcut for unordered list)
  */
 export const GdownBulletList = BulletList.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...tightListAttribute }
+  },
+
   addOptions() {
     return {
       ...this.parent?.(),

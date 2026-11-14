@@ -49,7 +49,7 @@ describe('Editor rich snapshot boundaries', () => {
     vi.advanceTimersByTime(199)
     expect(tab.editorState.markdown).toBe('# Before')
     vi.advanceTimersByTime(1)
-    expect(tab.editorState.markdown).toBe('Latest')
+    expect(tab.editorState.markdown).toBe('Latest\n')
   })
 
   it('flushes the outgoing rich snapshot before a tab switch', async () => {
@@ -74,7 +74,7 @@ describe('Editor rich snapshot boundaries', () => {
     tabsStore.setActiveTab(second.id)
     await nextTick()
 
-    expect(first.editorState.markdown).toBe('First latest')
+    expect(first.editorState.markdown).toBe('First latest\n')
     expect(tabsStore.activeTabId).toBe(second.id)
   })
 
@@ -107,7 +107,7 @@ describe('Editor rich snapshot boundaries', () => {
     tabsStore.setActiveTab(first.id)
     await nextTick()
 
-    expect(first.editorState.markdown).toBe('First latest')
+    expect(first.editorState.markdown).toBe('First latest\n')
     expect(first.editorState.scrollTop).toBe(123)
     expect((container.element as HTMLElement).scrollTop).toBe(123)
   })
@@ -133,7 +133,7 @@ describe('Editor rich snapshot boundaries', () => {
     window.dispatchEvent(new Event('gdown:toggle-mode'))
 
     expect(modeStore.isWysiwyg).toBe(false)
-    expect(tab.editorState.markdown).toBe('Mode latest')
+    expect(tab.editorState.markdown).toBe('Mode latest\n')
     expect(tab.editorState.doc).toBeNull()
   })
 
@@ -165,7 +165,7 @@ describe('Editor rich snapshot boundaries', () => {
     expect(tabsStore.tabs).toHaveLength(0)
     expect(mockedInvoke).toHaveBeenCalledWith('write_file', {
       path: '/tmp/close.md',
-      content: 'Close latest',
+      content: 'Close latest\n',
     })
   })
 })

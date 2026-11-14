@@ -2,6 +2,7 @@ import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import { InputRule } from '@tiptap/core'
 import type { EditorState } from '@tiptap/pm/state'
+import { tightListAttribute } from './GdownBulletList'
 
 /**
  * GdownTaskItem: Custom TipTap Task Item extension with Typora-like behavior.
@@ -97,6 +98,10 @@ export const GdownTaskItem = TaskItem.extend({
  * - Nested task lists supported
  */
 export const GdownTaskList = TaskList.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...tightListAttribute }
+  },
+
   addOptions() {
     return {
       ...this.parent?.(),

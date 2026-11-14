@@ -57,11 +57,13 @@ export const MathBlock = Node.create({
     ]
   },
 
-  renderHTML({ HTMLAttributes }) {
+  // The LaTeX is the text content (not a content hole: this is an atom node),
+  // so serializers and plain-text copies see it.
+  renderHTML({ node, HTMLAttributes }) {
     return [
       'div',
       mergeAttributes(HTMLAttributes, { 'data-type': 'math-block', class: 'math-block' }),
-      0,
+      node.attrs.latex,
     ]
   },
 

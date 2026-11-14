@@ -1,5 +1,6 @@
 import OrderedList from '@tiptap/extension-ordered-list'
 import { wrappingInputRule } from '@tiptap/core'
+import { tightListAttribute } from './GdownBulletList'
 
 /**
  * GdownOrderedList: Custom TipTap Ordered List extension with Typora-like behavior.
@@ -27,6 +28,7 @@ export const GdownOrderedList = OrderedList.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
+      ...tightListAttribute,
       start: {
         default: 1,
         parseHTML: (element) => {
