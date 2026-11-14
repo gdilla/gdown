@@ -7,21 +7,21 @@
           <label for="link-text">Text</label>
           <input
             id="link-text"
+            ref="textInput"
             v-model="linkText"
             type="text"
             placeholder="Link text"
-            ref="textInput"
           />
         </div>
         <div class="dialog-field">
           <label for="link-url">URL</label>
           <input
             id="link-url"
+            ref="urlInput"
             v-model="linkUrl"
             type="url"
             placeholder="https://example.com"
             @keydown.enter="confirm"
-            ref="urlInput"
           />
         </div>
         <div class="dialog-field">
@@ -36,9 +36,7 @@
         </div>
         <div class="dialog-actions">
           <button class="btn btn-cancel" @click="cancel">Cancel</button>
-          <button class="btn btn-confirm" @click="confirm" :disabled="!linkUrl">
-            Insert
-          </button>
+          <button class="btn btn-confirm" :disabled="!linkUrl" @click="confirm">Insert</button>
         </div>
       </div>
     </div>
@@ -46,97 +44,97 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted } from "vue";
-import type { Editor } from "@tiptap/core";
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import type { Editor } from '@tiptap/core'
 
 const props = defineProps<{
-  editor: Editor;
-}>();
+  editor: Editor
+}>()
 
-const visible = ref(false);
-const linkText = ref("");
-const linkUrl = ref("");
-const linkTitle = ref("");
-const textInput = ref<HTMLInputElement | null>(null);
-const urlInput = ref<HTMLInputElement | null>(null);
+const visible = ref(false)
+const linkText = ref('')
+const linkUrl = ref('')
+const linkTitle = ref('')
+const textInput = ref<HTMLInputElement | null>(null)
+const urlInput = ref<HTMLInputElement | null>(null)
 
-let savedFrom = 0;
-let savedTo = 0;
+let savedFrom = 0
+let savedTo = 0
 
 function handleInsertLink(event: Event) {
-  const detail = (event as CustomEvent).detail || {};
-  savedFrom = detail.from || 0;
-  savedTo = detail.to || 0;
-  linkText.value = detail.text || "";
-  linkUrl.value = "";
-  linkTitle.value = "";
-  visible.value = true;
+  const detail = (event as CustomEvent).detail || {}
+  savedFrom = detail.from || 0
+  savedTo = detail.to || 0
+  linkText.value = detail.text || ''
+  linkUrl.value = ''
+  linkTitle.value = ''
+  visible.value = true
   nextTick(() => {
     if (linkText.value) {
-      urlInput.value?.focus();
+      urlInput.value?.focus()
     } else {
-      textInput.value?.focus();
+      textInput.value?.focus()
     }
-  });
+  })
 }
 
 function confirm() {
-  if (!linkUrl.value) return;
+  if (!linkUrl.value) return
 
-  const chain = props.editor.chain().focus();
+  const chain = props.editor.chain().focus()
 
   if (linkText.value && savedFrom === savedTo) {
     // No selection, insert text with link
     chain
       .insertContentAt(savedFrom, {
-        type: "text",
+        type: 'text',
         text: linkText.value,
         marks: [
           {
-            type: "link",
+            type: 'link',
             attrs: {
               href: linkUrl.value,
               title: linkTitle.value || null,
-              target: "_blank",
+              target: '_blank',
             },
           },
         ],
       })
-      .run();
+      .run()
   } else {
     // Selection exists, wrap it in link
     chain
-      .extendMarkRange("link")
+      .extendMarkRange('link')
       .setLink({
         href: linkUrl.value,
-        target: "_blank",
+        target: '_blank',
       })
-      .run();
+      .run()
   }
 
-  visible.value = false;
+  visible.value = false
 }
 
 function cancel() {
-  visible.value = false;
-  props.editor.commands.focus();
+  visible.value = false
+  props.editor.commands.focus()
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape" && visible.value) {
-    cancel();
+  if (event.key === 'Escape' && visible.value) {
+    cancel()
   }
 }
 
 onMounted(() => {
-  window.addEventListener("gdown:insert-link", handleInsertLink);
-  window.addEventListener("keydown", handleKeydown);
-});
+  window.addEventListener('gdown:insert-link', handleInsertLink)
+  window.addEventListener('keydown', handleKeydown)
+})
 
 onUnmounted(() => {
-  window.removeEventListener("gdown:insert-link", handleInsertLink);
-  window.removeEventListener("keydown", handleKeydown);
-});
+  window.removeEventListener('gdown:insert-link', handleInsertLink)
+  window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <style scoped>
@@ -151,7 +149,7 @@ onUnmounted(() => {
 }
 
 .dialog-box {
-  background: white;
+  background: var(--bg-primary);
   border-radius: 8px;
   padding: 24px;
   width: 420px;
@@ -171,14 +169,14 @@ onUnmounted(() => {
 .dialog-field label {
   display: block;
   font-size: 13px;
-  color: #666;
+  color: var(--text-secondary);
   margin-bottom: 4px;
 }
 
 .dialog-field input {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--input-border);
   border-radius: 4px;
   font-size: 14px;
   outline: none;
@@ -186,7 +184,7 @@ onUnmounted(() => {
 }
 
 .dialog-field input:focus {
-  border-color: #4183c4;
+  border-color: var(--focus-outline);
 }
 
 .dialog-actions {
@@ -199,19 +197,19 @@ onUnmounted(() => {
 .btn {
   padding: 6px 16px;
   border-radius: 4px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--input-border);
   cursor: pointer;
   font-size: 13px;
 }
 
 .btn-cancel {
-  background: white;
+  background: var(--bg-primary);
 }
 
 .btn-confirm {
-  background: #4183c4;
-  color: white;
-  border-color: #4183c4;
+  background: var(--link-color);
+  color: var(--accent-text);
+  border-color: var(--link-color);
 }
 
 .btn-confirm:disabled {
