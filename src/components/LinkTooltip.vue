@@ -48,6 +48,7 @@
             class="link-edit-input"
             type="text"
             placeholder="Link text"
+            :disabled="!editTextEditable"
             @keydown.enter="saveEdit"
             @keydown.esc="cancelEdit"
           />
@@ -66,6 +67,14 @@ import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import type { Editor } from '@tiptap/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { useEditorSettingsStore } from '../stores/editorSettings'
+import { getMarkRange } from '@tiptap/core'
+import { TextSelection, type Transaction } from '@tiptap/pm/state'
+import {
+  applyLink,
+  collapseToSelectionEnd,
+  isReplaceableSelection,
+  type LinkAttrs,
+} from '../utils/linkEditing'
 
 const props = defineProps<{ editor: Editor }>()
 const editorSettings = useEditorSettingsStore()
@@ -76,13 +85,17 @@ const position = ref({ x: 0, y: 0 })
 const editing = ref(false)
 const editUrl = ref('')
 const editText = ref('')
+// False when the link wraps non-text content (e.g. an image): only its URL is editable.
+const editTextEditable = ref(true)
 const copied = ref(false)
 const urlInput = ref<HTMLInputElement | null>(null)
 
 let hideTimer: ReturnType<typeof setTimeout> | null = null
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
-let linkFrom = 0
-let linkTo = 0
+// Start of the hovered link in the CURRENT document; -1 when there is none.
+// Any document change dismisses the popup and clears it (see onTransaction).
+let hoveredLinkPos = -1
+let linkAttrs: Omit<LinkAttrs, 'href'> = {}
 let editorDom: HTMLElement | null = null
 
 const displayUrl = computed(() => {
@@ -96,6 +109,8 @@ function show(linkHref: string, anchorEl: HTMLElement) {
   cancelHide()
   href.value = linkHref
   editing.value = false
+  // Hovering does not move the editor selection: remember which link this is.
+  hoveredLinkPos = props.editor.view.posAtDOM(anchorEl, 0)
 
   // Use fixed viewport coords — works regardless of scroll position
   const linkRect = anchorEl.getBoundingClientRect()
@@ -141,49 +156,47 @@ async function copyLink() {
   }, 1500)
 }
 
+/** Range of the hovered link (not of the editor selection, which may be elsewhere). */
+function hoveredLinkRange(): { from: number; to: number } | undefined {
+  const { doc, schema } = props.editor.state
+  if (hoveredLinkPos < 0 || hoveredLinkPos > doc.content.size) return undefined
+  return getMarkRange(doc.resolve(hoveredLinkPos), schema.marks.link!) || undefined
+}
+
 function removeLink() {
-  props.editor.chain().focus().extendMarkRange('link').unsetLink().run()
+  const range = hoveredLinkRange()
+  if (!range) return
+  props.editor
+    .chain()
+    .focus()
+    .setTextSelection(range)
+    .unsetLink()
+    .command(collapseToSelectionEnd)
+    .run()
   visible.value = false
 }
 
 function startEdit() {
-  props.editor.chain().extendMarkRange('link').run()
-  const { from, to } = props.editor.state.selection
-  linkFrom = from
-  linkTo = to
-  editText.value = props.editor.state.doc.textBetween(linkFrom, linkTo, ' ')
+  const range = hoveredLinkRange()
+  if (!range) return
+  props.editor.commands.setTextSelection(range)
+  const { title = null, target = null } = props.editor.getAttributes('link')
+  linkAttrs = { title, target }
+  editTextEditable.value = isReplaceableSelection(props.editor.state.selection)
+  editText.value = props.editor.state.doc.textBetween(range.from, range.to, ' ')
   editUrl.value = href.value
   editing.value = true
   nextTick(() => urlInput.value?.focus())
 }
 
 function saveEdit() {
-  if (!editUrl.value.trim()) return
-  props.editor
-    .chain()
-    .focus()
-    .setTextSelection({ from: linkFrom, to: linkTo })
-    .extendMarkRange('link')
-    .setLink({ href: editUrl.value.trim() })
-    .run()
-
-  const currentText = props.editor.state.doc.textBetween(linkFrom, linkTo, ' ')
-  if (editText.value.trim() && editText.value.trim() !== currentText) {
-    const { from, to } = props.editor.state.selection
-    props.editor
-      .chain()
-      .focus()
-      .insertContentAt({ from, to }, [
-        {
-          type: 'text',
-          text: editText.value.trim(),
-          marks: [{ type: 'link', attrs: { href: editUrl.value.trim() } }],
-        },
-      ])
-      .run()
-  }
-
-  href.value = editUrl.value.trim()
+  const url = editUrl.value.trim()
+  if (!url) return
+  const range = hoveredLinkRange()
+  if (!range) return
+  const selection = TextSelection.create(props.editor.state.doc, range.from, range.to)
+  applyLink(props.editor, selection, editText.value.trim(), { ...linkAttrs, href: url })
+  href.value = url
   editing.value = false
 }
 
@@ -215,13 +228,23 @@ function handleMouseout(e: MouseEvent) {
   scheduleHide()
 }
 
+// The cached link position belongs to one document: dismiss on any change.
+function onTransaction({ transaction }: { transaction: Transaction }) {
+  if (!transaction.docChanged) return
+  visible.value = false
+  editing.value = false
+  hoveredLinkPos = -1
+}
+
 onMounted(() => {
+  props.editor.on('transaction', onTransaction)
   editorDom = props.editor.view.dom
   editorDom.addEventListener('mouseover', handleMouseover)
   editorDom.addEventListener('mouseout', handleMouseout)
 })
 
 onUnmounted(() => {
+  props.editor.off('transaction', onTransaction)
   editorDom?.removeEventListener('mouseover', handleMouseover)
   editorDom?.removeEventListener('mouseout', handleMouseout)
   editorDom = null

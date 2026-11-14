@@ -14,10 +14,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, nextTick, shallowRef } from 'vue'
 import { Compartment, EditorState, type Extension } from '@codemirror/state'
-import { EditorView, keymap, highlightActiveLine } from '@codemirror/view'
+import { EditorView, keymap, highlightActiveLine, drawSelection } from '@codemirror/view'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { search, searchKeymap, openSearchPanel } from '@codemirror/search'
 import {
   syntaxHighlighting,
   defaultHighlightStyle,
@@ -34,12 +35,14 @@ import { parseFrontMatter, assembleFrontMatter } from '../../utils/frontmatter'
 import { useTabsStore } from '../../stores/tabs'
 import { useEditorModeStore } from '../../stores/editorMode'
 import { useEditorSettingsStore } from '../../stores/editorSettings'
+import { useOutlineStore } from '../../stores/outline'
 import { buildSourceEditorSettings } from '../../codemirror/source-editor-settings'
 import type { Tab } from '../../types/tab'
 
 const tabsStore = useTabsStore()
 const editorModeStore = useEditorModeStore()
 const editorSettings = useEditorSettingsStore()
+const outlineStore = useOutlineStore()
 
 const editorContainer = ref<HTMLElement | null>(null)
 const mathPreviewVisible = ref(false)
@@ -50,6 +53,34 @@ const settingsCompartment = new Compartment()
 // The tab represented by this mounted editor. activeTabId can move before
 // Vue unmounts the editor when switching to an image tab.
 let renderedTabId: string | null = null
+
+// Outline headings are re-scanned once edits settle, not on every keystroke.
+const OUTLINE_REFRESH_MS = 150
+let outlineTimer: ReturnType<typeof setTimeout> | null = null
+
+function refreshOutline(): void {
+  if (outlineTimer) clearTimeout(outlineTimer)
+  outlineTimer = null
+  const view = cmView.value
+  if (!view) return
+  outlineStore.updateFromMarkdown(view.state.doc.toString())
+  outlineStore.setActiveHeading(view.state.selection.main.head)
+}
+
+function scheduleOutlineRefresh(): void {
+  if (outlineTimer) clearTimeout(outlineTimer)
+  outlineTimer = setTimeout(refreshOutline, OUTLINE_REFRESH_MS)
+}
+
+// Keys an app-level window handler owns; CodeMirror must not also act on them.
+// Mod-f: App.vue opens the panel. Mod-Shift-l: App.vue sidebar toggle.
+// Mod-/: SourceEditor mode switch (toggleComment would edit the doc first).
+// Mod-d: no keyboard multi-cursor, matching the WYSIWYG editor.
+const APP_OWNED_KEYS = new Set(['Mod-f', 'Mod-Shift-l', 'Mod-/', 'Mod-d'])
+const sourceKeymap = [...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]
+  .filter((binding) => !APP_OWNED_KEYS.has(binding.key ?? ''))
+  // Shift+Cmd+G is App.vue's "Open by Path"; find-previous stays on Shift+F3 / Shift+Enter.
+  .map((binding) => (binding.key === 'Mod-g' ? { ...binding, shift: undefined } : binding))
 
 /**
  * Build the full set of CodeMirror extensions
@@ -66,6 +97,11 @@ function buildExtensions(): Extension[] {
       }),
     ),
     highlightActiveLine(),
+    // Only the search panel's explicit "all" creates several ranges; draw them.
+    // Cmd/Ctrl+click never adds a cursor. Tab state records selection.main.
+    EditorState.allowMultipleSelections.of(true),
+    EditorView.clickAddsSelectionRange.of(() => false),
+    drawSelection(),
     history(),
     bracketMatching(),
     indentOnInput(),
@@ -77,8 +113,13 @@ function buildExtensions(): Extension[] {
     mathHighlightPlugin,
     frontmatterHighlightPlugin,
     frontmatterHighlightTheme,
-    keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+    search({ top: true }),
+    keymap.of(sourceKeymap),
     EditorView.updateListener.of((update) => {
+      // restoreContent() swaps state without firing this listener; it
+      // refreshes the outline itself.
+      if (update.docChanged) scheduleOutlineRefresh()
+      else if (update.selectionSet) outlineStore.setActiveHeading(update.state.selection.main.head)
       if (update.docChanged) {
         const tabId = renderedTabId
         if (tabId) {
@@ -226,6 +267,7 @@ function initEditor() {
 function restoreContent(content: string) {
   if (!cmView.value) return
   cmView.value.setState(EditorState.create({ doc: content, extensions: buildExtensions() }))
+  refreshOutline()
 }
 
 /** Capture raw content and navigation state before a tab or mode change. */
@@ -277,8 +319,25 @@ function toggleMathPreview() {
   }
 }
 
-// Expose toggle for parent components
-defineExpose({ toggleMathPreview })
+/** Open CodeMirror's find/replace panel (App.vue routes Cmd+F / Cmd+H here). */
+function openFind(): void {
+  if (cmView.value) openSearchPanel(cmView.value)
+}
+
+/** Outline click: `pos` is a character offset in this document (front matter + body). */
+function navigateToHeading(pos: number): void {
+  const view = cmView.value
+  if (!view) return
+  const anchor = Math.max(0, Math.min(pos, view.state.doc.length))
+  view.dispatch({
+    selection: { anchor },
+    effects: EditorView.scrollIntoView(anchor, { y: 'start', yMargin: 60 }),
+  })
+  view.focus()
+}
+
+// Expose for parent components
+defineExpose({ toggleMathPreview, openFind, navigateToHeading })
 
 // Watch for active tab changes
 watch(
@@ -373,6 +432,7 @@ onMounted(() => {
       cmView.value.focus()
     }
   }
+  refreshOutline()
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('gdown:file-reloaded', handleFileReloaded)
   window.addEventListener('gdown:capture-state', handleCaptureState)
@@ -383,6 +443,10 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('gdown:file-reloaded', handleFileReloaded)
   window.removeEventListener('gdown:capture-state', handleCaptureState)
+  // Source offsets are meaningless to the WYSIWYG editor that mounts next.
+  if (outlineTimer) clearTimeout(outlineTimer)
+  outlineTimer = null
+  outlineStore.clearHeadings()
   if (cmView.value) {
     cmView.value.destroy()
     cmView.value = null
@@ -408,6 +472,58 @@ onBeforeUnmount(() => {
 .source-editor-container .cm-editor {
   height: 100%;
   overflow: auto;
+}
+
+/* Drawn cursor and selections (drawSelection) — theme variables, not CodeMirror's light defaults */
+.source-editor-container .cm-editor .cm-cursor {
+  border-left-color: var(--text-primary);
+}
+
+.source-editor-container .cm-editor .cm-selectionBackground,
+.source-editor-container
+  .cm-editor.cm-focused
+  > .cm-scroller
+  > .cm-selectionLayer
+  .cm-selectionBackground {
+  background: var(--sidebar-selected-bg);
+}
+
+/* CodeMirror search panel — theme variables override its light-only defaults */
+.source-editor-container .cm-editor .cm-panels {
+  background-color: var(--tab-bar-bg);
+  color: var(--text-primary);
+  border-color: var(--tab-bar-border);
+}
+
+.source-editor-container .cm-editor .cm-search input,
+.source-editor-container .cm-editor .cm-search .cm-button {
+  background: var(--bg-primary);
+  background-image: none;
+  color: var(--text-primary);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 4px;
+}
+
+.source-editor-container .cm-editor .cm-search input:focus {
+  outline: 1px solid var(--tab-active-indicator);
+}
+
+.source-editor-container .cm-editor .cm-search .cm-button:hover {
+  background: var(--tab-hover-bg);
+}
+
+.source-editor-container .cm-editor .cm-search button[name='close'] {
+  color: var(--tab-close-color);
+}
+
+.source-editor-container .cm-editor .cm-searchMatch {
+  background-color: var(--sidebar-selected-bg);
+  outline: 1px solid var(--sidebar-border);
+}
+
+.source-editor-container .cm-editor .cm-searchMatch-selected {
+  background-color: var(--sidebar-selected-bg);
+  outline: 1px solid var(--tab-active-indicator);
 }
 
 /* Math Preview Panel */
