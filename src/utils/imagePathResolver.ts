@@ -52,16 +52,29 @@ const IMG_SRC_RE = /(<img\b[^>]*?\bsrc=")([^"]+)(")/g
  * are returned unchanged. Markdown paths are URL-encoded (`my%20pic.png`), so
  * they are decoded before convertFileSrc encodes the filesystem path.
  */
-export function resolveRelativeSrc(src: string, documentDir: string): string {
-  if (!src || !documentDir || /^[a-z][a-z\d+.-]*:/i.test(src) || src.startsWith('//')) return src
+export function resolveRelativeSrc(src: string, documentDir: string | null): string {
+  if (!src || /^[a-z][a-z\d+.-]*:/i.test(src) || src.startsWith('//')) return src
   let source = src.replace(/^\.\//, '')
   try {
     source = decodeURIComponent(source)
   } catch {
     // Not valid percent-encoding: use the path as written.
   }
-  // documentDir is a native path: a literal `%` in it must stay as is.
-  return convertFileSrc(source.startsWith('/') ? source : `${documentDir}/${source}`)
+  // A relative path needs the document's folder (untitled documents have none).
+  if (!source.startsWith('/') && !documentDir) return src
+  // Only the markdown source is decoded: documentDir is a native path, so a
+  // literal `%` in it must stay as is. `..` is collapsed after joining.
+  return convertFileSrc(normalizePath(source.startsWith('/') ? source : `${documentDir}/${source}`))
+}
+
+/** Collapse `.` and `..` segments: Tauri's asset protocol rejects `..` paths with 403. */
+function normalizePath(path: string): string {
+  const parts: string[] = []
+  for (const part of path.split('/')) {
+    if (part === '..') parts.pop()
+    else if (part && part !== '.') parts.push(part)
+  }
+  return `/${parts.join('/')}`
 }
 
 /**
@@ -70,11 +83,12 @@ export function resolveRelativeSrc(src: string, documentDir: string): string {
  * for round-trip fidelity.
  *
  * @param html - HTML string (from markdown-it)
- * @param documentDir - Absolute path to the document's parent directory
+ * @param documentDir - Absolute path to the document's parent directory (null when
+ *   untitled: only absolute paths resolve)
  * @returns HTML with resolved image paths
  */
-export function resolveImagePaths(html: string, documentDir: string): string {
-  if (!html || !documentDir) return html
+export function resolveImagePaths(html: string, documentDir: string | null): string {
+  if (!html) return html
 
   return html.replace(IMG_SRC_RE, (match, prefix: string, src: string, suffix: string) => {
     // `src` is HTML attribute text (`a&amp;b.png`); resolve the path it names.
@@ -100,8 +114,8 @@ export function resolveImagePaths(html: string, documentDir: string): string {
  * @param documentDir - Absolute path to the document's parent directory
  * @returns HTML with markdown image paths restored
  */
-export function unresolveImagePaths(html: string, documentDir: string): string {
-  if (!html || !documentDir || !html.includes('<img')) return html
+export function unresolveImagePaths(html: string, documentDir: string | null): string {
+  if (!html || !html.includes('<img')) return html
 
   const template = document.createElement('template')
   template.innerHTML = html
@@ -115,10 +129,10 @@ export function unresolveImagePaths(html: string, documentDir: string): string {
     }
     const path = assetUrlToPath(src)
     if (!path) continue
-    const docPrefix = `${documentDir}/`
+    const docPrefix = documentDir ? `${documentDir}/` : null
     img.setAttribute(
       'src',
-      encodeURI(path.startsWith(docPrefix) ? path.slice(docPrefix.length) : path),
+      encodeURI(docPrefix && path.startsWith(docPrefix) ? path.slice(docPrefix.length) : path),
     )
   }
   return template.innerHTML

@@ -100,10 +100,22 @@ describe('resolveImagePaths', () => {
     expect(result).toBe(html)
   })
 
-  it('returns html unchanged when docDir is empty', () => {
+  it('leaves relative paths unchanged when there is no document dir (untitled)', () => {
     const html = '<img src="assets/photo.png">'
     expect(resolveImagePaths(html, '')).toBe(html)
-    expect(resolveImagePaths(html, null as unknown as string)).toBe(html)
+    expect(resolveImagePaths(html, null)).toBe(html)
+  })
+
+  it('resolves absolute paths without a document dir (untitled)', () => {
+    expect(resolveImagePaths('<img src="/pics/cat.jpg">', null)).toBe(
+      '<img src="asset://localhost/%2Fpics%2Fcat.jpg" data-original-src="/pics/cat.jpg">',
+    )
+  })
+
+  it('collapses ../ segments, which the asset protocol rejects', () => {
+    expect(resolveImagePaths('<img src="../shared/logo.svg">', docDir)).toBe(
+      `<img src="asset://localhost/${encodeURIComponent('/Users/foo/shared/logo.svg')}" data-original-src="../shared/logo.svg">`,
+    )
   })
 
   it('handles images with alt and title attributes', () => {
@@ -196,10 +208,13 @@ describe('unresolveImagePaths', () => {
     expect(result).toBe(html)
   })
 
-  it('returns html unchanged when docDir is empty', () => {
+  it('writes absolute paths when there is no document dir (untitled)', () => {
     const html =
-      '<img src="asset://localhost/%2Fpath%2Fphoto.png" data-original-src="assets/photo.png">'
-    expect(unresolveImagePaths(html, '')).toBe(html)
+      '<img src="asset://localhost/%2Fpath%2Fphoto.png" data-original-src="/path/photo.png">'
+    expect(unresolveImagePaths(html, null)).toBe('<img src="/path/photo.png">')
+    expect(unresolveImagePaths('<img src="asset://localhost/%2Fpath%2Fphoto.png">', '')).toBe(
+      '<img src="/path/photo.png">',
+    )
   })
 
   it('writes asset URLs outside the document dir as absolute paths', () => {

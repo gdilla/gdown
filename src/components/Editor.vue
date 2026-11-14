@@ -48,6 +48,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { openUrl } from '@tauri-apps/plugin-opener'
+import { open } from '@tauri-apps/plugin-dialog'
 import { useEditorModeStore } from '../stores/editorMode'
 import { useOutlineStore } from '../stores/outline'
 import { useFocusModeStore } from '../stores/focusMode'
@@ -89,7 +90,12 @@ import { useFindReplaceStore } from '../stores/findReplace'
 import { useEditorSettingsStore } from '../stores/editorSettings'
 import { useTabsStore } from '../stores/tabs'
 import { htmlToMarkdown, markdownToHtml } from '../utils/markdownConverter'
-import { resolveImagePaths, unresolveImagePaths, getDocumentDir } from '../utils/imagePathResolver'
+import {
+  resolveImagePaths,
+  resolveRelativeSrc,
+  unresolveImagePaths,
+  getDocumentDir,
+} from '../utils/imagePathResolver'
 import { assembleFrontMatter, parseFrontMatter } from '../utils/frontmatter'
 import { createCoalescedSnapshotScheduler } from '../utils/coalescedSnapshot'
 import type { EditorState } from '../types/tab'
@@ -123,16 +129,12 @@ let renderedTabId: string | null = null
 
 /** Convert markdown to HTML with local image paths resolved to asset:// URLs. */
 function mdToHtml(md: string, filePath = tabsStore.activeTab?.filePath ?? null): string {
-  const html = markdownToHtml(md)
-  const dir = getDocumentDir(filePath)
-  return dir ? resolveImagePaths(html, dir) : html
+  return resolveImagePaths(markdownToHtml(md), getDocumentDir(filePath))
 }
 
 /** Convert HTML to markdown, unresolving asset:// URLs back to relative paths first. */
 function htmlToMd(html: string, filePath = tabsStore.activeTab?.filePath ?? null): string {
-  const dir = getDocumentDir(filePath)
-  const cleanHtml = dir ? unresolveImagePaths(html, dir) : html
-  return htmlToMarkdown(cleanHtml)
+  return htmlToMarkdown(unresolveImagePaths(html, getDocumentDir(filePath)))
 }
 
 let snapshotPending = false
@@ -556,12 +558,44 @@ function handleCaptureState() {
   flushSnapshot()
 }
 
-// Handle insert-image event
-function handleInsertImage() {
-  const url = prompt('Enter image URL or local path:')
-  if (url && editor.value) {
-    editor.value.chain().focus().setImage({ src: url, alt: 'Image' }).run()
-  }
+/** POSIX path from `fromDir` to `target`, walking up with `../` when needed. */
+function relativePath(fromDir: string, target: string): string {
+  const from = fromDir.split('/').filter(Boolean)
+  const to = target.split('/').filter(Boolean)
+  let shared = 0
+  while (shared < from.length && shared < to.length - 1 && from[shared] === to[shared]) shared++
+  return [...Array<string>(from.length - shared).fill('..'), ...to.slice(shared)].join('/')
+}
+
+// Handle insert-image event (Cmd+Shift+I): pick a local image with the native dialog.
+async function handleInsertImage() {
+  const selected = await open({
+    title: 'Insert Image',
+    multiple: false,
+    directory: false,
+    filters: [
+      {
+        name: 'Images',
+        extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg', 'webp', 'ico', 'tiff', 'tif'],
+      },
+    ],
+  })
+  if (typeof selected !== 'string' || !editor.value) return
+
+  // Markdown path: relative to a saved document, absolute for an untitled one,
+  // URL-encoded like other markdown paths. It is displayed through the asset
+  // protocol and kept as originalSrc so htmlToMd writes it back unchanged.
+  const dir = getDocumentDir(tabsStore.activeTab?.filePath)
+  const markdownPath = encodeURI(dir ? relativePath(dir, selected) : selected)
+  const alt = (selected.split('/').pop() ?? '').replace(/\.[^/.]+$/, '')
+  editor.value
+    .chain()
+    .focus()
+    .insertContent({
+      type: 'image',
+      attrs: { src: resolveRelativeSrc(markdownPath, dir), alt, originalSrc: markdownPath },
+    })
+    .run()
 }
 
 // Handle keyboard shortcut for mode toggle (Cmd+/ — Typora's shortcut)
