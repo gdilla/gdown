@@ -74,7 +74,7 @@ export async function buildRenderedBody(rawHtml: string): Promise<string> {
       mermaid.initialize({
         startOnLoad: false,
         theme: 'default',
-        securityLevel: 'loose',
+        securityLevel: 'strict',
       })
 
       let counter = 0
