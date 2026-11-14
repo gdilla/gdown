@@ -589,7 +589,8 @@ pub fn run_pandoc_export(
 
 /// Tauri command: Check if Pandoc is installed and return its path and version.
 /// Returns an error string if Pandoc is not found.
-#[tauri::command]
+/// `async` keeps process spawns (and Pandoc runs below) off the main thread.
+#[tauri::command(async)]
 pub fn check_pandoc() -> Result<PandocInfo, String> {
     let pandoc_path = find_pandoc_path().ok_or_else(|| {
         "Pandoc is not installed. Please install Pandoc from https://pandoc.org/installing.html to enable export functionality.".to_string()
@@ -632,7 +633,7 @@ pub fn get_export_config(format: ExportFormat) -> ExportConfig {
 /// * `title` - Optional document title for metadata
 /// * `resource_path` - Optional base directory for resolving relative image/resource paths
 /// * `config` - Optional export configuration; if None, uses sensible defaults for the format
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_document(
     markdown: String,
     output_path: String,
@@ -661,8 +662,9 @@ pub fn export_document(
 }
 
 /// Tauri command: Open a native "Save As" dialog for export, with format-appropriate extension filter.
+/// Async so `blocking_save_file` runs off the main thread, as tauri-plugin-dialog requires.
 #[tauri::command]
-pub fn export_save_dialog(
+pub async fn export_save_dialog(
     app: tauri::AppHandle,
     format: ExportFormat,
     default_name: Option<String>,
