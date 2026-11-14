@@ -26,11 +26,6 @@ pub fn read_file(path: String) -> Result<String, String> {
     fs::read_to_string(file_path).map_err(|e| format!("Failed to read file '{}': {}", path, e))
 }
 
-/// Tauri command: Reads a file, returning at most `max_bytes` from the end.
-///
-/// For large files (e.g., multi-MB JSONL transcripts), this avoids sending
-/// the full content through Tauri's JSON-based IPC which would freeze the UI.
-///
 /// Tauri command: Writes content to a file at the given path.
 /// Creates the file if it doesn't exist, overwrites if it does.
 /// Uses atomic write (write to temp then rename) to prevent data loss.
@@ -151,98 +146,6 @@ fn is_supported_file(path: &Path) -> bool {
             | Some("tiff")
             | Some("tif")
     )
-}
-
-/// Recursively reads a directory tree starting from `dir_path` and returns the
-/// file/folder structure as a JSON-serializable tree.
-///
-/// Hidden files/folders (starting with `.`) are excluded by default.
-/// Only markdown and common text files are included; all directories are traversed.
-fn read_dir_recursive(dir_path: &Path, max_depth: u32) -> Result<Vec<FileNode>, String> {
-    let entries = fs::read_dir(dir_path)
-        .map_err(|e| format!("Failed to read directory '{}': {}", dir_path.display(), e))?;
-
-    let mut nodes: Vec<FileNode> = Vec::new();
-
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
-        let path = entry.path();
-        let file_name = entry.file_name().to_string_lossy().to_string();
-
-        // Skip hidden files/folders
-        if file_name.starts_with('.') {
-            continue;
-        }
-
-        let metadata = entry
-            .metadata()
-            .map_err(|e| format!("Failed to read metadata for '{}': {}", path.display(), e))?;
-
-        if metadata.is_dir() {
-            let children = if max_depth > 0 {
-                read_dir_recursive(&path, max_depth - 1)?
-            } else {
-                Vec::new()
-            };
-            nodes.push(FileNode {
-                name: file_name,
-                path: path.to_string_lossy().to_string(),
-                is_dir: true,
-                children: Some(children),
-            });
-        } else if metadata.is_file() && is_supported_file(&path) {
-            nodes.push(FileNode {
-                name: file_name,
-                path: path.to_string_lossy().to_string(),
-                is_dir: false,
-                children: None,
-            });
-        }
-    }
-
-    // Sort: directories first, then alphabetically (case-insensitive)
-    nodes.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-    });
-
-    Ok(nodes)
-}
-
-/// Tauri command: Opens a folder path and returns its recursive directory tree as JSON.
-///
-/// # Arguments
-/// * `path` - The absolute path of the folder to read.
-///
-/// # Returns
-/// A `FileNode` representing the root folder with its full recursive tree.
-#[tauri::command]
-pub fn read_directory_tree(path: String, max_depth: Option<u32>) -> Result<FileNode, String> {
-    let dir_path = Path::new(&path);
-
-    if !dir_path.exists() {
-        return Err(format!("Path '{}' does not exist", path));
-    }
-
-    if !dir_path.is_dir() {
-        return Err(format!("Path '{}' is not a directory", path));
-    }
-
-    let depth = max_depth.unwrap_or(10);
-    let children = read_dir_recursive(dir_path, depth)?;
-
-    let root_name = dir_path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| path.clone());
-
-    Ok(FileNode {
-        name: root_name,
-        path,
-        is_dir: true,
-        children: Some(children),
-    })
 }
 
 /// Tauri command: Lists only the immediate children of a directory (non-recursive).
@@ -542,74 +445,6 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn test_read_directory_tree_basic() {
-        let dir = tempdir().unwrap();
-        let root = dir.path();
-
-        // Create structure:
-        // root/
-        //   notes/
-        //     sub.md
-        //   hello.md
-        //   .hidden.md  (should be excluded)
-        //   image.png   (should be excluded - not a text file)
-        fs::create_dir(root.join("notes")).unwrap();
-        fs::File::create(root.join("notes/sub.md"))
-            .unwrap()
-            .write_all(b"sub")
-            .unwrap();
-        fs::File::create(root.join("hello.md"))
-            .unwrap()
-            .write_all(b"# Hello")
-            .unwrap();
-        fs::File::create(root.join(".hidden.md"))
-            .unwrap()
-            .write_all(b"hidden")
-            .unwrap();
-        fs::File::create(root.join("image.png"))
-            .unwrap()
-            .write_all(b"png")
-            .unwrap();
-
-        let result = read_directory_tree(root.to_string_lossy().to_string(), None).unwrap();
-
-        assert!(result.is_dir);
-        let children = result.children.unwrap();
-        // Should have: notes/ directory, hello.md, and image.png (hidden excluded)
-        assert_eq!(children.len(), 3);
-        // Directories come first
-        assert_eq!(children[0].name, "notes");
-        assert!(children[0].is_dir);
-        assert_eq!(children[1].name, "hello.md");
-        assert!(!children[1].is_dir);
-        assert_eq!(children[2].name, "image.png");
-        assert!(!children[2].is_dir);
-
-        // Check nested
-        let notes_children = children[0].children.as_ref().unwrap();
-        assert_eq!(notes_children.len(), 1);
-        assert_eq!(notes_children[0].name, "sub.md");
-    }
-
-    #[test]
-    fn test_read_directory_tree_nonexistent() {
-        let result = read_directory_tree("/nonexistent/path/12345".to_string(), None);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("does not exist"));
-    }
-
-    #[test]
-    fn test_read_directory_tree_file_path() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("test.md");
-        fs::File::create(&file_path).unwrap();
-
-        let result = read_directory_tree(file_path.to_string_lossy().to_string(), None);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not a directory"));
-    }
-
-    #[test]
     fn test_read_directory_shallow() {
         let dir = tempdir().unwrap();
         let root = dir.path();
@@ -638,8 +473,7 @@ mod tests {
         fs::File::create(root.join("apple.md")).unwrap();
         fs::create_dir(root.join("beta")).unwrap();
 
-        let result = read_directory_tree(root.to_string_lossy().to_string(), None).unwrap();
-        let children = result.children.unwrap();
+        let children = read_directory_shallow(root.to_string_lossy().to_string()).unwrap();
 
         // Dirs first (alpha, beta), then files (apple.md, zebra.md)
         assert_eq!(children[0].name, "alpha");

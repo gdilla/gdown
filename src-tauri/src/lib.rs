@@ -5,8 +5,8 @@ use commands::export::{
     check_pandoc, export_document, export_save_dialog, get_export_config, get_export_formats,
 };
 use commands::fs::{
-    copy_image_to_assets, get_file_modified_time, read_directory_shallow, read_directory_tree,
-    read_file, resolve_file_path, write_file, write_image_to_assets,
+    copy_image_to_assets, get_file_modified_time, read_directory_shallow, read_file,
+    resolve_file_path, write_file, write_image_to_assets,
 };
 use commands::session::{load_session_state, save_session_state};
 use std::path::PathBuf;
@@ -75,11 +75,6 @@ fn emit_open_files(app_handle: &tauri::AppHandle, paths: Vec<String>) {
     if let Some(window) = app_handle.get_webview_window("main") {
         let _ = window.emit("open-files", paths);
     }
-}
-
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
 #[tauri::command]
@@ -212,8 +207,6 @@ pub fn run() {
         .manage(PendingOpenFiles(Mutex::new(cli_file_paths)))
         .manage(ExitState::default())
         .invoke_handler(tauri::generate_handler![
-            greet,
-            read_directory_tree,
             read_directory_shallow,
             read_file,
             write_file,
