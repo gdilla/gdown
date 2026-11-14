@@ -580,7 +580,8 @@ function handleKeydown(e: KeyboardEvent): void {
 
 /**
  * Sync the SearchHighlight plugin state → findReplaceStore.
- * Called after any search command to keep the UI in sync.
+ * Runs on every transaction, so typing, tab switches and replaces keep the
+ * "n of m" display current, not just the panel's own commands.
  */
 function syncSearchState(): void {
   if (!editor.value) return
@@ -589,6 +590,16 @@ function syncSearchState(): void {
     findReplaceStore.setMatchInfo(pluginState.results.length, pluginState.currentIndex)
   }
 }
+
+watch(
+  editor,
+  (ed, _old, onCleanup) => {
+    if (!ed) return
+    ed.on('transaction', syncSearchState)
+    onCleanup(() => ed.off('transaction', syncSearchState))
+  },
+  { immediate: true },
+)
 
 /**
  * Scroll the current match into view by setting the text selection
@@ -611,7 +622,6 @@ function handleFindSearch(query: string, caseSensitive: boolean, useRegex: boole
   if (!editor.value) return
   // Dispatch setSearchTerm command which recomputes all matches and decorations
   editor.value.commands.setSearchTerm(query, caseSensitive, useRegex)
-  syncSearchState()
   scrollToCurrentMatch()
 }
 
@@ -622,7 +632,6 @@ function handleFindNext(): void {
 
   const nextIndex = (pluginState.currentIndex + 1) % pluginState.results.length
   editor.value.commands.setSearchIndex(nextIndex)
-  syncSearchState()
   scrollToCurrentMatch()
 }
 
@@ -634,28 +643,24 @@ function handleFindPrev(): void {
   const prevIndex =
     (pluginState.currentIndex - 1 + pluginState.results.length) % pluginState.results.length
   editor.value.commands.setSearchIndex(prevIndex)
-  syncSearchState()
   scrollToCurrentMatch()
 }
 
 function handleFindReplace(replacement: string): void {
   if (!editor.value) return
   editor.value.commands.replaceCurrent(replacement)
-  syncSearchState()
   scrollToCurrentMatch()
 }
 
 function handleFindReplaceAll(replacement: string): void {
   if (!editor.value) return
   editor.value.commands.replaceAll(replacement)
-  syncSearchState()
 }
 
 function handleFindClose(): void {
   if (!editor.value) return
   // Clear all search decorations
   editor.value.commands.clearSearch()
-  syncSearchState()
   // Collapse selection and refocus
   const { from } = editor.value.state.selection
   editor.value.commands.setTextSelection(from)
