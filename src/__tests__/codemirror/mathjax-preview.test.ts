@@ -40,4 +40,15 @@ describe('renderMathToSvg (source-mode math preview)', () => {
     const host = await render('\\style{background-image:url(https://attacker.example/t)}{x}')
     expect(host.innerHTML).not.toContain('attacker.example')
   })
+
+  // SafeHandler's defaults also clamp sizes (fontSize to [0.707, 1.44]em); the
+  // preview should only filter injection, so TeX size commands keep their scale.
+  function scales(host: HTMLElement): number[] {
+    return Array.from(host.innerHTML.matchAll(/scale\(([\d.]+)\)/g), (m) => Number(m[1]))
+  }
+
+  it('keeps \\Huge and \\tiny at their real size', async () => {
+    expect(Math.max(...scales(await render('\\Huge x')))).toBeGreaterThan(2)
+    expect(Math.min(...scales(await render('\\tiny x')))).toBeLessThan(0.6)
+  })
 })

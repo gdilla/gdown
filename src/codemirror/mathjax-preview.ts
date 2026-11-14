@@ -65,7 +65,14 @@ async function getState(): Promise<MathJaxPreviewState> {
     const mathjaxDocument = mathjax.document('', {
       InputJax: tex,
       OutputJax: svg,
-      safeOptions: { allow: { URLs: 'none' } },
+      safeOptions: {
+        allow: { URLs: 'none' },
+        // Only injection is filtered: undo SafeHandler's default size clamps
+        // so \Huge, \tiny, \scriptstyle etc. render as before.
+        styleLengths: { fontSize: [-Infinity, Infinity] },
+        scriptsizemultiplierRange: [-Infinity, Infinity],
+        scriptlevelRange: [-Infinity, Infinity],
+      },
     })
 
     _state = { adaptor, mathjaxDocument }
