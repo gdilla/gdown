@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// Supported export formats with their Pandoc output format names and typical file extensions.
@@ -511,6 +512,10 @@ fn extended_path() -> String {
 
 /// Execute Pandoc with the given config, markdown input, and output path.
 /// This is the core export function used by both the Tauri command and tests.
+///
+/// Pandoc writes to a hidden temp file beside the destination, which is renamed
+/// into place only on success, so an interrupted or failed export never leaves a
+/// partial file at the destination.
 pub fn run_pandoc_export(
     pandoc_path: &str,
     config: &ExportConfig,
@@ -519,6 +524,50 @@ pub fn run_pandoc_export(
     title: Option<&str>,
     resource_path: Option<&str>,
 ) -> Result<ExportResult, String> {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let destination = Path::new(output_path);
+    // Keep the extension: Pandoc infers PDF output from it.
+    let extension = destination
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    let tmp_path = destination.with_file_name(format!(
+        ".leaf-export-{}-{}{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed),
+        extension
+    ));
+
+    let result = run_pandoc(
+        pandoc_path,
+        config,
+        markdown,
+        &tmp_path.to_string_lossy(),
+        title,
+        resource_path,
+    )
+    .and_then(|()| {
+        std::fs::rename(&tmp_path, destination)
+            .map_err(|e| format!("Failed to finalize export '{}': {}", output_path, e))
+    });
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    result.map(|()| ExportResult {
+        success: true,
+        output_path: output_path.to_string(),
+        message: format!("Successfully exported to {}", output_path),
+    })
+}
+
+fn run_pandoc(
+    pandoc_path: &str,
+    config: &ExportConfig,
+    markdown: &str,
+    output_path: &str,
+    title: Option<&str>,
+    resource_path: Option<&str>,
+) -> Result<(), String> {
     let mut cmd = Command::new(pandoc_path);
 
     // Add all config-derived arguments
@@ -568,11 +617,7 @@ pub fn run_pandoc_export(
         .map_err(|e| format!("Failed to wait for Pandoc: {}", e))?;
 
     if output.status.success() {
-        Ok(ExportResult {
-            success: true,
-            output_path: output_path.to_string(),
-            message: format!("Successfully exported to {}", output_path),
-        })
+        Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -1056,6 +1101,40 @@ mod tests {
     /// Helper: return pandoc path or skip test gracefully.
     fn pandoc_or_skip() -> Option<String> {
         find_pandoc_path()
+    }
+
+    #[test]
+    fn test_an_interrupted_export_leaves_nothing_at_the_destination() {
+        use std::os::unix::fs::PermissionsExt;
+        // Stand-in for a Pandoc run cut off midway (crash, forced quit):
+        // it writes partial output to its -o path and then fails.
+        let bin = tempfile::tempdir().expect("create temp dir");
+        let fake = bin.path().join("pandoc");
+        fs::write(
+            &fake,
+            "#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = -o ] && printf partial > \"$2\"; shift; done\ncat > /dev/null\nexit 1\n",
+        )
+        .unwrap();
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+        let out_dir = tempfile::tempdir().expect("create temp dir");
+        let output = out_dir.path().join("report.html");
+
+        let result = run_pandoc_export(
+            &fake.to_string_lossy(),
+            &ExportConfig::default_for(&ExportFormat::Html),
+            "# Doc",
+            &output.to_string_lossy(),
+            None,
+            None,
+        );
+
+        assert!(result.is_err());
+        assert!(!output.exists(), "partial output reached the destination");
+        assert_eq!(
+            fs::read_dir(out_dir.path()).unwrap().count(),
+            0,
+            "temp file left behind"
+        );
     }
 
     #[test]
