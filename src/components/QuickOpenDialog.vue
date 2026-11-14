@@ -12,6 +12,7 @@
             autocomplete="off"
             @keydown.enter="submit"
             @keydown.escape="close"
+            @keydown.tab.prevent
             @input="clearError"
           />
         </div>
@@ -58,8 +59,10 @@ const visible = ref(false)
 const inputPath = ref('')
 const error = ref('')
 const inputEl = ref<HTMLInputElement | null>(null)
+let returnFocusTo: HTMLElement | null = null
 
 function open() {
+  returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
   inputPath.value = ''
   error.value = ''
   visible.value = true
@@ -70,6 +73,8 @@ function open() {
 
 function close() {
   visible.value = false
+  returnFocusTo?.focus()
+  returnFocusTo = null
 }
 
 function clearError() {

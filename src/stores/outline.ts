@@ -1,9 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useTabsStore } from './tabs'
+import MarkdownIt from 'markdown-it'
 import { markdownToHtml } from '../utils/markdownConverter'
 import { copyAsRichText, copyAsPlainText, unescapeMarkdown } from '../utils/clipboardUtils'
 import { flushLiveEditorState } from '../utils/flushEditorState'
+import { parseFrontMatter } from '../utils/frontmatter'
 
 export interface OutlineHeading {
   /** Unique identifier (based on position in doc) */
@@ -12,7 +14,7 @@ export interface OutlineHeading {
   level: number
   /** Plain text of the heading */
   text: string
-  /** ProseMirror node position (for scrolling) */
+  /** WYSIWYG: ProseMirror position. Source mode: character offset in the CodeMirror doc. */
   pos: number
 }
 
@@ -117,37 +119,18 @@ export const useOutlineStore = defineStore('outline', () => {
   }
 
   /**
-   * Update headings from raw markdown text (for source mode).
+   * Update headings from the source editor's full document (front matter +
+   * body). `pos` is a character offset into that document.
    */
   function updateFromMarkdown(markdown: string) {
-    if (!markdown) {
-      headings.value = []
-      return
-    }
-
-    const extracted: OutlineHeading[] = []
-    const lines = markdown.split('\n')
-    let charPos = 0
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]!
-      const match = line.match(/^(#{1,6})\s+(.+)$/)
-      if (match) {
-        const level = match[1]!.length
-        const text = match[2]!.replace(/\s*#+\s*$/, '').trim() // Remove trailing hashes
-        if (text) {
-          extracted.push({
-            id: `heading-${charPos}`,
-            level,
-            text,
-            pos: charPos,
-          })
-        }
-      }
-      charPos += line!.length + 1 // +1 for newline
-    }
-
-    headings.value = extracted
+    const { body } = parseFrontMatter(markdown)
+    const bodyOffset = markdown.length - body.length
+    headings.value = scanHeadings(body).headings.map(({ offset, level, text }) => ({
+      id: `heading-${bodyOffset + offset}`,
+      level,
+      text,
+      pos: bodyOffset + offset,
+    }))
   }
 
   /**
@@ -183,30 +166,20 @@ export const useOutlineStore = defineStore('outline', () => {
       return null
     }
 
-    const lines = markdown.split('\n')
-    const headingRegex = /^(#{1,6})\s+/
-
-    // Build an array of { lineIndex, level } for all heading lines
-    const headingLines: { lineIndex: number; level: number }[] = []
-    for (let i = 0; i < lines.length; i++) {
-      const match = lines[i]!.match(headingRegex)
-      if (match) {
-        headingLines.push({ lineIndex: i, level: match[1]!.length })
-      }
-    }
+    const { lines, headings: headingLines } = scanHeadings(markdown)
 
     if (headingIndex >= headingLines.length) {
       return null
     }
 
     const target = headingLines[headingIndex]!
-    const startLine = target.lineIndex
+    const startLine = target.line
 
     // Find the end: next heading with level <= target level
     let endLine = lines.length
     for (let i = headingIndex + 1; i < headingLines.length; i++) {
       if (headingLines[i]!.level <= target.level) {
-        endLine = headingLines[i]!.lineIndex
+        endLine = headingLines[i]!.line
         break
       }
     }
@@ -216,7 +189,11 @@ export const useOutlineStore = defineStore('outline', () => {
       endLine--
     }
 
-    const sectionMd = lines.slice(startLine, endLine).join('\n')
+    // Lines keep their own terminators; drop only the section's last one.
+    const sectionMd = lines
+      .slice(startLine, endLine)
+      .join('')
+      .replace(/(?:\r\n|\r|\n)$/, '')
     const cleanMd = unescapeMarkdown(sectionMd)
     const sectionHtml = markdownToHtml(cleanMd)
     return { markdown: cleanMd, html: sectionHtml }
@@ -291,4 +268,56 @@ function extractTextFromNode(node: any): string {
     return node.content.map((child: any) => extractTextFromNode(child)).join('')
   }
   return ''
+}
+
+// Block structure depends only on `html` (HTML blocks), so this matches the
+// WYSIWYG renderer's markdown-it config in utils/markdownConverter.ts.
+const blockParser = new MarkdownIt({ html: true })
+
+/** Block-level tokens only (no inline parsing). Token `map` values are 0-based lines. */
+function parseMarkdownBlocks(markdown: string): ReturnType<MarkdownIt['parse']> {
+  const tokens: ReturnType<MarkdownIt['parse']> = []
+  blockParser.block.parse(markdown.replace(/\r\n?/g, '\n'), blockParser, {}, tokens)
+  return tokens
+}
+
+/** Lines with their terminators (\n, \r\n or a lone \r — counted as markdown-it does). */
+function splitLines(markdown: string): string[] {
+  return markdown.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g) ?? []
+}
+
+/**
+ * Find non-empty ATX and setext headings with markdown-it, so fenced code (also
+ * inside lists and blockquotes), indented code and HTML blocks are skipped
+ * exactly as the WYSIWYG renderer skips them. `line` is the 0-based line index
+ * into `lines`; `offset` the character offset of that line in `markdown`.
+ */
+function scanHeadings(markdown: string): {
+  lines: string[]
+  headings: { line: number; offset: number; level: number; text: string }[]
+} {
+  const lines = splitLines(markdown)
+  const offsets: number[] = []
+  let offset = 0
+  for (const line of lines) {
+    offsets.push(offset)
+    offset += line.length
+  }
+
+  const headings: { line: number; offset: number; level: number; text: string }[] = []
+  const tokens = parseMarkdownBlocks(markdown)
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!
+    if (token.type !== 'heading_open' || !token.map) continue
+    const text = tokens[i + 1]?.content.trim() ?? ''
+    const line = token.map[0]
+    if (text)
+      headings.push({
+        line,
+        offset: offsets[line] ?? offset,
+        level: Number(token.tag.slice(1)),
+        text,
+      })
+  }
+  return { lines, headings }
 }

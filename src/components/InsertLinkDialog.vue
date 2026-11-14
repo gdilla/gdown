@@ -11,6 +11,7 @@
             v-model="linkText"
             type="text"
             placeholder="Link text"
+            :disabled="!textEditable"
           />
         </div>
         <div class="dialog-field">
@@ -46,6 +47,8 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import type { Editor } from '@tiptap/core'
+import type { Selection, SelectionBookmark, Transaction } from '@tiptap/pm/state'
+import { applyLink, isReplaceableSelection } from '../utils/linkEditing'
 
 const props = defineProps<{
   editor: Editor
@@ -58,19 +61,25 @@ const linkTitle = ref('')
 const textInput = ref<HTMLInputElement | null>(null)
 const urlInput = ref<HTMLInputElement | null>(null)
 
-let savedFrom = 0
-let savedTo = 0
+// The editor selection when the dialog opened, of whatever class (a
+// CellSelection has one range per cell; the event's from/to cover only one).
+let savedSelection: SelectionBookmark | null = null
+// False for selections that are only ever linked in place, never replaced
+// (non-text content, several blocks or cells, node or all-document selections).
+const textEditable = ref(true)
 
-function handleInsertLink(event: Event) {
-  const detail = (event as CustomEvent).detail || {}
-  savedFrom = detail.from || 0
-  savedTo = detail.to || 0
-  linkText.value = detail.text || ''
+function handleInsertLink() {
+  const { selection, doc } = props.editor.state
+  savedSelection = selection.getBookmark()
+  textEditable.value = isReplaceableSelection(selection)
+  linkText.value = textEditable.value ? doc.textBetween(selection.from, selection.to) : ''
   linkUrl.value = ''
   linkTitle.value = ''
   visible.value = true
   nextTick(() => {
-    if (linkText.value) {
+    // A disabled Text field cannot take focus; leaving it in the editor would let
+    // typing replace the selected image.
+    if (linkText.value || !textEditable.value) {
       urlInput.value?.focus()
     } else {
       textInput.value?.focus()
@@ -79,38 +88,23 @@ function handleInsertLink(event: Event) {
 }
 
 function confirm() {
-  if (!linkUrl.value) return
+  const href = linkUrl.value.trim()
+  if (!href) return
 
-  const chain = props.editor.chain().focus()
-
-  if (linkText.value && savedFrom === savedTo) {
-    // No selection, insert text with link
-    chain
-      .insertContentAt(savedFrom, {
-        type: 'text',
-        text: linkText.value,
-        marks: [
-          {
-            type: 'link',
-            attrs: {
-              href: linkUrl.value,
-              title: linkTitle.value || null,
-              target: '_blank',
-            },
-          },
-        ],
-      })
-      .run()
-  } else {
-    // Selection exists, wrap it in link
-    chain
-      .extendMarkRange('link')
-      .setLink({
-        href: linkUrl.value,
-        target: '_blank',
-      })
-      .run()
+  if (!savedSelection) return
+  let selection: Selection
+  try {
+    selection = savedSelection.resolve(props.editor.state.doc)
+  } catch {
+    // Saved against a document that has since changed: link nothing.
+    visible.value = false
+    return
   }
+  applyLink(props.editor, selection, linkText.value || href, {
+    href,
+    title: linkTitle.value || null,
+    target: '_blank',
+  })
 
   visible.value = false
 }
@@ -126,12 +120,21 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
+// The saved selection belongs to one document: close on any change.
+function onTransaction({ transaction }: { transaction: Transaction }) {
+  if (!transaction.docChanged || !visible.value) return
+  visible.value = false
+  savedSelection = null
+}
+
 onMounted(() => {
+  props.editor.on('transaction', onTransaction)
   window.addEventListener('gdown:insert-link', handleInsertLink)
   window.addEventListener('keydown', handleKeydown)
 })
 
 onUnmounted(() => {
+  props.editor.off('transaction', onTransaction)
   window.removeEventListener('gdown:insert-link', handleInsertLink)
   window.removeEventListener('keydown', handleKeydown)
 })

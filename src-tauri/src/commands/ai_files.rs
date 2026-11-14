@@ -23,7 +23,7 @@ fn project_path_to_claude_dir_name(project_path: &str) -> String {
 /// with `/` replaced by `-`.
 ///
 /// Returns `Some(path)` if the directory exists, `None` otherwise.
-#[tauri::command(async)]
+#[tauri::command]
 pub fn find_claude_project_dir(project_path: String) -> Result<Option<String>, String> {
     let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
     let dir_name = project_path_to_claude_dir_name(&project_path);
@@ -39,7 +39,7 @@ pub fn find_claude_project_dir(project_path: String) -> Result<Option<String>, S
 /// Tauri command: Lists files in a directory with their modification times, sorted newest first.
 ///
 /// Returns an empty vec if the directory does not exist.
-#[tauri::command(async)]
+#[tauri::command]
 pub fn list_files_with_mtime(dir_path: String) -> Result<Vec<FileInfo>, String> {
     let path = Path::new(&dir_path);
 

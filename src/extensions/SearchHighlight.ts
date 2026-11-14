@@ -29,6 +29,8 @@ declare module '@tiptap/core' {
 export interface SearchResult {
   from: number
   to: number
+  /** The regex match in the search index text (used to expand `$1`-style replacements). */
+  match: RegExpExecArray
 }
 
 export interface SearchHighlightOptions {
@@ -39,31 +41,77 @@ export interface SearchHighlightOptions {
   results: SearchResult[]
 }
 
-export const searchHighlightPluginKey = new PluginKey('searchHighlight')
+export interface SearchPluginState {
+  searchTerm: string
+  caseSensitive: boolean
+  useRegex: boolean
+  currentIndex: number
+  results: SearchResult[]
+  decorations: DecorationSet
+}
+
+type SearchMeta =
+  | { type: 'clear' }
+  | { type: 'setSearch'; searchTerm: string; caseSensitive: boolean; useRegex: boolean }
+  | { type: 'setIndex'; index: number }
+  | { type: 'afterReplace' }
+  | { type: 'afterReplaceAll' }
+
+export const searchHighlightPluginKey = new PluginKey<SearchPluginState>('searchHighlight')
+
+const EMPTY_STATE: SearchPluginState = {
+  searchTerm: '',
+  caseSensitive: false,
+  useRegex: false,
+  currentIndex: -1,
+  results: [],
+  decorations: DecorationSet.empty,
+}
+
+/** Text that is contiguous in the document, and where it starts. */
+interface TextRun {
+  text: string
+  pos: number // document position of the first character
+}
 
 /**
- * Extract text content from a ProseMirror document, mapping each character
- * back to its document position. This handles node boundaries correctly.
+ * Group the document's text nodes into runs of document-contiguous text. Any
+ * gap — a block boundary or a non-text inline node such as inline math, an
+ * image or a hard break — starts a new run. Searching run by run means a match
+ * can never span a gap, and no valid match next to one is lost.
  */
-function getDocumentText(state: EditorState): { text: string; posMap: number[] } {
-  const text: string[] = []
-  const posMap: number[] = []
+function getTextRuns(state: EditorState): TextRun[] {
+  const runs: TextRun[] = []
+  let docEnd = -1
 
   state.doc.descendants((node, pos) => {
-    if (node.isText && node.text) {
-      for (let i = 0; i < node.text.length; i++) {
-        text.push(node.text!.charAt(i))
-        posMap.push(pos + i)
-      }
-    } else if (node.isBlock && text.length > 0) {
-      // Insert a newline between blocks so searches don't span across them
-      text.push('\n')
-      posMap.push(-1) // -1 means not a real position
-    }
-    return true // descend into children
+    if (!node.isText || !node.text) return true
+    const last = runs[runs.length - 1]
+    if (last && pos === docEnd) last.text += node.text
+    else runs.push({ text: node.text, pos })
+    docEnd = pos + node.nodeSize
+    return true
   })
 
-  return { text: text.join(''), posMap }
+  return runs
+}
+
+/**
+ * Build the search regex, or null when the user's pattern is invalid.
+ * Multiline: `^` and `$` match at every line — the edges of each text run
+ * (paragraph edges, either side of an inline node) and code-block lines.
+ */
+function buildSearchRegex(
+  searchTerm: string,
+  caseSensitive: boolean,
+  useRegex: boolean,
+): RegExp | null {
+  const source = useRegex ? searchTerm : searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  try {
+    return new RegExp(source, caseSensitive ? 'gm' : 'gim')
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -73,71 +121,61 @@ function findMatches(
   state: EditorState,
   searchTerm: string,
   caseSensitive: boolean,
-  useRegex: boolean
+  useRegex: boolean,
 ): SearchResult[] {
   if (!searchTerm) return []
-
-  const { text, posMap } = getDocumentText(state)
-
-  if (!text) return []
+  const regex = buildSearchRegex(searchTerm, caseSensitive, useRegex)
+  if (!regex) return []
 
   const results: SearchResult[] = []
-
-  try {
-    let regex: RegExp
-
-    if (useRegex) {
-      const flags = caseSensitive ? 'g' : 'gi'
-      regex = new RegExp(searchTerm, flags)
-    } else {
-      // Escape special regex characters for literal search
-      const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const flags = caseSensitive ? 'g' : 'gi'
-      regex = new RegExp(escaped, flags)
+  for (const run of getTextRuns(state)) {
+    // matchAll advances past empty matches itself, so patterns like `x*` or `^` terminate.
+    for (const match of run.text.matchAll(regex)) {
+      if (!match[0]) continue // an empty match has nothing to highlight or replace
+      const from = run.pos + match.index
+      results.push({ from, to: from + match[0].length, match })
     }
-
-    let match: RegExpExecArray | null
-    // Safety: prevent infinite loops on zero-length matches
-    let lastIndex = -1
-
-    while ((match = regex.exec(text)) !== null) {
-      if (match.index === lastIndex) {
-        // Zero-length match — advance to avoid infinite loop
-        regex.lastIndex = match.index + 1
-        continue
-      }
-      lastIndex = match.index
-
-      const matchStart = match.index
-      const matchEnd = match.index + match[0].length
-
-      // Map text positions back to document positions
-      if (matchStart >= posMap.length || matchEnd - 1 >= posMap.length) break
-
-      const from = posMap[matchStart]
-      const toBase = posMap[matchEnd - 1]
-      if (from === undefined || toBase === undefined) continue
-      const to = toBase + 1
-
-      // Skip matches that span block boundaries (position = -1)
-      let spansBlock = false
-      for (let i = matchStart; i < matchEnd; i++) {
-        if (posMap[i] === -1) {
-          spansBlock = true
-          break
-        }
-      }
-
-      if (!spansBlock && from >= 0 && to >= 0) {
-        results.push({ from, to })
-      }
-    }
-  } catch {
-    // Invalid regex — return no results
-    return []
   }
-
   return results
+}
+
+// `$$`, `$&`, `$n`/`$nn` and `$<name>`, as in String.prototype.replace. `` $` `` and
+// `$'` stay literal (as in the source editor's CodeMirror replace): expanding them
+// would copy surrounding document text into every replacement.
+const SUBSTITUTION = /\$(?:([$&])|(\d\d?)|<([^>]*)>)/g
+
+/**
+ * Expand a regex replacement template for one match, following the
+ * GetSubstitution rules of String.prototype.replace for the tokens above.
+ * Work is proportional to the template, not the document.
+ */
+function expandReplacement(template: string, m: RegExpExecArray): string {
+  const groupCount = m.length - 1
+  return template.replace(
+    SUBSTITUTION,
+    (token: string, sym?: string, digits?: string, name?: string) => {
+      if (sym === '$') return '$'
+      if (sym === '&') return m[0]
+      if (name !== undefined) return m.groups ? (m.groups[name] ?? '') : token
+      // `$nn` names a two-digit group if it exists, else `$n` followed by a literal digit.
+      let n = Number(digits)
+      let rest = ''
+      if (digits!.length === 2 && (n < 1 || n > groupCount)) {
+        n = Number(digits![0])
+        rest = digits![1]!
+      }
+      return n >= 1 && n <= groupCount ? (m[n] ?? '') + rest : token
+    },
+  )
+}
+
+/** The text that replaces `result`: literal in plain mode, expanded in regex mode. */
+function replacementFor(
+  value: SearchPluginState,
+  result: SearchResult,
+  replacement: string,
+): string {
+  return value.useRegex ? expandReplacement(replacement, result.match) : replacement
 }
 
 /**
@@ -146,7 +184,7 @@ function findMatches(
 function buildDecorations(
   state: EditorState,
   results: SearchResult[],
-  currentIndex: number
+  currentIndex: number,
 ): DecorationSet {
   if (results.length === 0) return DecorationSet.empty
 
@@ -154,14 +192,12 @@ function buildDecorations(
 
   results.forEach((result, index) => {
     const className =
-      index === currentIndex
-        ? 'search-highlight search-highlight-current'
-        : 'search-highlight'
+      index === currentIndex ? 'search-highlight search-highlight-current' : 'search-highlight'
 
     decorations.push(
       Decoration.inline(result.from, result.to, {
         class: className,
-      })
+      }),
     )
   })
 
@@ -256,9 +292,8 @@ export const SearchHighlight = Extension.create<SearchHighlightOptions>({
             const marksAtPos = $from.marks()
 
             // Create a text node with the replacement, preserving marks
-            const replaceNode = replacement
-              ? state.schema.text(replacement, marksAtPos)
-              : null
+            const text = replacementFor(pluginState, match, replacement)
+            const replaceNode = text ? state.schema.text(text, marksAtPos) : null
 
             // Replace the matched range
             if (replaceNode) {
@@ -269,10 +304,7 @@ export const SearchHighlight = Extension.create<SearchHighlightOptions>({
             }
 
             // Signal the plugin to recompute after the doc change
-            tr.setMeta(searchHighlightPluginKey, {
-              type: 'afterReplace',
-              replacedIndex: currentIndex,
-            })
+            tr.setMeta(searchHighlightPluginKey, { type: 'afterReplace' } satisfies SearchMeta)
 
             dispatch(tr)
           }
@@ -309,8 +341,9 @@ export const SearchHighlight = Extension.create<SearchHighlightOptions>({
               const $from = tr.doc.resolve(mappedFrom)
               const marksAtPos = $from.marks()
 
-              if (replacement) {
-                const replaceNode = state.schema.text(replacement, marksAtPos)
+              const text = replacementFor(pluginState, match, replacement)
+              if (text) {
+                const replaceNode = state.schema.text(text, marksAtPos)
                 tr.replaceWith(mappedFrom, mappedTo, replaceNode)
               } else {
                 tr.delete(mappedFrom, mappedTo)
@@ -318,9 +351,7 @@ export const SearchHighlight = Extension.create<SearchHighlightOptions>({
             }
 
             // Signal the plugin to recompute
-            tr.setMeta(searchHighlightPluginKey, {
-              type: 'afterReplaceAll',
-            })
+            tr.setMeta(searchHighlightPluginKey, { type: 'afterReplaceAll' } satisfies SearchMeta)
 
             dispatch(tr)
           }
@@ -335,134 +366,71 @@ export const SearchHighlight = Extension.create<SearchHighlightOptions>({
         key: searchHighlightPluginKey,
 
         state: {
-          init(): {
-            searchTerm: string
-            caseSensitive: boolean
-            useRegex: boolean
-            currentIndex: number
-            results: SearchResult[]
-            decorations: DecorationSet
-          } {
-            return {
-              searchTerm: '',
-              caseSensitive: false,
-              useRegex: false,
-              currentIndex: -1,
-              results: [],
-              decorations: DecorationSet.empty,
-            }
-          },
+          init: (): SearchPluginState => EMPTY_STATE,
 
-          apply(tr, value, _oldState, newState) {
-            const meta = tr.getMeta(searchHighlightPluginKey)
+          apply(tr, value, _oldState, newState): SearchPluginState {
+            const meta = tr.getMeta(searchHighlightPluginKey) as SearchMeta | undefined
 
-            if (meta) {
-              if (meta.type === 'clear') {
-                return {
-                  searchTerm: '',
-                  caseSensitive: false,
-                  useRegex: false,
-                  currentIndex: -1,
-                  results: [],
-                  decorations: DecorationSet.empty,
-                }
-              }
+            if (meta?.type === 'clear') return EMPTY_STATE
 
-              if (meta.type === 'setSearch') {
-                const results = findMatches(
-                  newState,
-                  meta.searchTerm,
-                  meta.caseSensitive,
-                  meta.useRegex
-                )
-                const currentIndex = results.length > 0 ? 0 : -1
-                const decorations = buildDecorations(newState, results, currentIndex)
-
-                return {
-                  searchTerm: meta.searchTerm,
-                  caseSensitive: meta.caseSensitive,
-                  useRegex: meta.useRegex,
-                  currentIndex,
-                  results,
-                  decorations,
-                }
-              }
-
-              if (meta.type === 'setIndex') {
-                const newIndex = meta.index
-                const decorations = buildDecorations(newState, value.results, newIndex)
-
-                return {
-                  ...value,
-                  currentIndex: newIndex,
-                  decorations,
-                }
-              }
-
-              if (meta.type === 'afterReplace') {
-                // After a single replacement, re-run search on the new doc
-                const results = findMatches(
-                  newState,
-                  value.searchTerm,
-                  value.caseSensitive,
-                  value.useRegex
-                )
-                // Keep the same index (which now points to the "next" match
-                // since the replaced match is gone), clamped to valid range
-                let newIndex = meta.replacedIndex
-                if (newIndex >= results.length) {
-                  newIndex = results.length > 0 ? 0 : -1
-                }
-                const decorations = buildDecorations(newState, results, newIndex)
-
-                return {
-                  ...value,
-                  results,
-                  currentIndex: newIndex,
-                  decorations,
-                }
-              }
-
-              if (meta.type === 'afterReplaceAll') {
-                // After replacing all, re-run search — should find 0 matches
-                const results = findMatches(
-                  newState,
-                  value.searchTerm,
-                  value.caseSensitive,
-                  value.useRegex
-                )
-                const newIndex = results.length > 0 ? 0 : -1
-                const decorations = buildDecorations(newState, results, newIndex)
-
-                return {
-                  ...value,
-                  results,
-                  currentIndex: newIndex,
-                  decorations,
-                }
+            if (meta?.type === 'setSearch') {
+              const results = findMatches(
+                newState,
+                meta.searchTerm,
+                meta.caseSensitive,
+                meta.useRegex,
+              )
+              const currentIndex = results.length > 0 ? 0 : -1
+              return {
+                searchTerm: meta.searchTerm,
+                caseSensitive: meta.caseSensitive,
+                useRegex: meta.useRegex,
+                currentIndex,
+                results,
+                decorations: buildDecorations(newState, results, currentIndex),
               }
             }
 
-            // If the document changed, re-run search on the new content
+            if (meta?.type === 'setIndex') {
+              return {
+                ...value,
+                currentIndex: meta.index,
+                decorations: buildDecorations(newState, value.results, meta.index),
+              }
+            }
+
+            // The document changed (typing, tab switch, Replace, Replace All):
+            // re-run the search and keep the current match where the user is.
             if (tr.docChanged && value.searchTerm) {
               const results = findMatches(
                 newState,
                 value.searchTerm,
                 value.caseSensitive,
-                value.useRegex
+                value.useRegex,
               )
-              // Try to preserve current index; clamp to valid range
-              let currentIndex = value.currentIndex
-              if (currentIndex >= results.length) {
-                currentIndex = results.length > 0 ? results.length - 1 : -1
+              let currentIndex = -1
+              if (results.length > 0) {
+                const current =
+                  meta?.type === 'afterReplaceAll' ? undefined : value.results[value.currentIndex]
+                // After Replace: the first match starting past the inserted text
+                // (so a replacement containing the term is not matched again).
+                // Other edits: the match containing the current match's mapped
+                // start (e.g. text typed into it), else the next one.
+                // Either way, wrap to the first match when none follows.
+                const afterReplace = meta?.type === 'afterReplace'
+                const anchor = current
+                  ? tr.mapping.map(afterReplace ? current.to : current.from)
+                  : 0
+                currentIndex = Math.max(
+                  0,
+                  results.findIndex((r) => (afterReplace ? r.from >= anchor : r.to > anchor)),
+                )
               }
-              const decorations = buildDecorations(newState, results, currentIndex)
-
               return {
                 ...value,
                 results,
                 currentIndex,
-                decorations,
+                decorations: buildDecorations(newState, results, currentIndex),
               }
             }
 
@@ -491,13 +459,6 @@ export const SearchHighlight = Extension.create<SearchHighlightOptions>({
 /**
  * Helper to read search results from the editor state (for external consumers).
  */
-export function getSearchState(state: EditorState) {
-  return searchHighlightPluginKey.getState(state) as {
-    searchTerm: string
-    caseSensitive: boolean
-    useRegex: boolean
-    currentIndex: number
-    results: SearchResult[]
-    decorations: DecorationSet
-  } | undefined
+export function getSearchState(state: EditorState): SearchPluginState | undefined {
+  return searchHighlightPluginKey.getState(state)
 }

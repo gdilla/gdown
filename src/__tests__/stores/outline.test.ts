@@ -158,6 +158,80 @@ Some paragraph.
 
       expect(store.headings).toHaveLength(0)
     })
+
+    it('ignores # lines inside fenced code blocks', () => {
+      const store = useOutlineStore()
+
+      store.updateFromMarkdown(
+        '# Real\n\n```bash\n# comment\n```\n\n~~~~\n## tilde\n~~~\n## still code\n~~~~\n\n## After',
+      )
+
+      expect(store.headings.map((h) => h.text)).toEqual(['Real', 'After'])
+    })
+
+    it('skips front matter and reports offsets in the full document', () => {
+      const store = useOutlineStore()
+      const doc = '---\ntitle: x\n# yaml comment\n---\n# Body\n\n## Next'
+
+      store.updateFromMarkdown(doc)
+
+      expect(store.headings.map((h) => h.text)).toEqual(['Body', 'Next'])
+      expect(store.headings[0]!.pos).toBe(doc.indexOf('# Body'))
+      expect(store.headings[1]!.pos).toBe(doc.indexOf('## Next'))
+    })
+
+    it('reads CRLF markdown, including fences, with correct offsets', () => {
+      const store = useOutlineStore()
+      const doc = '# A\r\n\r\n```\r\n# code\r\n```\r\n## B ##\r\n'
+
+      store.updateFromMarkdown(doc)
+
+      expect(store.headings.map((h) => h.text)).toEqual(['A', 'B'])
+      expect(store.headings[1]!.pos).toBe(doc.indexOf('## B'))
+    })
+
+    it('handles fences opened on a list marker or inside a blockquote', () => {
+      const store = useOutlineStore()
+      const doc = '# A\n\n- ```js\n  # in list\n  ```\n\n> ```\n> # in quote\n> ```\n\n# B'
+
+      store.updateFromMarkdown(doc)
+
+      expect(store.headings.map((h) => h.text)).toEqual(['A', 'B'])
+      expect(store.headings[1]!.pos).toBe(doc.indexOf('# B'))
+    })
+
+    it('ignores indented code and includes setext headings', () => {
+      const store = useOutlineStore()
+      const doc = 'Title\n=====\n\n    # indented code\n\nSub\n---\n'
+
+      store.updateFromMarkdown(doc)
+
+      expect(store.headings.map((h) => [h.level, h.text])).toEqual([
+        [1, 'Title'],
+        [2, 'Sub'],
+      ])
+      expect(store.headings[1]!.pos).toBe(doc.indexOf('Sub'))
+    })
+
+    it('keeps a # that is not a closing sequence', () => {
+      const store = useOutlineStore()
+
+      store.updateFromMarkdown('# C#\n## ###')
+
+      expect(store.headings.map((h) => h.text)).toEqual(['C#'])
+    })
+
+    it('scans a pathological long heading line in linear time', () => {
+      const store = useOutlineStore()
+      const line = '# a' + ' '.repeat(100_000) + 'b'
+
+      const start = performance.now()
+      store.updateFromMarkdown(line)
+      const elapsed = performance.now() - start
+
+      expect(store.headings[0]!.text).toBe('a' + ' '.repeat(100_000) + 'b')
+      expect(elapsed).toBeLessThan(500)
+    })
   })
 
   describe('setActiveHeading', () => {
@@ -311,6 +385,36 @@ Some paragraph.
 
       expect(store.getSectionContent(-1)).toBeNull()
       expect(store.getSectionContent(99)).toBeNull()
+    })
+
+    it('copies the right section around a list-contained fence', () => {
+      const md = '# A\n\n- ```js\n  x\n  ```\n\n# B\n\nb text'
+      const store = setupWithMarkdown(md)
+
+      expect(store.getSectionContent(0)!.markdown).toBe('# A\n\n- ```js\n  x\n  ```')
+      expect(store.getSectionContent(1)!.markdown).toBe('# B\n\nb text')
+    })
+
+    it('finds sections in CRLF markdown', () => {
+      const md = '# A\r\n\r\na text\r\n\r\n# B\r\nb text'
+      const store = setupWithMarkdown(md)
+
+      expect(store.getSectionContent(1)!.markdown).toBe('# B\r\nb text')
+    })
+
+    it('does not treat # lines inside fenced code as section boundaries', () => {
+      const md = '# A\n\n```bash\n# comment\n```\n\n# B\n\nb text'
+      const store = setupWithMarkdown(md)
+      // Headings as the WYSIWYG editor reports them: only the real ones.
+      store.$patch({
+        headings: [
+          { id: 'heading-0', level: 1, text: 'A', pos: 0 },
+          { id: 'heading-9', level: 1, text: 'B', pos: 9 },
+        ],
+      })
+
+      expect(store.getSectionContent(0)!.markdown).toBe('# A\n\n```bash\n# comment\n```')
+      expect(store.getSectionContent(1)!.markdown).toBe('# B\n\nb text')
     })
 
     it('returns null when no active tab markdown', () => {

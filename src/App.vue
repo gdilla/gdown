@@ -7,11 +7,11 @@
         <div v-if="tabsStore.activeTab" class="editor-content">
           <ImageViewer v-if="tabsStore.activeTab.isImage" />
           <Editor v-else-if="editorModeStore.mode === 'wysiwyg'" ref="editorRef" />
-          <SourceEditor v-else />
+          <SourceEditor v-else ref="sourceEditorRef" />
         </div>
         <div v-else class="no-tab-placeholder">
           <div class="empty-state">
-            <h2 class="empty-state-title">gdown</h2>
+            <h2 class="empty-state-title">Leaf</h2>
             <p class="empty-state-subtitle">Open a file or create a new document</p>
             <div class="empty-state-actions">
               <button class="empty-state-button" @click="tabsStore.createTab()">
@@ -117,6 +117,12 @@ const editorSettings = useEditorSettingsStore()
 const exportStore = useExportStore()
 const publishStore = usePublishStore()
 const editorRef = ref<InstanceType<typeof Editor> | null>(null)
+// Structural type: stays valid if SourceEditor is loaded asynchronously, and
+// is null until it resolves.
+const sourceEditorRef = ref<{
+  openFind: () => void
+  navigateToHeading: (pos: number) => void
+} | null>(null)
 
 interface ClosePrompt {
   tab: Tab
@@ -174,6 +180,25 @@ function appActionsBlocked(): boolean {
   return closePrompt.value !== null || exitInProgress || preferencesStore.visible
 }
 
+// Files opened from Finder while a modal blocks app actions wait here
+// instead of being dropped; they open once the block clears.
+const pendingOpenPaths: string[] = []
+
+function openOrQueueFiles(paths: string[]): void {
+  pendingOpenPaths.push(...paths.filter(Boolean))
+  if (appActionsBlocked()) return
+  for (const filePath of pendingOpenPaths.splice(0)) {
+    void tabsStore.openFile(filePath)
+  }
+}
+
+watch(
+  () => closePrompt.value === null && !preferencesStore.visible,
+  (unblocked) => {
+    if (unblocked) openOrQueueFiles([])
+  },
+)
+
 /** Resolve dirty tabs before Rust completes a native quit or window close. */
 async function handleExitRequested(): Promise<void> {
   if (exitInProgress) return
@@ -204,14 +229,20 @@ async function handleExitRequested(): Promise<void> {
       // Tauri is unavailable in browser development mode.
     }
   } finally {
-    if (!exitApproved) exitInProgress = false
+    if (!exitApproved) {
+      exitInProgress = false
+      openOrQueueFiles([])
+    }
   }
 }
 
 /** Handle outline heading navigation */
 function handleOutlineNavigate(heading: OutlineHeading) {
-  if (editorModeStore.mode === 'wysiwyg' && editorRef.value) {
-    editorRef.value.navigateToHeading(heading.pos)
+  // `pos` is a ProseMirror position in WYSIWYG and a character offset in source.
+  if (editorModeStore.mode === 'wysiwyg') {
+    editorRef.value?.navigateToHeading(heading.pos)
+  } else {
+    sourceEditorRef.value?.navigateToHeading(heading.pos)
   }
 }
 
@@ -395,17 +426,13 @@ function handleKeydown(e: KeyboardEvent) {
     return
   }
 
-  // Cmd+F: Find (Typora shortcut)
-  if (e.metaKey && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+  // Cmd+F: Find / Cmd+H: Find and Replace (Typora shortcuts). Source mode
+  // uses CodeMirror's own panel, which always includes the replace field.
+  const isFind = e.key === 'f' || e.key === 'F'
+  if (e.metaKey && !e.shiftKey && (isFind || e.key === 'h' || e.key === 'H')) {
     e.preventDefault()
-    findReplaceStore.open(false)
-    return
-  }
-
-  // Cmd+H: Find and Replace (Typora shortcut)
-  if (e.metaKey && !e.shiftKey && (e.key === 'h' || e.key === 'H')) {
-    e.preventDefault()
-    findReplaceStore.open(true)
+    if (editorModeStore.mode === 'source') sourceEditorRef.value?.openFind()
+    else findReplaceStore.open(!isFind)
     return
   }
 }
@@ -576,11 +603,7 @@ onMounted(async () => {
     // This handles: macOS file associations, drag-drop onto dock icon,
     // "open with" context menu, or any other backend-initiated file open.
     unlistenFileOpenRequest = await listen<string>('open-file', (event) => {
-      if (appActionsBlocked()) return
-      const filePath = event.payload
-      if (filePath) {
-        tabsStore.openFile(filePath)
-      }
+      openOrQueueFiles([event.payload])
     })
 
     // Native window close and application quit are held by Rust until the
@@ -593,13 +616,7 @@ onMounted(async () => {
     // Fired by RunEvent::Opened when files are opened via macOS Open With,
     // double-click, or dock drag.
     unlistenOpenFiles = await listen<string[]>('open-files', (event) => {
-      if (appActionsBlocked()) return
-      const paths = event.payload
-      if (paths && Array.isArray(paths)) {
-        for (const filePath of paths) {
-          tabsStore.openFile(filePath)
-        }
-      }
+      if (Array.isArray(event.payload)) openOrQueueFiles(event.payload)
     })
 
     // Check for pending files from CLI args or early macOS open events
