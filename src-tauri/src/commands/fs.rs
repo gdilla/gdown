@@ -11,7 +11,7 @@ use std::time::SystemTime;
 ///
 /// # Returns
 /// The file contents as a String.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_file(path: String) -> Result<String, String> {
     let file_path = Path::new(&path);
 
@@ -33,7 +33,7 @@ pub fn read_file(path: String) -> Result<String, String> {
 /// # Arguments
 /// * `path` - The absolute path of the file to write.
 /// * `content` - The string content to write.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn write_file(path: String, content: String) -> Result<(), String> {
     let file_path = Path::new(&path);
 
@@ -74,7 +74,7 @@ pub fn write_file(path: String, content: String) -> Result<(), String> {
 
 /// Tauri command: Returns the last modified time of a file as milliseconds since UNIX epoch.
 /// Used for external change detection.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_file_modified_time(path: String) -> Result<u64, String> {
     let file_path = Path::new(&path);
 
@@ -150,7 +150,7 @@ fn is_supported_file(path: &Path) -> bool {
 
 /// Tauri command: Lists only the immediate children of a directory (non-recursive).
 /// Useful for lazy-loading large directory trees.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_directory_shallow(path: String) -> Result<Vec<FileNode>, String> {
     let dir_path = Path::new(&path);
 
@@ -224,30 +224,49 @@ fn is_image_file(path: &Path) -> bool {
     }
 }
 
-/// Generate a deduplicated filename in the target directory.
-/// If `target_dir/stem.ext` already exists, tries `stem_1.ext`, `stem_2.ext`, etc.
-fn deduplicate_filename(target_dir: &Path, stem: &str, extension: &str) -> String {
-    let candidate = format!("{}.{}", stem, extension);
-    if !target_dir.join(&candidate).exists() {
-        return candidate;
-    }
-
-    let mut counter = 1u32;
-    loop {
-        let candidate = format!("{}_{}.{}", stem, counter, extension);
-        if !target_dir.join(&candidate).exists() {
-            return candidate;
+/// Create a new, uniquely named file in the target directory and return its name.
+/// Tries `stem.ext`, then `stem_1.ext`, `stem_2.ext`, etc. The name is claimed with
+/// `create_new`, so concurrent callers can never receive the same file.
+fn create_unique_file(
+    target_dir: &Path,
+    stem: &str,
+    extension: &str,
+) -> Result<(String, fs::File), String> {
+    let ts = || {
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    };
+    for counter in 0..=10001u32 {
+        let candidate = match counter {
+            0 => format!("{}.{}", stem, extension),
+            // Fallback to timestamp after 10000 collisions
+            10001 => format!("{}_{}.{}", stem, ts(), extension),
+            n => format!("{}_{}.{}", stem, n, extension),
+        };
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(target_dir.join(&candidate))
+        {
+            Ok(file) => return Ok((candidate, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                return Err(format!(
+                    "Failed to create '{}': {}",
+                    target_dir.join(&candidate).display(),
+                    e
+                ))
+            }
         }
-        counter += 1;
-        if counter > 10000 {
-            // Fallback to timestamp to guarantee uniqueness
-            let ts = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            return format!("{}_{}.{}", stem, ts, extension);
-        }
     }
+    Err(format!(
+        "No free file name for '{}.{}' in '{}'",
+        stem,
+        extension,
+        target_dir.display()
+    ))
 }
 
 /// Resolve the assets directory for a given document, creating it if needed.
@@ -285,7 +304,7 @@ fn resolve_assets_dir(document_path: &Path) -> Result<std::path::PathBuf, String
 ///
 /// # Returns
 /// The relative path from the document to the copied image (e.g., `assets/photo.png`).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn copy_image_to_assets(image_path: String, document_path: String) -> Result<String, String> {
     let img_path = Path::new(&image_path);
 
@@ -316,11 +335,13 @@ pub fn copy_image_to_assets(image_path: String, document_path: String) -> Result
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "png".to_string());
 
-    let target_name = deduplicate_filename(&assets_dir, &stem, &extension);
+    let (target_name, placeholder) = create_unique_file(&assets_dir, &stem, &extension)?;
+    drop(placeholder);
     let target_path = assets_dir.join(&target_name);
 
-    // Copy the image file
+    // Copy the image file over the claimed placeholder
     fs::copy(img_path, &target_path).map_err(|e| {
+        let _ = fs::remove_file(&target_path);
         format!(
             "Failed to copy image '{}' to '{}': {}",
             image_path,
@@ -345,7 +366,7 @@ pub fn copy_image_to_assets(image_path: String, document_path: String) -> Result
 ///
 /// # Returns
 /// The relative path from the document to the saved image (e.g., `assets/pasted-image-1234.png`).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn write_image_to_assets(
     image_bytes: Vec<u8>,
     document_path: String,
@@ -364,17 +385,8 @@ pub fn write_image_to_assets(
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "png".to_string());
 
-    let target_name = deduplicate_filename(&assets_dir, &stem, &ext);
+    let (target_name, mut file) = create_unique_file(&assets_dir, &stem, &ext)?;
     let target_path = assets_dir.join(&target_name);
-
-    // Write the image bytes to the file
-    let mut file = fs::File::create(&target_path).map_err(|e| {
-        format!(
-            "Failed to create image file '{}': {}",
-            target_path.display(),
-            e
-        )
-    })?;
 
     file.write_all(&image_bytes).map_err(|e| {
         let _ = fs::remove_file(&target_path);
@@ -396,7 +408,7 @@ pub struct ResolveResult {
     pub is_file: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn resolve_file_path(path: String, base_dir: Option<String>) -> Result<ResolveResult, String> {
     if path.trim().is_empty() {
         return Err("Path cannot be empty".to_string());
@@ -522,26 +534,54 @@ mod tests {
     }
 
     #[test]
-    fn test_deduplicate_filename_no_conflict() {
+    fn test_create_unique_file_no_conflict() {
         let dir = tempdir().unwrap();
-        let result = deduplicate_filename(dir.path(), "photo", "png");
+        let (result, _) = create_unique_file(dir.path(), "photo", "png").unwrap();
         assert_eq!(result, "photo.png");
     }
 
     #[test]
-    fn test_deduplicate_filename_with_conflicts() {
+    fn test_create_unique_file_with_conflicts() {
         let dir = tempdir().unwrap();
         let root = dir.path();
 
         // Create photo.png
         fs::File::create(root.join("photo.png")).unwrap();
-        let result = deduplicate_filename(root, "photo", "png");
+        let (result, _) = create_unique_file(root, "photo", "png").unwrap();
         assert_eq!(result, "photo_1.png");
 
         // Create photo_1.png too
         fs::File::create(root.join("photo_1.png")).unwrap();
-        let result = deduplicate_filename(root, "photo", "png");
+        let (result, _) = create_unique_file(root, "photo", "png").unwrap();
         assert_eq!(result, "photo_2.png");
+    }
+
+    #[test]
+    fn test_concurrent_image_writes_never_share_a_name() {
+        // Commands run off the main thread, so simultaneous pastes with the
+        // same name must each get their own file.
+        let dir = tempdir().unwrap();
+        let doc = dir.path().join("doc.md").to_string_lossy().to_string();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
+        let handles: Vec<_> = (0..16u8)
+            .map(|i| {
+                let (doc, barrier) = (doc.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    let rel = write_image_to_assets(vec![i; 4096], doc, "p.png".into()).unwrap();
+                    (i, rel)
+                })
+            })
+            .collect();
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        for (i, rel) in &results {
+            assert_eq!(
+                fs::read(dir.path().join(rel)).unwrap(),
+                vec![*i; 4096],
+                "{}",
+                rel
+            );
+        }
     }
 
     #[test]

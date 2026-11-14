@@ -32,7 +32,7 @@ fn session_file_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// The frontend serializes the session data (open tabs, active tab index,
 /// sidebar folder path, scroll positions) into a JSON string and passes it here.
 /// We write it atomically to prevent data loss on crash.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_session_state(app: tauri::AppHandle, state: String) -> Result<(), String> {
     let file_path = session_file_path(&app)?;
 
@@ -73,7 +73,7 @@ pub fn save_session_state(app: tauri::AppHandle, state: String) -> Result<(), St
 ///
 /// Returns the raw JSON string, or null if no session file exists.
 /// The frontend is responsible for parsing and validating the data.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn load_session_state(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let file_path = session_file_path(&app)?;
 
