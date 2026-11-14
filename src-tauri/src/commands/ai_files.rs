@@ -52,11 +52,11 @@ pub fn list_files_with_mtime(dir_path: String) -> Result<Vec<FileInfo>, String> 
 
     let mut files: Vec<FileInfo> = Vec::new();
 
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
-        let metadata = entry
-            .metadata()
-            .map_err(|e| format!("Failed to read metadata: {}", e))?;
+    // Skip unreadable entries; follow symlinks to classify by target.
+    for entry in entries.flatten() {
+        let Ok(metadata) = fs::metadata(entry.path()) else {
+            continue;
+        };
 
         if !metadata.is_file() {
             continue;

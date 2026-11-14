@@ -209,8 +209,9 @@ pub fn read_directory_shallow(path: String) -> Result<Vec<FileNode>, String> {
 
     let mut nodes: Vec<FileNode> = Vec::new();
 
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+    // Skip entries that cannot be read (including broken symlinks) instead of
+    // failing the whole listing.
+    for entry in entries.flatten() {
         let file_name = entry.file_name().to_string_lossy().to_string();
 
         if file_name.starts_with('.') {
@@ -218,13 +219,10 @@ pub fn read_directory_shallow(path: String) -> Result<Vec<FileNode>, String> {
         }
 
         let entry_path = entry.path();
-        let metadata = entry.metadata().map_err(|e| {
-            format!(
-                "Failed to read metadata for '{}': {}",
-                entry_path.display(),
-                e
-            )
-        })?;
+        // Follow symlinks so linked files and folders are classified by their target.
+        let Ok(metadata) = fs::metadata(&entry_path) else {
+            continue;
+        };
 
         if metadata.is_dir() {
             nodes.push(FileNode {
@@ -636,6 +634,34 @@ mod tests {
         assert!(subdir.is_dir);
         assert!(subdir.children.is_none()); // shallow = no children populated
         assert!(result.iter().all(|node| node.name != "binary.bin"));
+    }
+
+    #[test]
+    fn test_read_directory_shallow_follows_symlinks_and_skips_broken_entries() {
+        use std::os::unix::fs::symlink;
+        let dir = tempdir().unwrap();
+        let elsewhere = tempdir().unwrap();
+        fs::create_dir(elsewhere.path().join("folder")).unwrap();
+        fs::write(elsewhere.path().join("note.md"), "x").unwrap();
+        let root = dir.path();
+        fs::write(root.join("plain.md"), "x").unwrap();
+        symlink(elsewhere.path().join("folder"), root.join("linked-folder")).unwrap();
+        symlink(elsewhere.path().join("note.md"), root.join("linked.md")).unwrap();
+        symlink(root.join("missing.md"), root.join("broken.md")).unwrap();
+
+        let result =
+            read_directory_shallow(s(root)).expect("one broken entry must not fail the listing");
+
+        let listed: Vec<(&str, bool)> =
+            result.iter().map(|n| (n.name.as_str(), n.is_dir)).collect();
+        assert_eq!(
+            listed,
+            vec![
+                ("linked-folder", true),
+                ("linked.md", false),
+                ("plain.md", false)
+            ]
+        );
     }
 
     #[test]
