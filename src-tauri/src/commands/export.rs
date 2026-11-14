@@ -533,15 +533,30 @@ pub fn run_pandoc_export(
         .unwrap_or_default();
     let prefix = export_temp_prefix(destination);
     // Remove temps an earlier export to this destination abandoned (quit or
-    // crash). export_document holds this destination's claim, so none of them
-    // belongs to an export still running in this process.
+    // crash), but only ones that cannot be live: this process's own (export_document
+    // holds this destination's claim, so none is running here) and other
+    // processes' temps untouched for an hour.
+    // ponytail: age heuristic; a Pandoc run over an hour in another instance loses its temp.
+    const ABANDONED_AFTER: std::time::Duration = std::time::Duration::from_secs(3600);
+    let own = format!("{}{}-", prefix, std::process::id());
     let dir = match destination.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
     };
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
-            if entry.file_name().to_string_lossy().starts_with(&prefix) {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with(&prefix) {
+                continue;
+            }
+            let abandoned = name.starts_with(&own)
+                || entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|age| age > ABANDONED_AFTER);
+            if abandoned {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
@@ -553,6 +568,26 @@ pub fn run_pandoc_export(
         COUNTER.fetch_add(1, Ordering::Relaxed),
         extension
     ));
+
+    // Pandoc truncates an existing -o file in place, so pre-creating the temp
+    // with the destination's mode keeps a restricted (e.g. 0600) export private
+    // across the rename. Starts at 0600 so content is never wider than that.
+    // A new destination is left to Pandoc and gets the default mode.
+    if let Ok(existing) = std::fs::metadata(destination) {
+        use std::os::unix::fs::OpenOptionsExt;
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp_path)
+            .map_err(|e| format!("Failed to create '{}': {}", tmp_path.display(), e))?;
+        if let Err(e) = file.set_permissions(existing.permissions()) {
+            eprintln!(
+                "Leaf: could not keep permissions of '{}': {}",
+                output_path, e
+            );
+        }
+    }
 
     let result = run_pandoc(
         pandoc_path,
@@ -1158,31 +1193,65 @@ mod tests {
     }
 
     #[test]
-    fn test_a_new_export_removes_temps_abandoned_for_the_same_destination() {
+    fn test_export_keeps_the_destinations_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = tempfile::tempdir().unwrap();
+        let pandoc = fake_pandoc(bin.path(), "printf done > \"$out\"");
+        let out_dir = tempfile::tempdir().unwrap();
+        let mode = |p: &std::path::Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+
+        let private = out_dir.path().join("private.html");
+        fs::write(&private, "old").unwrap();
+        fs::set_permissions(&private, fs::Permissions::from_mode(0o600)).unwrap();
+        html_export(&pandoc, &private).unwrap();
+        assert_eq!(mode(&private), 0o600);
+
+        // A brand-new export keeps the default mode.
+        let reference = out_dir.path().join("reference");
+        fs::File::create(&reference).unwrap();
+        let fresh = out_dir.path().join("fresh.html");
+        html_export(&pandoc, &fresh).unwrap();
+        assert_eq!(mode(&fresh), mode(&reference));
+    }
+
+    #[test]
+    fn test_a_new_export_removes_only_temps_that_cannot_be_live() {
         let bin = tempfile::tempdir().unwrap();
         let pandoc = fake_pandoc(bin.path(), "printf done > \"$out\"");
         let out_dir = tempfile::tempdir().unwrap();
         let output = out_dir.path().join("report.html");
-        // Left behind by an export abandoned on quit (or a crash) in another run.
-        let stale = out_dir
-            .path()
-            .join(format!("{}4242-0.html", export_temp_prefix(&output)));
-        let other = out_dir.path().join(format!(
-            "{}4242-0.html",
+        let prefix = export_temp_prefix(&output);
+        let temp = |owner: u32| out_dir.path().join(format!("{}{}-0.html", prefix, owner));
+        let own = temp(std::process::id()); // left by an earlier export in this process
+        let foreign_fresh = temp(4242); // another Leaf instance may still be writing it
+        let foreign_old = temp(4343); // abandoned by a quit or crash long ago
+        let other_destination = out_dir.path().join(format!(
+            "{}4343-0.html",
             export_temp_prefix(&out_dir.path().join("other.html"))
         ));
-        fs::write(&stale, "partial").unwrap();
-        fs::write(&other, "someone else's").unwrap();
+        for path in [&own, &foreign_fresh, &foreign_old, &other_destination] {
+            fs::write(path, "partial").unwrap();
+        }
+        let two_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+        for path in [&foreign_old, &other_destination] {
+            fs::File::options()
+                .write(true)
+                .open(path)
+                .and_then(|f| f.set_modified(two_hours_ago))
+                .unwrap();
+        }
 
         html_export(&pandoc, &output).unwrap();
 
         assert_eq!(fs::read_to_string(&output).unwrap(), "done");
+        assert!(!own.exists(), "this process's leftover was kept");
         assert!(
-            !stale.exists(),
-            "abandoned temp for this destination was kept"
+            foreign_fresh.exists(),
+            "another instance's live export was removed"
         );
+        assert!(!foreign_old.exists(), "an hour-old abandoned temp was kept");
         assert!(
-            other.exists(),
+            other_destination.exists(),
             "temp for a different destination was removed"
         );
     }
