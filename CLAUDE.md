@@ -91,7 +91,6 @@ Leaf/
 │   ├── stores/               — Pinia stores (tabs, autoSave, preferences, editorMode, etc.)
 │   ├── utils/
 │   │   ├── markdownConverter.ts  — htmlToMarkdown (Turndown) + markdownToHtml (markdown-it)
-│   │   ├── mathRenderer.ts       — MathJax lazy singleton
 │   │   └── frontmatter.ts        — YAML front-matter parsing
 │   ├── codemirror/           — CodeMirror extensions (math highlight, frontmatter, mathjax preview)
 │   └── style.css             — CSS custom properties for all themes

@@ -240,7 +240,14 @@ Some paragraph.
             title: 'Test',
             filePath: null,
             isModified: false,
-            editorState: { doc: null, markdown, scrollTop: 0, selection: { from: 0, to: 0 }, frontmatter: null, frontmatterAttributes: {} },
+            editorState: {
+              doc: null,
+              markdown,
+              scrollTop: 0,
+              selection: { from: 0, to: 0 },
+              frontmatter: null,
+              frontmatterAttributes: {},
+            },
           },
         ],
         activeTabId: 'test-tab',
@@ -333,7 +340,14 @@ Some paragraph.
             title: 'Test',
             filePath: null,
             isModified: false,
-            editorState: { doc: null, markdown: md, scrollTop: 0, selection: { from: 0, to: 0 }, frontmatter: null, frontmatterAttributes: {} },
+            editorState: {
+              doc: null,
+              markdown: md,
+              scrollTop: 0,
+              selection: { from: 0, to: 0 },
+              frontmatter: null,
+              frontmatterAttributes: {},
+            },
           },
         ],
         activeTabId: 'test-tab',
@@ -377,7 +391,8 @@ Some paragraph.
         activeTabId: 'test-tab',
       })
       outlineStore.updateFromMarkdown(before)
-      const capture = () => tabsStore.saveEditorState('test-tab', { markdown: '# Title\n\nLatest.' })
+      const capture = () =>
+        tabsStore.saveEditorState('test-tab', { markdown: '# Title\n\nLatest.' })
       window.addEventListener('gdown:capture-state', capture)
 
       try {

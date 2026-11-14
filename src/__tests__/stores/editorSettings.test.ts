@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { nextTick } from 'vue'
 import { useEditorSettingsStore } from '../../stores/editorSettings'
 
 describe('useEditorSettingsStore compatibility', () => {
@@ -44,5 +45,32 @@ describe('useEditorSettingsStore compatibility', () => {
     const store = useEditorSettingsStore()
 
     expect(store.fontSize).toBe(21)
+  })
+
+  it('loads a record containing removed settings keys without error', async () => {
+    localStorage.setItem(
+      'gdown-editor-settings',
+      JSON.stringify({
+        fontSize: 18,
+        autoPairBrackets: 'never',
+        autoPairMarkdownSyntax: 'never',
+        highlightCurrentLine: false,
+        wordWrap: false,
+        lineEnding: 'crlf',
+        defaultTypewriterMode: true,
+        defaultFocusMode: true,
+        showFrontMatter: false,
+      }),
+    )
+
+    const store = useEditorSettingsStore()
+    expect(store.fontSize).toBe(18)
+
+    store.fontSize = 20
+    await nextTick()
+
+    const saved = JSON.parse(localStorage.getItem('gdown-editor-settings') ?? '{}')
+    expect(saved.fontSize).toBe(20)
+    expect(saved).not.toHaveProperty('wordWrap')
   })
 })

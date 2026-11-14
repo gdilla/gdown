@@ -29,7 +29,7 @@ export const useOutlineStore = defineStore('outline', () => {
   /** Minimum heading level present (for indentation normalization) */
   const minLevel = computed(() => {
     if (headings.value.length === 0) return 1
-    return Math.min(...headings.value.map(h => h.level))
+    return Math.min(...headings.value.map((h) => h.level))
   })
 
   /** Whether there are any headings */
