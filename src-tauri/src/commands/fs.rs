@@ -12,7 +12,7 @@ use std::time::SystemTime;
 ///
 /// # Returns
 /// The file contents as a String.
-#[tauri::command(async)]
+#[tauri::command]
 pub fn read_file(path: String) -> Result<String, String> {
     let file_path = Path::new(&path);
 
@@ -34,7 +34,7 @@ pub fn read_file(path: String) -> Result<String, String> {
 /// # Arguments
 /// * `path` - The absolute path of the file to write.
 /// * `content` - The string content to write.
-#[tauri::command(async)]
+#[tauri::command]
 pub fn write_file(path: String, content: String) -> Result<(), String> {
     let file_path = Path::new(&path);
 
@@ -53,8 +53,8 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Atomically replace `path` with `bytes`: write a uniquely named hidden temp
 /// file in the same directory, fsync it, then rename it over the target. The
-/// temp name is claimed with `create_new`, so overlapping writes (commands run
-/// off the main thread) never share a temp file. It is removed on any failure.
+/// temp name is claimed with `create_new`, so it never collides with another
+/// write's temp file or a real file. It is removed on any failure.
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let dir = match path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
@@ -100,7 +100,7 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
 /// Tauri command: Returns the last modified time of a file as milliseconds since UNIX epoch.
 /// Used for external change detection.
-#[tauri::command(async)]
+#[tauri::command]
 pub fn get_file_modified_time(path: String) -> Result<u64, String> {
     let file_path = Path::new(&path);
 
@@ -330,7 +330,7 @@ fn resolve_assets_dir(document_path: &Path) -> Result<std::path::PathBuf, String
 ///
 /// # Returns
 /// The relative path from the document to the copied image (e.g., `assets/photo.png`).
-#[tauri::command(async)]
+#[tauri::command]
 pub fn copy_image_to_assets(image_path: String, document_path: String) -> Result<String, String> {
     let img_path = Path::new(&image_path);
 
@@ -392,7 +392,7 @@ pub fn copy_image_to_assets(image_path: String, document_path: String) -> Result
 ///
 /// # Returns
 /// The relative path from the document to the saved image (e.g., `assets/pasted-image-1234.png`).
-#[tauri::command(async)]
+#[tauri::command]
 pub fn write_image_to_assets(
     image_bytes: Vec<u8>,
     document_path: String,
@@ -434,7 +434,7 @@ pub struct ResolveResult {
     pub is_file: bool,
 }
 
-#[tauri::command(async)]
+#[tauri::command]
 pub fn resolve_file_path(path: String, base_dir: Option<String>) -> Result<ResolveResult, String> {
     if path.trim().is_empty() {
         return Err("Path cannot be empty".to_string());
@@ -484,8 +484,8 @@ mod tests {
 
     #[test]
     fn test_concurrent_writes_sharing_a_stem_keep_their_own_bytes() {
-        // Commands run off the main thread, so an autosave of notes.md and an
-        // HTML export to notes.html can overlap in the same directory.
+        // Two writes sharing a stem (notes.md, notes.html) must never share a
+        // temp file, even if they overlap.
         let dir = tempdir().unwrap();
         let paths: Vec<String> = ["notes.md", "notes.html"]
             .iter()
