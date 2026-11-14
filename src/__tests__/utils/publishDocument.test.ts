@@ -91,6 +91,39 @@ describe('publishDocument', () => {
     })
   })
 
+  describe('buildRenderedBody mermaid', () => {
+    const PIE = 'pie title Pets\n  "Dogs": 3\n  "Cats": 2'
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('renders mermaid with securityLevel strict', async () => {
+      const { default: mermaid } = await import('mermaid')
+      const init = vi.spyOn(mermaid, 'initialize')
+
+      const result = await buildRenderedBody(`<pre class="mermaid">${PIE}</pre>`)
+
+      expect(result).toContain('<svg')
+      expect(init.mock.calls[init.mock.calls.length - 1]?.[0]).toMatchObject({
+        securityLevel: 'strict',
+      })
+    })
+
+    // Characterises reachability: the editor serialises diagrams as
+    // <pre class="mermaid-block">, which the export selector does not match.
+    it('does not render the editor mermaid-block markup (export path is unreachable today)', async () => {
+      const { default: mermaid } = await import('mermaid')
+      const init = vi.spyOn(mermaid, 'initialize')
+
+      await buildRenderedBody(
+        `<pre class="mermaid-block" data-language="mermaid"><code class="language-mermaid">${PIE}</code></pre>`,
+      )
+
+      expect(init).not.toHaveBeenCalled()
+    })
+  })
+
   describe('copyAsRichText', () => {
     it('calls navigator.clipboard.write with text/html', async () => {
       // Mock ClipboardItem since jsdom doesn't provide it

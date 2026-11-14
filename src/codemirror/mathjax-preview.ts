@@ -11,18 +11,17 @@
 /* ------------------------------------------------------------------ */
 
 interface MathJaxPreviewState {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  adaptor: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mathjaxDocument: any;
+  adaptor: any
+
+  mathjaxDocument: any
 }
 
-let _state: MathJaxPreviewState | null = null;
-let _statePromise: Promise<MathJaxPreviewState> | null = null;
+let _state: MathJaxPreviewState | null = null
+let _statePromise: Promise<MathJaxPreviewState> | null = null
 
 async function getState(): Promise<MathJaxPreviewState> {
-  if (_state) return _state;
-  if (_statePromise) return _statePromise;
+  if (_state) return _state
+  if (_statePromise) return _statePromise
 
   _statePromise = (async () => {
     const [
@@ -31,6 +30,7 @@ async function getState(): Promise<MathJaxPreviewState> {
       { SVG },
       { liteAdaptor },
       { RegisterHTMLHandler },
+      { SafeHandler },
       { AllPackages },
     ] = await Promise.all([
       import('mathjax-full/js/mathjax'),
@@ -38,38 +38,56 @@ async function getState(): Promise<MathJaxPreviewState> {
       import('mathjax-full/js/output/svg'),
       import('mathjax-full/js/adaptors/liteAdaptor'),
       import('mathjax-full/js/handlers/html'),
+      import('mathjax-full/js/ui/safe/SafeHandler'),
       import('mathjax-full/js/input/tex/AllPackages'),
-    ]);
+    ])
 
-    const adaptor = liteAdaptor();
-    RegisterHTMLHandler(adaptor);
+    const adaptor = liteAdaptor()
+    // The preview is inserted with v-html, so filter untrusted TeX output:
+    // SafeHandler drops javascript: URLs and url() styles, and URLs: 'none'
+    // removes \href links entirely so a click cannot navigate the webview.
+    SafeHandler(RegisterHTMLHandler(adaptor))
 
     const tex = new TeX({
       packages: AllPackages,
-      inlineMath: [['$', '$'], ['\\(', '\\)']],
-      displayMath: [['$$', '$$'], ['\\[', '\\]']],
-    });
+      inlineMath: [
+        ['$', '$'],
+        ['\\(', '\\)'],
+      ],
+      displayMath: [
+        ['$$', '$$'],
+        ['\\[', '\\]'],
+      ],
+    })
 
-    const svg = new SVG({ fontCache: 'local' });
+    const svg = new SVG({ fontCache: 'local' })
 
     const mathjaxDocument = mathjax.document('', {
       InputJax: tex,
       OutputJax: svg,
-    });
+      safeOptions: {
+        allow: { URLs: 'none' },
+        // Only injection is filtered: undo SafeHandler's default size clamps
+        // so \Huge, \tiny, \scriptstyle etc. render as before.
+        styleLengths: { fontSize: [-Infinity, Infinity] },
+        scriptsizemultiplierRange: [-Infinity, Infinity],
+        scriptlevelRange: [-Infinity, Infinity],
+      },
+    })
 
-    _state = { adaptor, mathjaxDocument };
-    return _state;
-  })();
+    _state = { adaptor, mathjaxDocument }
+    return _state
+  })()
 
-  return _statePromise;
+  return _statePromise
 }
 
 /* ------------------------------------------------------------------ */
 /*  Cache                                                              */
 /* ------------------------------------------------------------------ */
 
-const renderCache = new Map<string, string>();
-const MAX_CACHE_SIZE = 500;
+const renderCache = new Map<string, string>()
+const MAX_CACHE_SIZE = 500
 
 /* ------------------------------------------------------------------ */
 /*  Public API                                                        */
@@ -82,29 +100,29 @@ const MAX_CACHE_SIZE = 500;
  * @returns Promise resolving to an SVG HTML string
  */
 export async function renderMathToSvg(expression: string, isBlock: boolean): Promise<string> {
-  const cacheKey = `${isBlock ? 'D' : 'I'}:${expression}`;
+  const cacheKey = `${isBlock ? 'D' : 'I'}:${expression}`
 
   if (renderCache.has(cacheKey)) {
-    return renderCache.get(cacheKey)!;
+    return renderCache.get(cacheKey)!
   }
 
   try {
-    const { adaptor, mathjaxDocument } = await getState();
-    const node = mathjaxDocument.convert(expression, { display: isBlock });
-    const svgHtml = adaptor.outerHTML(node);
+    const { adaptor, mathjaxDocument } = await getState()
+    const node = mathjaxDocument.convert(expression, { display: isBlock })
+    const svgHtml = adaptor.outerHTML(node)
 
     // Manage cache size (LRU-lite: evict oldest entry)
     if (renderCache.size >= MAX_CACHE_SIZE) {
-      const firstKey = renderCache.keys().next().value;
+      const firstKey = renderCache.keys().next().value
       if (firstKey !== undefined) {
-        renderCache.delete(firstKey);
+        renderCache.delete(firstKey)
       }
     }
-    renderCache.set(cacheKey, svgHtml);
-    return svgHtml;
+    renderCache.set(cacheKey, svgHtml)
+    return svgHtml
   } catch (err) {
-    console.warn('MathJax render error:', err);
-    return `<span class="math-error" title="Math rendering error">${escapeHtml(expression)}</span>`;
+    console.warn('MathJax render error:', err)
+    return `<span class="math-error" title="Math rendering error">${escapeHtml(expression)}</span>`
   }
 }
 
@@ -112,16 +130,16 @@ export async function renderMathToSvg(expression: string, isBlock: boolean): Pro
  * Render a LaTeX math expression and return an HTML string with proper wrapping.
  */
 export async function renderMathHtml(expression: string, isBlock: boolean): Promise<string> {
-  const svgHtml = await renderMathToSvg(expression, isBlock);
-  const wrapperClass = isBlock ? 'math-rendered math-display' : 'math-rendered math-inline';
-  return `<span class="${wrapperClass}">${svgHtml}</span>`;
+  const svgHtml = await renderMathToSvg(expression, isBlock)
+  const wrapperClass = isBlock ? 'math-rendered math-display' : 'math-rendered math-inline'
+  return `<span class="${wrapperClass}">${svgHtml}</span>`
 }
 
 /**
  * Clear the render cache (useful when changing settings).
  */
 export function clearMathCache(): void {
-  renderCache.clear();
+  renderCache.clear()
 }
 
 function escapeHtml(text: string): string {
@@ -129,5 +147,5 @@ function escapeHtml(text: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
 }
