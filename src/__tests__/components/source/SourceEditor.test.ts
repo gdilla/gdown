@@ -3,6 +3,7 @@ import { mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import { EditorView } from '@codemirror/view'
+import { SearchQuery, setSearchQuery } from '@codemirror/search'
 import SourceEditor from '../../../components/source/SourceEditor.vue'
 import { useTabsStore } from '../../../stores/tabs'
 import { useEditorModeStore } from '../../../stores/editorMode'
@@ -152,6 +153,29 @@ describe('SourceEditor find and outline', () => {
     const panel = wrapper!.element.querySelector('.cm-search')
     expect(panel).not.toBeNull()
     expect(panel!.querySelector('input[name="replace"]')).not.toBeNull()
+  })
+
+  it("selects every match with the panel's all button; capture keeps the main range", async () => {
+    const tabsStore = useTabsStore()
+    const tab = tabsStore.createTab(null, 'alpha beta alpha')
+    const { api, view } = mountEditor()
+    api.openFind()
+    await nextTick()
+    view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: 'alpha' })) })
+
+    const all = wrapper!.element.querySelector(
+      '.cm-search button[name="select"]',
+    ) as HTMLButtonElement | null
+    all!.click()
+
+    expect(view.state.selection.ranges.map((r) => [r.from, r.to])).toEqual([
+      [0, 5],
+      [11, 16],
+    ])
+    const main = view.state.selection.main
+    window.dispatchEvent(new Event('gdown:capture-state'))
+    expect(tab.editorState.selection).toEqual({ from: main.from, to: main.to })
+    expect(tab.editorState.markdown).toBe('alpha beta alpha')
   })
 
   it('clears its outline and pending refresh on unmount', () => {

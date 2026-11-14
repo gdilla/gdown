@@ -14,7 +14,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, nextTick, shallowRef } from 'vue'
 import { Compartment, EditorState, type Extension } from '@codemirror/state'
-import { EditorView, keymap, highlightActiveLine } from '@codemirror/view'
+import { EditorView, keymap, highlightActiveLine, drawSelection } from '@codemirror/view'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
@@ -93,6 +93,10 @@ function buildExtensions(): Extension[] {
       }),
     ),
     highlightActiveLine(),
+    // The search panel's "all" (and Mod-d) create several ranges; draw them
+    // all. Tab state still records only selection.main.
+    EditorState.allowMultipleSelections.of(true),
+    drawSelection(),
     history(),
     bracketMatching(),
     indentOnInput(),
@@ -463,6 +467,20 @@ onBeforeUnmount(() => {
 .source-editor-container .cm-editor {
   height: 100%;
   overflow: auto;
+}
+
+/* Drawn cursor and selections (drawSelection) — theme variables, not CodeMirror's light defaults */
+.source-editor-container .cm-editor .cm-cursor {
+  border-left-color: var(--text-primary);
+}
+
+.source-editor-container .cm-editor .cm-selectionBackground,
+.source-editor-container
+  .cm-editor.cm-focused
+  > .cm-scroller
+  > .cm-selectionLayer
+  .cm-selectionBackground {
+  background: var(--sidebar-selected-bg);
 }
 
 /* CodeMirror search panel — theme variables override its light-only defaults */
