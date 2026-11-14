@@ -35,6 +35,8 @@
         class="mermaid-svg-container"
         @click="handleDiagramLinkClick"
         @auxclick="handleDiagramLinkClick"
+        @contextmenu="handleDiagramLinkClick"
+        @submit.prevent
         v-html="svgOutput"
       ></div>
       <div v-else class="mermaid-placeholder">
@@ -96,7 +98,7 @@ async function renderDiagram() {
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
     })
     const { svg } = await mermaid.render(id, code)
-    svgOutput.value = svg
+    svgOutput.value = stripInteractiveElements(svg)
     renderError.value = ''
   } catch (err: any) {
     renderError.value = err?.message || 'Failed to render diagram'
@@ -108,12 +110,27 @@ async function renderDiagram() {
 }
 
 /**
+ * 'strict' DOMPurifies HTML labels with DOMPurify's default allow-list, which
+ * keeps form controls and image maps. A diagram never needs them, and a form
+ * submit or <area> click would navigate the app webview, so drop them.
+ */
+function stripInteractiveElements(svg: string): string {
+  const template = document.createElement('template')
+  template.innerHTML = svg
+  template.content
+    .querySelectorAll('form, input, button, select, textarea, map, area')
+    .forEach((el) => el.remove())
+  return template.innerHTML
+}
+
+/**
  * Links from `click A href "…"` must never navigate the app webview (that would
- * replace Leaf with a remote page). Cmd/Ctrl+click opens http(s) links in the
+ * replace Leaf with a remote page), whether by click, middle-click or the
+ * native context menu's "Open Link". Cmd/Ctrl+click opens http(s) links in the
  * system browser, like editor links; other schemes are ignored.
  */
 function handleDiagramLinkClick(event: MouseEvent) {
-  const link = (event.target as Element | null)?.closest('a')
+  const link = (event.target as Element | null)?.closest('a, area')
   if (!link) return
   event.preventDefault()
   const href =

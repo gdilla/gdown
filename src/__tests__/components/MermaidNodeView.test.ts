@@ -110,10 +110,15 @@ describe('MermaidNodeView', () => {
       return mounted
     }
 
-    function clickLink(mounted: VueWrapper, text: string, init: MouseEventInit = {}): MouseEvent {
+    function clickLink(
+      mounted: VueWrapper,
+      text: string,
+      init: MouseEventInit = {},
+      type = 'click',
+    ): MouseEvent {
       const link = mounted.findAll('.mermaid-svg-container a').find((a) => a.text() === text)
       if (!link) throw new Error(`no link ${text}`)
-      const event = new MouseEvent('click', { bubbles: true, cancelable: true, ...init })
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, ...init })
       link.element.querySelector('text')!.dispatchEvent(event)
       return event
     }
@@ -141,5 +146,35 @@ describe('MermaidNodeView', () => {
       expect(event.defaultPrevented).toBe(true)
       expect(openUrl).not.toHaveBeenCalled()
     })
+
+    it('suppresses the native context menu (its "Open Link" would navigate the webview)', async () => {
+      const mounted = await mountLinked()
+      const event = clickLink(mounted, 'web', {}, 'contextmenu')
+      expect(event.defaultPrevented).toBe(true)
+      expect(openUrl).not.toHaveBeenCalled()
+    })
+  })
+
+  // Mermaid 'strict' runs DOMPurify with its default allow-list, which keeps form
+  // controls and image maps inside HTML node labels (verified against the bundled
+  // dompurify 3.3.2 with Mermaid's label and final-pass configs).
+  it('strips form controls and image maps that strict still lets through', async () => {
+    vi.spyOn(mermaid, 'render').mockResolvedValue({
+      svg:
+        '<svg><foreignObject><div xmlns="http://www.w3.org/1999/xhtml"><span>label</span>' +
+        '<form action="https://attacker.example/f" method="post"><input type="submit" value="go">' +
+        '<button>b</button></form><img usemap="#m" src="x.png"><map name="m">' +
+        '<area shape="rect" coords="0,0,9,9" href="https://attacker.example/a"></map>' +
+        '<select><option>o</option></select><textarea>t</textarea></div></foreignObject></svg>',
+      diagramType: 'flowchart-v2',
+    })
+    const mounted = mountDiagram('graph TD\n  A --> B')
+    await vi.waitFor(() => {
+      expect(mounted.find('.mermaid-svg-container svg').exists()).toBe(true)
+    })
+
+    const container = mounted.find('.mermaid-svg-container').element
+    expect(container.querySelector('form, input, button, select, textarea, map, area')).toBeNull()
+    expect(container.textContent).toContain('label')
   })
 })
