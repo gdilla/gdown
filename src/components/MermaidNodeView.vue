@@ -4,8 +4,8 @@
       <span class="mermaid-label">Mermaid Diagram</span>
       <button
         class="mermaid-toggle-btn"
-        @click="toggleEditing"
         :title="isEditing ? 'Preview diagram' : 'Edit source'"
+        @click="toggleEditing"
       >
         {{ isEditing ? 'Preview' : 'Edit' }}
       </button>
@@ -16,11 +16,11 @@
       <textarea
         ref="sourceTextarea"
         :value="node.textContent"
-        @input="handleInput"
-        @keydown="handleKeydown"
         spellcheck="false"
         placeholder="Enter Mermaid diagram code..."
         rows="6"
+        @input="handleInput"
+        @keydown="handleKeydown"
       ></textarea>
     </div>
 
@@ -30,7 +30,7 @@
         <span class="mermaid-error-icon">&#x26A0;</span>
         <span>{{ renderError }}</span>
       </div>
-      <div v-else-if="svgOutput" v-html="svgOutput" class="mermaid-svg-container"></div>
+      <div v-else-if="svgOutput" class="mermaid-svg-container" v-html="svgOutput"></div>
       <div v-else class="mermaid-placeholder">
         <span>Double-click to add Mermaid diagram code</span>
       </div>
@@ -39,7 +39,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { NodeViewWrapper } from '@tiptap/vue-3'
 import type { NodeViewProps } from '@tiptap/vue-3'
 
@@ -50,22 +50,19 @@ const svgOutput = ref('')
 const renderError = ref('')
 const sourceTextarea = ref<HTMLTextAreaElement | null>(null)
 
-// Lazily loaded mermaid instance — imported only on first render
-let mermaidReady: Promise<typeof import('mermaid')['default']> | null = null
+// Lazily loaded mermaid module — imported only on first render
+let mermaidReady: Promise<(typeof import('mermaid'))['default']> | null = null
 
-function getMermaid(): Promise<typeof import('mermaid')['default']> {
+function getMermaid(): Promise<(typeof import('mermaid'))['default']> {
   if (!mermaidReady) {
-    mermaidReady = import('mermaid').then(({ default: m }) => {
-      m.initialize({
-        startOnLoad: false,
-        theme: 'default',
-        securityLevel: 'loose',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
-      })
-      return m
-    })
+    mermaidReady = import('mermaid').then(({ default: m }) => m)
   }
   return mermaidReady
+}
+
+/** Mermaid theme matching the applied app theme (`dark`, `solarized-dark` → dark). */
+function mermaidTheme(): 'dark' | 'default' {
+  return document.documentElement.dataset.theme?.endsWith('dark') ? 'dark' : 'default'
 }
 
 let renderCounter = 0
@@ -82,6 +79,15 @@ async function renderDiagram() {
     renderCounter++
     const id = `mermaid-${Date.now()}-${renderCounter}`
     const mermaid = await getMermaid()
+    // Re-initialised per render so the diagram follows the current app theme.
+    // 'strict' DOMPurifies labels and the final SVG, disables click callbacks and
+    // sanitises link URLs; documents cannot override it via %%{init}%% (secure key).
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: mermaidTheme(),
+      securityLevel: 'strict',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+    })
     const { svg } = await mermaid.render(id, code)
     svgOutput.value = svg
     renderError.value = ''
@@ -108,11 +114,7 @@ function handleInput(event: Event) {
   const nodeEnd = pos + props.node.nodeSize - 1
 
   if (newContent) {
-    tr.replaceWith(
-      nodeStart,
-      nodeEnd,
-      props.editor.state.schema.text(newContent)
-    )
+    tr.replaceWith(nodeStart, nodeEnd, props.editor.state.schema.text(newContent))
   } else {
     tr.delete(nodeStart, nodeEnd)
   }
@@ -172,10 +174,18 @@ function autoResize(textarea: HTMLTextAreaElement) {
   textarea.style.height = textarea.scrollHeight + 'px'
 }
 
+// Re-render when the app theme changes (preferences store sets <html data-theme>)
+const themeObserver = new MutationObserver(() => {
+  if (!isEditing.value) renderDiagram()
+})
+
 // Render on mount
 onMounted(() => {
   renderDiagram()
+  themeObserver.observe(document.documentElement, { attributeFilter: ['data-theme'] })
 })
+
+onBeforeUnmount(() => themeObserver.disconnect())
 
 // Re-render when node content changes externally (e.g., undo/redo)
 watch(
@@ -188,7 +198,7 @@ watch(
     if (isEditing.value && sourceTextarea.value) {
       nextTick(() => autoResize(sourceTextarea.value!))
     }
-  }
+  },
 )
 </script>
 
@@ -198,7 +208,7 @@ watch(
   border: 1px solid #e1e4e8;
   border-radius: 6px;
   overflow: hidden;
-  background: #fff;
+  background: var(--bg-primary);
   transition: border-color 0.2s;
 }
 
@@ -224,7 +234,7 @@ watch(
 .mermaid-label {
   color: #586069;
   font-weight: 500;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
 }
 
 .mermaid-toggle-btn {
@@ -235,8 +245,10 @@ watch(
   font-size: 11px;
   color: #586069;
   cursor: pointer;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  transition: background 0.15s, color 0.15s;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .mermaid-toggle-btn:hover {
@@ -255,7 +267,7 @@ watch(
   border: none;
   outline: none;
   resize: vertical;
-  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.5;
   color: #24292e;
