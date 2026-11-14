@@ -219,6 +219,14 @@ describe('round-trip', () => {
     expect(restored).toBe(original)
   })
 
+  it('round-trips a path containing & without entity-encoding it', () => {
+    const resolved = resolveImagePaths('<img src="a&amp;b.png">', docDir)
+    const template = document.createElement('template')
+    template.innerHTML = unresolveImagePaths(resolved, docDir)
+    expect(template.content.querySelector('img')?.getAttribute('src')).toBe('a&b.png')
+    expect(resolved).toContain('src="asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fa%26b.png"')
+  })
+
   it('round-trips multiple images with mixed sources', () => {
     const original =
       '<img src="assets/local.png">' +

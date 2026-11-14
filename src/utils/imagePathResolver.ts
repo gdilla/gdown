@@ -41,6 +41,8 @@ function assetUrlToPath(src: string): string | null {
   }
 }
 
+const HTML_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }
+
 // Matches <img ... src="..." ...> tags, capturing the full tag for replacement
 const IMG_SRC_RE = /(<img\b[^>]*?\bsrc=")([^"]+)(")/g
 
@@ -74,8 +76,13 @@ export function resolveImagePaths(html: string, documentDir: string): string {
   if (!html || !documentDir) return html
 
   return html.replace(IMG_SRC_RE, (match, prefix: string, src: string, suffix: string) => {
-    const assetUrl = resolveRelativeSrc(src, documentDir)
-    if (assetUrl === src) return match
+    // `src` is HTML attribute text (`a&amp;b.png`); resolve the path it names.
+    const path = src.replace(
+      /&(amp|lt|gt|quot|#39);/g,
+      (_entity, name: string) => HTML_ENTITIES[name]!,
+    )
+    const assetUrl = resolveRelativeSrc(path, documentDir)
+    if (assetUrl === path) return match
     // Preserve the markdown spelling of the path for the round-trip back
     return `${prefix}${assetUrl}${suffix} data-original-src="${src}"`
   })

@@ -8,6 +8,7 @@
 
 import TurndownService from 'turndown'
 import MarkdownIt from 'markdown-it'
+import type Token from 'markdown-it/lib/token.mjs'
 import { parseFrontMatter, assembleFrontMatter } from './frontmatter'
 
 // ─── Markdown → HTML (for loading into TipTap) ───────────────────────
@@ -29,10 +30,11 @@ md.linkify.set({ fuzzyLink: false })
 /**
  * Inline math `$latex$`, with Pandoc's rules: the LaTeX must not start or end
  * with whitespace and the closing `$` must not be followed by a digit, so
- * prices like "$5 and $10" stay text. `\$` stays a literal dollar.
+ * prices like "$5 and $10" stay text. `\$` outside math stays a literal
+ * dollar; inside, backslash pairs (`\$`, `\\`) are part of the LaTeX.
  */
-const INLINE_MATH = /\$([^\s$](?:[^$]*[^\s$\\])?)\$(?!\d)/
-const INLINE_MATH_AT = new RegExp(INLINE_MATH.source, 'y')
+const INLINE_MATH_AT =
+  /\$((?:[^\s$\\]|\\[\s\S])(?:(?:[^$\\]|\\[\s\S])*(?:[^\s$\\]|\\[\s\S]))?)\$(?!\d)/y
 
 md.inline.ruler.after('escape', 'math_inline', (state, silent) => {
   if (state.src.charCodeAt(state.pos) !== 0x24 /* $ */) return false
@@ -56,6 +58,10 @@ md.block.ruler.before(
   'math_block',
   (state, startLine, endLine, silent) => {
     if (state.sCount[startLine]! - state.blkIndent >= 4) return false
+    // A list item must start with a paragraph in the editor schema, so `- $$x$$`
+    // stays text in its item instead of being hoisted out of the list.
+    const previous = state.tokens[state.tokens.length - 1]
+    if (previous?.type === 'list_item_open' && previous.map?.[0] === startLine) return false
     const first = state.src.slice(
       state.bMarks[startLine]! + state.tShift[startLine]!,
       state.eMarks[startLine]!,
@@ -68,14 +74,20 @@ md.block.ruler.before(
     if (rest.length >= 2 && rest.endsWith('$$')) {
       latex = rest.slice(0, -2)
     } else if (rest === '') {
-      do closeLine++
-      while (
-        closeLine < endLine &&
+      do {
+        closeLine++
+        // Never search past the end of the enclosing list item or blockquote.
+        if (
+          closeLine >= endLine ||
+          (state.sCount[closeLine]! < state.blkIndent && !state.isEmpty(closeLine))
+        ) {
+          return false
+        }
+      } while (
         state.src
           .slice(state.bMarks[closeLine]! + state.tShift[closeLine]!, state.eMarks[closeLine]!)
           .trimEnd() !== '$$'
       )
-      if (closeLine >= endLine) return false
       latex = state.getLines(startLine + 1, closeLine, state.blkIndent, false).replace(/\n$/, '')
     } else {
       return false
@@ -176,7 +188,12 @@ function mathMarkdown(node: HTMLElement): string | null {
   const type = node.getAttribute('data-type')
   if (type !== 'math-inline' && type !== 'math-block') return null
   const latex = node.getAttribute('data-latex') ?? node.textContent ?? ''
-  return type === 'math-inline' ? `$${latex}$` : `\n\n$$\n${latex}\n$$\n\n`
+  if (type === 'math-block') return `${blockGap(node)}$$\n${latex}\n$$${blockGap(node)}`
+  const inline = latex.trim()
+  if (!inline) return ''
+  // A `$` followed by a digit does not close math (Pandoc rule, so "$5 and
+  // $10" stays text); an empty HTML comment keeps `$x$2` as math and loads as nothing.
+  return /^\d/.test(node.nextSibling?.textContent ?? '') ? `$${inline}$<!---->` : `$${inline}$`
 }
 
 const turndown = new TurndownService({
@@ -195,16 +212,68 @@ const turndown = new TurndownService({
  * ordinary prose (snake_case, "2 * 3", "[1]", C:\path, "a < b") is written as
  * it was typed. Turndown's default escapes every `_`, `*`, `[`, `]` and `\`.
  */
-turndown.escape = (text: string): string => {
-  const escaped = text
+turndown.escape = (text: string): string =>
+  text
     .replace(/\\(?=[!-/:-@[-`{-~]|$)/g, '\\\\') // a backslash that would escape the next char
     .replace(/(?<!\s)\*|\*(?!\s)/g, '\\*') // `*` unless spaced on both sides
     .replace(/(?<![\p{L}\p{N}])_|_(?![\p{L}\p{N}])/gu, '\\_') // `_` unless intraword
     .replace(/`/g, '\\`')
-    .replace(/\[(?=[^\]]*\][([:])/g, '\\[') // `[` only when it would open a link
     .replace(/<(?=[A-Za-z/!?])/g, '\\<') // `<` only when it would open raw HTML
     .replace(/~~/g, '\\~\\~')
-  return INLINE_MATH.test(text) ? escaped.replace(/\$/g, '\\$') : escaped
+    // `$` and `[` can pair across formatting and text nodes: mark them and
+    // decide on the whole document (resolveLiterals).
+    .replace(/\$/g, LITERAL_DOLLAR)
+    .replace(/\[/g, LITERAL_BRACKET)
+
+const LITERAL_DOLLAR = '\uE000'
+const LITERAL_BRACKET = '\uE001'
+const LITERALS = /[\uE000\uE001]/
+const plainLiterals = (markdown: string) => markdown.replace(/\uE000/g, '$').replace(/\uE001/g, '[')
+const escapedLiterals = (markdown: string) =>
+  markdown.replace(/\uE000/g, '\\$').replace(/\uE001/g, '\\[')
+
+/** The blocks, links, images and math the loader would build from `markdown`. */
+function loadedSyntax(markdown: string): string {
+  const describe = (token: Token) =>
+    token.type === 'link_open' || token.type === 'image'
+      ? `${token.type}(${token.attrGet('href') ?? token.attrGet('src')})`
+      : token.type.startsWith('math')
+        ? `${token.type}(${token.content})`
+        : token.type
+  return md
+    .parse(markdown, {})
+    .map((token) =>
+      [
+        describe(token),
+        ...(token.children ?? [])
+          .filter((child) => /^(link_open|image|math_inline)$/.test(child.type))
+          .map(describe),
+      ].join(' '),
+    )
+    .join('\n')
+}
+
+/**
+ * Write literal `$` and `[` bare unless that would reload as math or a link
+ * (e.g. `\$5 for **one** and 10\$`, `fn[a[0]](x)`). Bare is kept when the
+ * loader builds the same blocks, links and math as from the fully escaped
+ * text; otherwise decide per line, and escape everything as a last resort.
+ */
+function resolveLiterals(markdown: string): string {
+  if (!LITERALS.test(markdown)) return markdown
+  const target = loadedSyntax(escapedLiterals(markdown))
+  const plain = plainLiterals(markdown)
+  if (loadedSyntax(plain) === target) return plain
+  const perLine = markdown
+    .split('\n')
+    .map((line) =>
+      LITERALS.test(line) &&
+      loadedSyntax(plainLiterals(line)) !== loadedSyntax(escapedLiterals(line))
+        ? escapedLiterals(line)
+        : plainLiterals(line),
+    )
+    .join('\n')
+  return loadedSyntax(perLine) === target ? perLine : escapedLiterals(markdown)
 }
 
 /** Escape paragraph lines that would otherwise reload as a list, heading or quote. */
@@ -229,17 +298,77 @@ function owningListItem(node: HTMLElement): HTMLElement | null {
   return null
 }
 
+// Per-list facts, computed once per list so serialization stays linear.
+const listTightness = new WeakMap<Element, boolean>()
+const listMarkers = new WeakMap<Element, string>()
+const itemNumbers = new WeakMap<Element, number>()
+
+/**
+ * Child elements via sibling links. Indexing an HTMLCollection is O(n) per
+ * access in jsdom, which made long lists quadratic.
+ */
+function childElements(parent: Element | null | undefined): Element[] {
+  const children: Element[] = []
+  for (let child = parent?.firstElementChild; child; child = child.nextElementSibling) {
+    children.push(child)
+  }
+  return children
+}
+
 /**
  * Tight unless the source list was loose (`data-tight="false"`) or an item
  * holds several paragraphs, which only a loose list can express.
  */
 function isTightList(list: Element | null): boolean {
-  if (!list || list.getAttribute('data-tight') === 'false') return false
-  return Array.from(list.children).every((item) => {
-    const blocks =
-      item.getAttribute('data-type') === 'taskItem' ? item.querySelector(':scope > div') : item
-    return (blocks?.querySelectorAll(':scope > p').length ?? 0) <= 1
-  })
+  if (!list) return false
+  let tight = listTightness.get(list)
+  if (tight === undefined) {
+    tight =
+      list.getAttribute('data-tight') !== 'false' &&
+      childElements(list).every((item) => {
+        const blocks =
+          item.getAttribute('data-type') === 'taskItem'
+            ? childElements(item).find((child) => child.nodeName === 'DIV')
+            : item
+        return childElements(blocks).filter((child) => child.nodeName === 'P').length <= 1
+      })
+    listTightness.set(list, tight)
+  }
+  return tight
+}
+
+/** Blank line between blocks, or a single newline inside a tight list item. */
+function blockGap(node: HTMLElement): string {
+  const item = owningListItem(node)
+  return item && isTightList(item.parentElement) ? '\n' : '\n\n'
+}
+
+/**
+ * `-`/`.` normally; `*`/`)` for a list directly after one of the same kind,
+ * since CommonMark only starts a new list when the marker changes.
+ */
+function listMarker(list: Element): string {
+  let marker = listMarkers.get(list)
+  if (marker === undefined) {
+    const [usual, alternate] = list.nodeName === 'OL' ? ['.', ')'] : ['-', '*']
+    let previous = list.previousElementSibling
+    // Empty paragraphs serialize to nothing, so they do not separate lists.
+    while (previous?.nodeName === 'P' && !previous.textContent && !previous.firstElementChild) {
+      previous = previous.previousElementSibling
+    }
+    marker =
+      previous?.nodeName === list.nodeName && listMarker(previous) === usual ? alternate : usual
+    listMarkers.set(list, marker)
+  }
+  return marker
+}
+
+function itemNumber(list: Element, item: Element): number {
+  if (!itemNumbers.has(item)) {
+    const start = Number(list.getAttribute('start') ?? 1)
+    childElements(list).forEach((child, index) => itemNumbers.set(child, start + index))
+  }
+  return itemNumbers.get(item) ?? 1
 }
 
 turndown.addRule('math', {
@@ -251,8 +380,7 @@ turndown.addRule('paragraph', {
   filter: 'p',
   replacement(content: string, node: HTMLElement) {
     const text = node.closest('td, th') ? content : escapeLineStarts(content)
-    const item = owningListItem(node)
-    return item && isTightList(item.parentElement) ? `\n${text}\n` : `\n\n${text}\n\n`
+    return `${blockGap(node)}${text}${blockGap(node)}`
   },
 })
 
@@ -270,11 +398,8 @@ turndown.addRule('listItem', {
   filter: 'li',
   replacement(content: string, node: HTMLElement) {
     const list = node.parentElement
-    let marker = '-'
-    if (list?.nodeName === 'OL') {
-      const start = Number(list.getAttribute('start') ?? 1)
-      marker = `${start + Array.prototype.indexOf.call(list.children, node)}.`
-    }
+    let marker = list ? listMarker(list) : '-'
+    if (list?.nodeName === 'OL') marker = `${itemNumber(list, node)}${marker}`
     const indent = ' '.repeat(marker.length + 1)
     if (node.getAttribute('data-type') === 'taskItem') {
       marker += node.getAttribute('data-checked') === 'true' ? ' [x]' : ' [ ]'
@@ -296,6 +421,19 @@ turndown.addRule('taskItemParts', {
   replacement: (content: string, node: HTMLElement) => (node.nodeName === 'DIV' ? content : ''),
 })
 
+turndown.addRule('codeBlock', {
+  filter: (node) => node.nodeName === 'PRE' && node.firstChild?.nodeName === 'CODE',
+  replacement(_content: string, node: HTMLElement) {
+    const code = node.firstChild as HTMLElement
+    const language = /language-(\S+)/.exec(code.getAttribute('class') ?? '')?.[1] ?? ''
+    const text = code.textContent ?? ''
+    const longestRun = Math.max(0, ...Array.from(text.matchAll(/^`{3,}/gm), (m) => m[0].length))
+    const fence = '`'.repeat(Math.max(3, longestRun + 1))
+    const gap = blockGap(node)
+    return `${gap}${fence}${language}\n${text.replace(/\n$/, '')}\n${fence}${gap}`
+  },
+})
+
 turndown.addRule('blockquote', {
   filter: 'blockquote',
   replacement(content: string) {
@@ -308,17 +446,41 @@ turndown.addRule('blockquote', {
   },
 })
 
-// A link whose text is its own target was a bare URL (or a fuzzy autolink /
-// email the editor linked while typing): write the bare text back.
+/**
+ * Whether markdown-it's linkify turns `text`, followed by the next word as it
+ * will be written, back into this exact link with that word as plain text.
+ */
+function relinksAs(text: string, href: string, followingText: string): boolean {
+  const following = /^\S*/.exec(followingText)?.[0] ?? ''
+  const template = document.createElement('template')
+  template.innerHTML = md.renderInline(text + plainLiterals(turndown.escape(following)))
+  const [link, ...rest] = Array.from(template.content.childNodes)
+  return (
+    link?.nodeName === 'A' &&
+    (link as Element).getAttribute('href') === href &&
+    link.textContent === text &&
+    rest.every((node) => node.nodeType === 3) &&
+    rest.map((node) => node.textContent).join('') === following
+  )
+}
+
+// A bare URL or email loads as a link whose text is its target. Write it back
+// bare only when the loader rebuilds the identical link from the bare text in
+// this position; otherwise keep the explicit [text](href) form.
 turndown.addRule('link', {
   filter: (node) => node.nodeName === 'A' && !!node.getAttribute('href'),
   replacement(content: string, node: HTMLElement) {
     const href = node.getAttribute('href') ?? ''
     const text = node.textContent ?? ''
     const title = node.getAttribute('title')
-    const plainText = node.childNodes.length === 1 && node.firstChild?.nodeType === 3
-    if (!title && plainText && [text, `http://${text}`, `mailto:${text}`].includes(href))
-      return text
+    const { previousSibling: previous, nextSibling: next } = node
+    const bareCandidate =
+      !title &&
+      node.childNodes.length === 1 &&
+      node.firstChild?.nodeType === 3 &&
+      (!previous || (previous.nodeType === 3 && /[\s(]$/.test(previous.textContent ?? ''))) &&
+      (!next || next.nodeType === 3)
+    if (bareCandidate && relinksAs(text, href, next?.textContent ?? '')) return text
     const titlePart = title ? ` "${title.replace(/"/g, '\\"')}"` : ''
     return `[${content}](${href.replace(/([()])/g, '\\$1')}${titlePart})`
   },
@@ -403,7 +565,7 @@ turndown.addRule('tableRow', {
     const row = `|${content.trimEnd()}\n`
     // GFM's header row is the table's first row; the editor puts it in <tbody>.
     if (node.closest('table')?.querySelector('tr') !== node) return row
-    const separator = Array.from(node.children)
+    const separator = childElements(node)
       .map((cell) => ` ${ALIGN_SEPARATOR[(cell as HTMLElement).style.textAlign] ?? '---'} |`)
       .join('')
     return `${row}|${separator}\n`
@@ -430,7 +592,7 @@ turndown.addRule('tableSection', {
  */
 export function htmlToMarkdown(html: string): string {
   if (!html) return ''
-  const markdown = turndown.turndown(html)
+  const markdown = resolveLiterals(turndown.turndown(html))
   // Files end with a newline, like the markdown they were loaded from.
   return markdown ? `${markdown}\n` : ''
 }

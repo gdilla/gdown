@@ -141,7 +141,7 @@ describe('WYSIWYG markdown round-trip', () => {
     vi.advanceTimersByTime(200)
 
     expect(serializeTabToFile(tab)).toBe(
-      '- [ ] todo\n- [x] done\n\nthen\n\n- a\n- b\n\nsee $x^2$ and CLAUDE.md\n',
+      '- [ ] todo\n- [x] done\n\nthen\n\n- a\n- b\n\nsee $x^2$ and [CLAUDE.md](http://CLAUDE.md)\n',
     )
   })
 

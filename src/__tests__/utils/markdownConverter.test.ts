@@ -248,8 +248,7 @@ describe('round-trip rules', () => {
       )
     })
 
-    it('saves fuzzy autolinks (http:// prefix, mailto:) as the bare text', () => {
-      expect(md('<p><a href="http://CLAUDE.md">CLAUDE.md</a></p>')).toBe('CLAUDE.md\n')
+    it('saves a bare email as bare text', () => {
       expect(md('<p><a href="mailto:me@example.com">me@example.com</a></p>')).toBe(
         'me@example.com\n',
       )
@@ -376,7 +375,7 @@ describe('round-trip rules', () => {
       expect(md('<p>*not emphasis* and _not_ either</p>')).toBe(
         '\\*not emphasis\\* and \\_not\\_ either\n',
       )
-      expect(md('<p>[not](a link) and `not code`</p>')).toBe('\\[not](a link) and \\`not code\\`\n')
+      expect(md('<p>[not](x) and `not code`</p>')).toBe('\\[not](x) and \\`not code\\`\n')
       expect(md('<p>&lt;div&gt; is not html</p>')).toBe('\\<div> is not html\n')
       expect(md('<p>a\\*b</p>')).toBe('a\\\\\\*b\n')
     })
@@ -406,6 +405,141 @@ describe('round-trip rules', () => {
           '<table><tbody><tr><th><p>- a</p></th></tr><tr><td><p>1. b</p></td></tr></tbody></table>',
         ),
       ).toBe('| - a |\n| --- |\n| 1. b |\n')
+    })
+  })
+})
+
+describe('review regressions', () => {
+  const md = (html: string) => htmlToMarkdown(html)
+  const rt = (source: string) => htmlToMarkdown(markdownToHtml(source))
+
+  describe('links are only written bare when the loader re-links them identically', () => {
+    it.each([
+      '[CHANGELOG.md](CHANGELOG.md)',
+      '[#anchor](#anchor)',
+      '[example.com](http://example.com)',
+      '[www.example.com](http://www.example.com)',
+      '[localhost:1420](http://localhost:1420)',
+      '[CLAUDE.md](http://CLAUDE.md)',
+    ])('keeps %s', (link) => {
+      expect(rt(`See ${link} now`)).toBe(`See ${link} now\n`)
+    })
+
+    it('keeps the explicit form when bare text would not parse back to the same link', () => {
+      expect(md('<p><a href="__init__.py">__init__.py</a></p>')).toBe(
+        '[\\_\\_init\\_\\_.py](__init__.py)\n',
+      )
+      expect(md('<p><a href="https://x.com/p.">https://x.com/p.</a></p>')).toBe(
+        '[https://x.com/p.](https://x.com/p.)\n',
+      )
+      expect(md('<p><a href="https://x.com/a*b">https://x.com/a*b</a>*c</p>')).toBe(
+        '[https://x.com/a\\*b](https://x.com/a*b)\\*c\n',
+      )
+      expect(md('<p>x<a href="https://x.com">https://x.com</a></p>')).toBe(
+        'x[https://x.com](https://x.com)\n',
+      )
+    })
+
+    it('still writes real bare URLs bare, before punctuation too', () => {
+      expect(rt('See https://example.com/a_b, ok')).toBe('See https://example.com/a_b, ok\n')
+    })
+  })
+
+  describe('literal $ and [ are escaped when the paragraph would reload as math or a link', () => {
+    it('escapes dollars that pair across formatting', () => {
+      const source = 'costs \\$5 for **one** and 10\\$ each'
+      expect(rt(source)).toBe(`${source}\n`)
+      expect(markdownToHtml(md(markdownToHtml(source)))).not.toContain('math-inline')
+    })
+
+    it('escapes a paragraph that would reload as a math block', () => {
+      expect(rt('\\$\\$ 5 \\$\\$')).toBe('\\$\\$ 5 \\$\\$\n')
+    })
+
+    it('escapes brackets that would form a link across formatting or with nesting', () => {
+      expect(markdownToHtml(md('<p>[a <strong>b</strong> c](x)</p>'))).not.toContain('<a')
+      expect(markdownToHtml(md('<p>fn[a[0]](x)</p>'))).not.toContain('<a')
+    })
+
+    it('writes inline math so the loader reads it back as the same math', () => {
+      for (const [latex, after] of [
+        ['x', '2 apples'],
+        ['a \\\\', ' b'],
+        ['\\text{cost } \\$5', ' b'],
+      ] as Array<[string, string]>) {
+        const out = md(
+          `<p><span data-type="math-inline" data-latex="${latex}">${latex}</span>${after}</p>`,
+        )
+        expect(markdownToHtml(out)).toMatch(/data-type="math-inline" data-latex="[^"]+"/)
+        expect(markdownToHtml(out)).toContain(after.trim())
+        // No stray delimiters outside the math node
+        expect(
+          markdownToHtml(out).replace(/<span data-type="math-inline".*<\/span>/, ''),
+        ).not.toContain('$')
+      }
+    })
+  })
+
+  describe('display math inside list items', () => {
+    it('keeps an item that is only display math inside its list', () => {
+      const source = '- $$a^2+b^2=c^2$$\n- $$e^{i\\pi}=-1$$\n'
+      expect(rt(source)).toBe(source)
+    })
+
+    it('does not let an unclosed $$ in a list item swallow later content', () => {
+      const html = markdownToHtml('- a\n\n  $$\n  x\n- b\n\npara\n\n$$\ny\n$$')
+      expect(html).toContain('<li>\n<p>b</p>\n</li>')
+      expect(html).toContain('<p>para</p>')
+      expect(html).toContain('data-latex="y"')
+    })
+  })
+
+  describe('performance', () => {
+    it('serializes a 5,000-item list in linear time', () => {
+      const items = Array.from({ length: 5000 }, (_, i) => `<li><p>item ${i}</p></li>`).join('')
+      const started = performance.now()
+      const out = md(`<ul data-tight="true">${items}</ul>`)
+      expect(performance.now() - started).toBeLessThan(2000)
+      expect(out.split('\n')).toHaveLength(5001)
+    })
+
+    it('serializes 5,000 task items and ordered items in linear time', () => {
+      const tasks = Array.from(
+        { length: 5000 },
+        (_, i) =>
+          `<li data-type="taskItem" data-checked="false"><label><input type="checkbox"></label><div><p>t ${i}</p></div></li>`,
+      ).join('')
+      const ordered = Array.from({ length: 5000 }, (_, i) => `<li><p>o ${i}</p></li>`).join('')
+      const started = performance.now()
+      const out = md(`<ul data-type="taskList">${tasks}</ul><p>x</p><ol>${ordered}</ol>`)
+      expect(performance.now() - started).toBeLessThan(3000)
+      expect(out).toContain('- [ ] t 4999\n\nx\n\n1. o 0\n')
+      expect(out).toContain('5000. o 4999\n')
+    })
+
+    it('escapes 100,000 unclosed brackets in linear time', () => {
+      const started = performance.now()
+      md(`<p>${'['.repeat(100_000)}</p>`)
+      expect(performance.now() - started).toBeLessThan(2000)
+    })
+  })
+
+  describe('list boundaries', () => {
+    it('separates adjacent lists so they do not merge on reload', () => {
+      const out = md(
+        '<ul data-type="taskList"><li data-type="taskItem" data-checked="false"><label><input type="checkbox"></label><div><p>todo</p></div></li></ul>' +
+          '<ul><li><p>a</p></li></ul><ol><li><p>one</p></li></ol><ol><li><p>uno</p></li></ol>',
+      )
+      expect(out).toBe('- [ ] todo\n\n* a\n\n1. one\n\n1) uno\n')
+      const html = markdownToHtml(out)
+      expect(html.match(/<ul/g)).toHaveLength(2)
+      expect(html.match(/<ol/g)).toHaveLength(2)
+      expect(html).toContain('data-type="taskList"')
+    })
+
+    it('keeps a code block under a tight item tight', () => {
+      const source = '1. Install:\n   ```sh\n   pnpm i\n   ```\n2. Run\n3. Done\n'
+      expect(rt(source)).toBe(source)
     })
   })
 })

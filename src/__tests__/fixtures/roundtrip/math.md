@@ -5,3 +5,7 @@ $$
 $$
 
 Prices like $5 and $10 stay plain text.
+
+Escaped dollars costs \$5 for **one** and 10\$ each stay text.
+
+\$\$ 5 \$\$
