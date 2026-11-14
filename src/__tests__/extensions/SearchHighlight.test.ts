@@ -167,7 +167,8 @@ describe('SearchHighlight — regex replacement', () => {
     const plainMs = timeReplaceAll('x1', false, 'y1')
     const regexMs = timeReplaceAll('x(\\d)', true, 'y$1')
     expect(regexMs).toBeLessThan(plainMs * 2 + 250)
-  })
+    // Two 4 MB fixtures: allow well over Vitest's 5 s default when the suite runs in parallel.
+  }, 60_000)
 
   it('keeps the replacement literal in plain mode', () => {
     const ed = makeEditor(para(text('(foo)')))
