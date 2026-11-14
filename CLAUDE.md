@@ -53,6 +53,7 @@ A PR is ready when:
 - **Desktop shell:** Tauri 2 (Rust backend in `src-tauri/`)
 - **Rich editor:** Tiptap v3 (WYSIWYG mode) — 20+ custom extensions
 - **Source editor:** CodeMirror 6 (raw markdown mode) — `src/components/source/SourceEditor.vue`
+  (lazy-loaded: App.vue uses `defineAsyncComponent`, so CodeMirror stays out of the startup chunk)
 - **State:** Pinia 3 — one store per domain in `src/stores/`
 - **Build:** Vite 7
 - **Package manager:** pnpm (NEVER use npm or yarn)

@@ -12,9 +12,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'mermaid': ['mermaid'],
-          'mathjax': ['mathjax-full'],
-          'codemirror-langs': ['@codemirror/language-data'],
           'katex': ['katex'],
         },
       },
