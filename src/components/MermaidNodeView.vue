@@ -46,6 +46,12 @@
   </node-view-wrapper>
 </template>
 
+<script lang="ts">
+// Module scope, shared by every diagram: Mermaid looks render targets up by id
+// in the document, so ids must be unique across blocks rendering concurrently.
+let nextRenderId = 0
+</script>
+
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { NodeViewWrapper } from '@tiptap/vue-3'
@@ -74,10 +80,13 @@ function mermaidTheme(): 'dark' | 'default' {
   return document.documentElement.dataset.theme?.endsWith('dark') ? 'dark' : 'default'
 }
 
-let renderCounter = 0
+/** Id of this block's most recent render; older in-flight renders are discarded. */
+let latestRenderId = ''
 
 async function renderDiagram() {
   const code = props.node.textContent.trim()
+  const id = `mermaid-render-${++nextRenderId}`
+  latestRenderId = id
   if (!code) {
     svgOutput.value = ''
     renderError.value = ''
@@ -85,12 +94,13 @@ async function renderDiagram() {
   }
 
   try {
-    renderCounter++
-    const id = `mermaid-${Date.now()}-${renderCounter}`
     const mermaid = await getMermaid()
     // Re-initialised per render so the diagram follows the current app theme.
-    // 'strict' DOMPurifies labels and the final SVG, disables click callbacks and
-    // sanitises link URLs; documents cannot override it via %%{init}%% (secure key).
+    // initialize() is global, but every block reads the same data-theme and
+    // a render superseded by a later one is dropped below, so mixed themes
+    // cannot stick. 'strict' DOMPurifies labels and the final SVG, disables
+    // click callbacks and sanitises link URLs; documents cannot override it
+    // via %%{init}%% (secure key).
     mermaid.initialize({
       startOnLoad: false,
       theme: mermaidTheme(),
@@ -98,14 +108,15 @@ async function renderDiagram() {
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
     })
     const { svg } = await mermaid.render(id, code)
+    if (id !== latestRenderId) return
     svgOutput.value = stripInteractiveElements(svg)
     renderError.value = ''
   } catch (err: any) {
+    // On a syntax error Mermaid leaves its temporary container in <body>.
+    document.getElementById(`d${id}`)?.remove()
+    if (id !== latestRenderId) return
     renderError.value = err?.message || 'Failed to render diagram'
     svgOutput.value = ''
-    // Clean up any error elements mermaid may have injected
-    const errorEl = document.getElementById(`d${renderCounter}`)
-    if (errorEl) errorEl.remove()
   }
 }
 

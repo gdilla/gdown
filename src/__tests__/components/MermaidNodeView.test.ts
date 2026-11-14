@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { Editor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
-import { defineComponent, h } from 'vue'
+import { defineComponent, h, nextTick } from 'vue'
 import mermaid from 'mermaid'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { MermaidBlock } from '../../extensions/MermaidBlock'
@@ -27,12 +27,14 @@ describe('MermaidNodeView', () => {
     vi.restoreAllMocks()
   })
 
-  function mountDiagram(code: string): VueWrapper {
+  function mountDiagram(...codes: string[]): VueWrapper {
     const Harness = defineComponent({
       setup() {
         const instance = new Editor({
           extensions: [StarterKit.configure({ codeBlock: false }), MermaidBlock],
-          content: `<pre><code class="language-mermaid">${code}</code></pre>`,
+          content: codes
+            .map((code) => `<pre><code class="language-mermaid">${code}</code></pre>`)
+            .join(''),
         })
         editor = instance
         return () => h(EditorContent, { editor: instance })
@@ -176,5 +178,63 @@ describe('MermaidNodeView', () => {
     const container = mounted.find('.mermaid-svg-container').element
     expect(container.querySelector('form, input, button, select, textarea, map, area')).toBeNull()
     expect(container.textContent).toContain('label')
+  })
+
+  describe('re-rendering', () => {
+    it('keeps every diagram intact when a theme change re-renders them all at once', async () => {
+      const titles = Array.from({ length: 8 }, (_, i) => `Chart${i}`)
+      const mounted = mountDiagram(...titles.map((t) => `pie title ${t}\n  "A": 1\n  "B": 2`))
+      const previews = () => mounted.findAll('.mermaid-svg-container')
+      await vi.waitFor(() => expect(previews()).toHaveLength(8))
+
+      const render = vi.spyOn(mermaid, 'render')
+      document.documentElement.setAttribute('data-theme', 'dark')
+      await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(8))
+      await Promise.allSettled(render.mock.results.map((r) => r.value))
+      await nextTick()
+
+      const ids = render.mock.calls.map(([id]) => id)
+      expect(new Set(ids).size).toBe(8)
+      expect(previews().map((p) => p.find('.pieTitleText').text())).toEqual(titles)
+    })
+
+    it('never lets an older, slower render overwrite a newer one', async () => {
+      let resolveOld: (value: { svg: string; diagramType: string }) => void = () => {}
+      const render = vi
+        .spyOn(mermaid, 'render')
+        .mockImplementationOnce(() => new Promise((resolve) => (resolveOld = resolve)))
+        .mockResolvedValueOnce({ svg: '<svg><text>new</text></svg>', diagramType: 'pie' })
+      const mounted = mountDiagram(PIE)
+      await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(1))
+
+      document.documentElement.setAttribute('data-theme', 'dark')
+      await vi.waitFor(() => expect(mounted.find('.mermaid-svg-container').exists()).toBe(true))
+      resolveOld({ svg: '<svg><text>old</text></svg>', diagramType: 'pie' })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      await nextTick()
+
+      expect(mounted.find('.mermaid-svg-container').text()).toBe('new')
+    })
+
+    it('stops observing the theme once the diagram is removed', async () => {
+      const mounted = mountDiagram(PIE)
+      await vi.waitFor(() => {
+        expect(mounted.find('.mermaid-svg-container svg').exists()).toBe(true)
+      })
+      const render = vi.spyOn(mermaid, 'render')
+      editor!.commands.clearContent()
+      await nextTick()
+      expect(mounted.find('.mermaid-block').exists()).toBe(false)
+
+      document.documentElement.setAttribute('data-theme', 'dark')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(render).not.toHaveBeenCalled()
+    })
+
+    it('removes the error graphic Mermaid leaves in <body> after a syntax error', async () => {
+      const mounted = mountDiagram('pie title Broken\n  "A" 1')
+      await vi.waitFor(() => expect(mounted.find('.mermaid-error').exists()).toBe(true))
+      expect(document.body.querySelector('[id^="dmermaid-"]')).toBeNull()
+    })
   })
 })
