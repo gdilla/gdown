@@ -637,3 +637,132 @@ describe('sibling defects found by the round-trip sweep', () => {
     )
   })
 })
+
+describe('third review regressions', () => {
+  const md = (html: string) => htmlToMarkdown(html)
+  const rt = (source: string) => htmlToMarkdown(markdownToHtml(source))
+  const alt = (source: string) => {
+    const template = document.createElement('template')
+    template.innerHTML = markdownToHtml(source)
+    return template.content.querySelector('img')?.getAttribute('alt')
+  }
+
+  it('keeps inline math and code in image alt text as literal text', () => {
+    expect(alt('![equation $x$](image.png)')).toBe('equation $x$')
+    expect(rt('![equation $x$](image.png)')).toBe('![equation $x$](image.png)\n')
+    expect(alt('![a `b` c](image.png)')).toBe('a b c')
+  })
+
+  it.each([
+    ['body text', (c: string) => `<p>a${c}b</p>`, (c: string) => `a${c}b\n`],
+    ['a code span', (c: string) => `<p><code>a${c}b</code></p>`, (c: string) => `\`a${c}b\`\n`],
+    [
+      'a code block',
+      (c: string) => `<pre><code>a${c}b</code></pre>`,
+      (c: string) => `\`\`\`\na${c}b\n\`\`\`\n`,
+    ],
+    [
+      'link text',
+      (c: string) => `<p><a href="https://e.com/x">a${c}b</a></p>`,
+      (c: string) => `[a${c}b](https://e.com/x)\n`,
+    ],
+  ])('keeps private-use characters in %s', (_where, html, expected) => {
+    for (const char of ['\uE000', '\uE001', '\uE002', '\uE003', '\uE004', '\uE00F', '\uF8FF']) {
+      expect(md(html(char))).toBe(expected(char))
+    }
+  })
+
+  it('keeps private-use characters in front matter', () => {
+    const yaml = 'title: a\uE000\uE001\uE005\uE00Fb'
+    expect(parseFrontMatter(rt(`---\n${yaml}\n---\n# x\n`)).rawYaml).toBe(yaml)
+  })
+
+  it('reads a task marker before reference links can claim it', () => {
+    const html = markdownToHtml('- [x] task\n- [ ] other\n\n[x]: /url\n[ ]: /other')
+    expect(html).toContain('<li data-type="taskItem" data-checked="true">task</li>')
+    expect(html).toContain('<li data-type="taskItem" data-checked="false">other</li>')
+  })
+})
+
+describe('defects found by the extended round-trip sweep', () => {
+  const md = (html: string) => htmlToMarkdown(html)
+  const reload = (html: string) => markdownToHtml(md(html))
+
+  it('keeps no-break spaces and BOMs at paragraph and cell edges', () => {
+    expect(md('<p>\u00a0a\ufeff</p>')).toBe('&nbsp;a&#xFEFF;\n')
+    expect(md('<p>*a\u00a0*b</p>')).toBe('\\*a\u00a0\\*b\n')
+    expect(
+      md(
+        '<table><tbody><tr><th><p>\u00a0x</p></th></tr><tr><td><p>y</p></td></tr></tbody></table>',
+      ),
+    ).toBe('| &nbsp;x |\n| --- |\n| y |\n')
+  })
+
+  it('keeps a hard break at the start of a paragraph', () => {
+    expect(md('<p><br>next</p>')).toBe('\\\nnext\n')
+    expect(reload('<p><br>next</p>')).toContain('<p><br>\nnext</p>')
+  })
+
+  it('keeps an empty nested item under a paragraph as an item, not a setext heading', () => {
+    const html = reload('<ul><li><p>a</p><ul><li><p></p></li></ul></li></ul>')
+    expect(html).not.toContain('<h2')
+    expect(html.match(/<li/g)).toHaveLength(2)
+  })
+
+  it('keeps a block that opens a list item inside the item', () => {
+    expect(md('<ul><li><p></p><blockquote><p>a</p></blockquote></li></ul>')).toBe('-\n  > a\n')
+    expect(markdownToHtml('-\n  > a')).toContain('<li>\n<p></p>\n<blockquote>')
+  })
+
+  it('escapes literal entity-like text, a `<` before a link and a spaced thematic break', () => {
+    expect(md('<p>&amp;copy; &amp;#36;</p>')).toBe('&amp;copy; &amp;#36;\n')
+    expect(reload('<p>&lt;<a href="https://e.com/a">https://e.com/a</a></p>')).toContain('&lt;')
+    expect(reload('<ol><li><p>--- -</p></li></ol>')).not.toContain('<hr')
+  })
+
+  it('writes a bare link only when its written neighbours leave it the same link', () => {
+    for (const html of [
+      '<p>$\u00a0<a href="mailto:me@e.com">me@e.com</a></p>',
+      '<p><a href="https://e.com/a">https://e.com/a</a>\ufeff===</p>',
+      '<p>\\ <a href="mailto:me@e.com">me@e.com</a></p>',
+    ]) {
+      const template = document.createElement('template')
+      template.innerHTML = reload(html)
+      expect(template.content.querySelectorAll('a')).toHaveLength(1)
+      expect(template.content.querySelector('a')?.textContent).toBe(
+        new DOMParser().parseFromString(html, 'text/html').querySelector('a')?.textContent,
+      )
+    }
+  })
+})
+
+describe('bare links next to a no-break space at a line edge', () => {
+  it('keeps the link target when the next character becomes &nbsp;', () => {
+    const out = htmlToMarkdown('<p>a <a href="https://e.com/a">https://e.com/a</a> </p>')
+    expect(markdownToHtml(out)).toContain('href="https://e.com/a"')
+  })
+})
+
+describe('more sweep findings', () => {
+  it('keeps email-like text that was not a link unlinked', () => {
+    expect(markdownToHtml(htmlToMarkdown('<p>---@e.com</p>'))).not.toContain('<a')
+  })
+
+  it('writes a bare URL explicitly when markup right after it could extend it', () => {
+    const out = htmlToMarkdown(
+      '<p><a href="https://e.com/a">https://e.com/a</a>([<img src="s.png" alt="r"></p>',
+    )
+    expect(markdownToHtml(out)).toContain('href="https://e.com/a"')
+  })
+})
+
+describe('line edges are markdown lines', () => {
+  it('keeps a no-break-space-only heading and paragraph', () => {
+    expect(htmlToMarkdown('<h3>   </h3>')).toBe('### &nbsp; &nbsp;\n')
+    expect(htmlToMarkdown('<p>   </p>')).toBe('&nbsp; &nbsp;\n')
+  })
+
+  it('does not treat U+2028 as a line start when escaping', () => {
+    expect(htmlToMarkdown('<p>a &gt; b</p>')).toBe('a > b\n')
+  })
+})

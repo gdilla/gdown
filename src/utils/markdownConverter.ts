@@ -116,14 +116,32 @@ md.renderer.rules.math_block = (tokens, idx) => {
 }
 
 // markdown-it renders image alt text from `text` tokens only, so an escaped
-// character in alt (`![scan\]](…)`) would be dropped; treat it as text.
-md.core.ruler.push('image_alt_escapes', (state) => {
+// character (`![scan\]](…)`), inline math (`![eq $x$](…)`) or a code span in
+// alt would be dropped. Fold them into one text token: math keeps its `$…$`
+// source (alt is plain text), a code span its content (as CommonMark says).
+md.core.ruler.push('image_alt_text', (state) => {
   for (const block of state.tokens) {
-    for (const token of block.children ?? []) {
-      if (token.type !== 'image') continue
-      for (const child of token.children ?? []) {
-        if (child.type === 'text_special') child.type = 'text'
+    for (const image of block.children ?? []) {
+      if (image.type !== 'image' || !image.children) continue
+      const asText = (child: Token) =>
+        child.type === 'math_inline'
+          ? `$${child.content}$`
+          : /^(text|text_special|code_inline)$/.test(child.type)
+            ? child.content
+            : null
+      const merged: Token[] = []
+      for (const child of image.children) {
+        const text = asText(child)
+        const previous = merged[merged.length - 1]
+        if (text === null) merged.push(child)
+        else if (previous?.type === 'text') previous.content += text
+        else {
+          child.type = 'text'
+          child.content = text
+          merged.push(child)
+        }
       }
+      image.children = merged
     }
   }
 })
@@ -136,8 +154,29 @@ const TASK_MARKER = /^\[([ xX])\](?=\s|$)\s?/
  * `[x]` into the editor's task list (`data-type="taskList"`). This is the GFM
  * task-list extension, which markdown-it does not ship.
  */
-md.core.ruler.push('gfm_lists', (state) => {
+// Runs before inline parsing, so a task marker is removed before `[x]` could
+// be read as a reference link (`[x]: /url`).
+md.core.ruler.before('inline', 'gfm_lists', (state) => {
   const tokens = state.tokens
+  // The editor's list items must start with a paragraph; for an item that
+  // starts with a quote, list or code block, ProseMirror would otherwise move
+  // that block out of the list on some loads. Give it an empty first paragraph.
+  for (let i = tokens.length - 2; i >= 0; i--) {
+    const item = tokens[i]!
+    const next = tokens[i + 1]!
+    if (item.type !== 'list_item_open' || /^(paragraph_open|list_item_close)$/.test(next.type)) {
+      continue
+    }
+    const open = new state.Token('paragraph_open', 'p', 1)
+    const inline = new state.Token('inline', '', 0)
+    const close = new state.Token('paragraph_close', 'p', -1)
+    open.level = item.level + 1
+    inline.level = item.level + 2
+    close.level = item.level + 1
+    open.block = close.block = inline.block = true
+    inline.children = []
+    tokens.splice(i + 1, 0, open, inline, close)
+  }
   tokens.forEach((list, i) => {
     if (list.type !== 'bullet_list_open' && list.type !== 'ordered_list_open') return
     const closeType = list.type.replace('_open', '_close')
@@ -164,8 +203,6 @@ md.core.ruler.push('gfm_lists', (state) => {
       tokens[j]!.attrSet('data-type', 'taskItem')
       tokens[j]!.attrSet('data-checked', String(inline.content[1] !== ' '))
       inline.content = inline.content.replace(TASK_MARKER, '')
-      const text = inline.children?.[0]
-      if (text?.type === 'text') text.content = text.content.replace(TASK_MARKER, '')
     })
   })
 })
@@ -233,34 +270,99 @@ const turndown = new TurndownService({
  */
 turndown.escape = (text: string): string =>
   text
-    .replace(/\\(?=[!-/:-@[-`{-~]|$)/g, '\\\\') // a backslash that would escape the next char
+    // A backslash that would escape the next character (or the entity an edge
+    // Unicode space becomes below).
+    .replace(
+      /\\(?=[!-/:-@[-`{-~]|$|[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]$)/g,
+      '\\\\',
+    )
     .replace(/(?<!\s)\*|\*(?!\s)/g, '\\*') // `*` unless spaced on both sides
     .replace(/(?<![\p{L}\p{N}])_|_(?![\p{L}\p{N}])/gu, '\\_') // `_` unless intraword
     .replace(/`/g, '\\`')
-    .replace(/<(?=[A-Za-z/!?])/g, '\\<') // `<` only when it would open raw HTML
+    .replace(/<(?=[A-Za-z/!?]|$)/g, '\\<') // `<` that would open raw HTML or an autolink
     .replace(/~~/g, '\\~\\~')
-    // `$`, `[`, `]`, a trailing `!` (before a link) and the `:` of an unlinked
-    // `scheme://` can change meaning with their surroundings: mark them and
+    .replace(/&(?=#?[A-Za-z0-9]+;)/g, '&amp;') // text that would read as an entity
+    // `$`, `[`, `]`, a trailing `!` (before a link), the `:` of an unlinked
+    // `scheme://` and `@` can change meaning with their surroundings: mark them and
     // decide on the whole document (resolveLiterals).
-    .replace(/\$/g, LITERAL_DOLLAR)
-    .replace(/\[/g, LITERAL_OPEN)
-    .replace(/]/g, LITERAL_CLOSE)
-    .replace(/!$/, LITERAL_BANG)
-    .replace(/:(?=\/\/)/g, LITERAL_COLON)
+    .replace(/\$/g, () => markers.dollar)
+    .replace(/\[/g, () => markers.open)
+    .replace(/]/g, () => markers.close)
+    .replace(/!$/, () => markers.bang)
+    .replace(/:(?=\/\/)/g, () => markers.colon)
+    .replace(/@/g, () => markers.at) // text an email autolink could claim
 
-const LITERAL_DOLLAR = '\uE000'
-const LITERAL_OPEN = '\uE001'
-const LITERAL_CLOSE = '\uE002'
-const LITERAL_BANG = '\uE003'
-const LITERAL_COLON = '\uE004'
-const LITERALS = /[\uE000-\uE004]/
-const writeLiterals = (escapeClose: boolean, plain: boolean) => (markdown: string) =>
-  markdown
-    .replace(/\uE000/g, plain ? '$' : '\\$')
-    .replace(/\uE001/g, plain ? '[' : '\\[')
-    .replace(/\uE002/g, escapeClose ? '\\]' : ']')
-    .replace(/\uE003/g, plain ? '!' : '\\!')
-    .replace(/\uE004/g, plain ? ':' : '\\:')
+const UNICODE_SPACE = '[\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]'
+const LINE_EDGE_UNICODE_SPACE = new RegExp(
+  `(?<![^\\n])${UNICODE_SPACE}+|${UNICODE_SPACE}+(?![^\\n])`,
+  'g',
+)
+
+/**
+ * markdown-it trims Unicode whitespace (no-break space, BOM, U+2028, …) at the
+ * edges of paragraph lines, headings and table cells: write it there as
+ * character references. (Only at line edges: an entity ends in `;`, which
+ * would change emphasis flanking mid-line.)
+ */
+function escapeEdgeSpaces(content: string): string {
+  // The empty-block marker is not text: ignore it when the block has text.
+  const markdown = content.split(markers.empty).join('') || content
+  return markdown.replace(LINE_EDGE_UNICODE_SPACE, (run) =>
+    Array.from(run, (char) =>
+      char === '\u00a0' ? '&nbsp;' : `&#x${char.charCodeAt(0).toString(16).toUpperCase()};`,
+    ).join(''),
+  )
+}
+
+/**
+ * Private-use characters that mark literals and empty blocks while Turndown
+ * runs. They are chosen per conversion from characters absent from the input,
+ * so a document's own private-use characters are never mistaken for markers.
+ */
+const markers = {
+  dollar: '\uE000',
+  open: '\uE001',
+  close: '\uE002',
+  bang: '\uE003',
+  colon: '\uE004',
+  at: '\uE005',
+  empty: '\uE006',
+  any: /[\uE000-\uE005]/,
+}
+const MARKER_NAMES = ['dollar', 'open', 'close', 'bang', 'colon', 'at', 'empty'] as const
+
+function chooseMarkers(html: string): void {
+  // Front matter travels percent-encoded in an attribute; check its text too.
+  const yaml = Array.from(html.matchAll(/data-raw-yaml="([^"]*)"/g), (match) => {
+    try {
+      return decodeURIComponent(match[1]!)
+    } catch {
+      return ''
+    }
+  })
+  const input = [html, ...yaml].join('')
+  const count = MARKER_NAMES.length
+  for (let base = 0xe000; base + count - 1 <= 0xf8ff; base += count) {
+    const chars = Array.from({ length: count }, (_, i) => String.fromCharCode(base + i))
+    if (chars.every((char) => !input.includes(char))) {
+      MARKER_NAMES.forEach((name, i) => (markers[name] = chars[i]!))
+      // every marker except `empty` stands for a literal character
+      markers.any = new RegExp(`[${chars.slice(0, count - 1).join('')}]`)
+      return
+    }
+  }
+  throw new Error('No free private-use characters for markdown serialization')
+}
+
+const replaceAll = (text: string, marker: string, value: string) => text.split(marker).join(value)
+const writeLiterals = (escapeClose: boolean, plain: boolean) => (markdown: string) => {
+  let out = replaceAll(markdown, markers.dollar, plain ? '$' : '\\$')
+  out = replaceAll(out, markers.open, plain ? '[' : '\\[')
+  out = replaceAll(out, markers.close, escapeClose ? '\\]' : ']')
+  out = replaceAll(out, markers.bang, plain ? '!' : '\\!')
+  out = replaceAll(out, markers.at, plain ? '@' : '\\@')
+  return replaceAll(out, markers.colon, plain ? ':' : '\\:')
+}
 const plainLiterals = writeLiterals(false, true)
 // `]` only needs escaping inside a link label; try the lighter form first.
 const openersEscaped = writeLiterals(false, false)
@@ -290,14 +392,14 @@ function loadedSyntax(markdown: string): string {
  * text; otherwise decide per line, and escape everything as a last resort.
  */
 function resolveLiterals(markdown: string): string {
-  if (!LITERALS.test(markdown)) return markdown
+  if (!markers.any.test(markdown)) return markdown
   const target = loadedSyntax(escapedLiterals(markdown))
   const plain = plainLiterals(markdown)
   if (loadedSyntax(plain) === target) return plain
   const perLine = markdown
     .split('\n')
     .map((line) => {
-      if (!LITERALS.test(line)) return line
+      if (!markers.any.test(line)) return line
       const lineTarget = loadedSyntax(escapedLiterals(line))
       const form = LITERAL_FORMS.find((write) => loadedSyntax(write(line)) === lineTarget)
       return (form ?? escapedLiterals)(line)
@@ -309,13 +411,19 @@ function resolveLiterals(markdown: string): string {
 }
 
 /** Escape paragraph lines that would otherwise reload as a list, heading or quote. */
+// Line start/end in markdown terms: only `\n` ends a line (JavaScript's `^`/`$`
+// with the m flag also split at U+2028/U+2029, which markdown does not).
 function escapeLineStarts(markdown: string): string {
   return (
     markdown
-      .replace(/^([-+])(?=\s|$)|^-(?=-+\s*$)/gm, (marker) => `\\${marker}`)
-      .replace(/^#(?=#{0,5}(?:\s|$))/gm, '\\#')
-      .replace(/^>/gm, '\\>')
-      .replace(/^(\d{1,9})([.)])(?=\s|$)/gm, '$1\\$2')
+      // a list marker, or a thematic break (`---`, `- - -`, `--- -`)
+      .replace(
+        /(?<![^\n])([-+])(?=[ \t\n]|$)|(?<![^\n])-(?=(?:[ \t]*-){2,}[ \t]*(?:\n|$))/g,
+        (marker) => `\\${marker}`,
+      )
+      .replace(/(?<![^\n])#(?=#{0,5}(?:[ \t\n]|$))/g, '\\#')
+      .replace(/(?<![^\n])>/g, '\\>')
+      .replace(/(?<![^\n])(\d{1,9})([.)])(?=[ \t\n]|$)/g, '$1\\$2')
       // A line of `=` after a hard break would turn the line above into a heading.
       .replace(/\n(=+)(?=[ \t]*(?:\n|$))/g, '\n\\$1')
   )
@@ -429,7 +537,7 @@ turndown.addRule('math', {
 turndown.addRule('paragraph', {
   filter: 'p',
   replacement(content: string, node: HTMLElement) {
-    const text = node.closest('td, th') ? content : escapeLineStarts(content)
+    const text = escapeEdgeSpaces(node.closest('td, th') ? content : escapeLineStarts(content))
     return `${blockGap(node)}${text}${blockGap(node)}`
   },
 })
@@ -459,6 +567,21 @@ turndown.addRule('listItem', {
       .replace(/\n+$/, '')
       .replace(/\n(?=[^\n])/g, `\n${indent}`)
     const separator = node.nextElementSibling ? (isTightList(list) ? '\n' : '\n\n') : ''
+    // An item whose first paragraph is empty: the marker stands alone and any
+    // further content follows with no blank line (CommonMark ends an item that
+    // starts blank at its first blank line). Right under a paragraph line a
+    // lone `-` would be a setext underline (or `1.` paragraph text), so the
+    // line gets an empty comment there instead.
+    if (!body || body.startsWith(markers.empty)) {
+      const rest = body.slice(markers.empty.length).replace(/^\s*\n/, '')
+      const underParagraph =
+        !node.previousElementSibling &&
+        list?.previousElementSibling?.nodeName === 'P' &&
+        !!owningListItem(list) &&
+        isTightList(owningListItem(list)!.parentElement)
+      const first = underParagraph ? `${marker} <!---->` : marker
+      return (rest.trim() ? `${first}\n${rest}` : first) + separator
+    }
     return (body ? `${marker} ${body}` : marker) + separator
   },
 })
@@ -485,12 +608,23 @@ turndown.addRule('image', {
   },
 })
 
+// A hard break is two trailing spaces, except where those spaces would be
+// swallowed: at the start of a block, or after text that ends in whitespace.
+turndown.addRule('hardBreak', {
+  filter: 'br',
+  replacement(_content: string, node: HTMLElement) {
+    const previous = node.previousSibling
+    const backslash = !previous || /\s$/.test(previous.textContent ?? '')
+    return backslash ? '\\\n' : '  \n'
+  },
+})
+
 turndown.addRule('heading', {
   filter: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
   replacement(content: string, node: HTMLElement) {
     const hashes = '#'.repeat(Number(node.nodeName.charAt(1)))
     // A trailing run of `#` would be read as the heading's closing sequence.
-    const text = content.replace(/(^|\s)(#+)\s*$/, '$1\\$2')
+    const text = escapeEdgeSpaces(content.replace(/(^|[ \t])(#+)[ \t]*$/, '$1\\$2'))
     return `\n\n${text ? `${hashes} ${text}` : hashes}\n\n`
   },
 })
@@ -504,41 +638,50 @@ turndown.addRule('codeBlock', {
     const longestRun = Math.max(0, ...Array.from(text.matchAll(/^`{3,}/gm), (m) => m[0].length))
     const fence = '`'.repeat(Math.max(3, longestRun + 1))
     const gap = blockGap(node)
-    const body = text.replace(EMPTY_BLOCK, '').replace(/\n$/, '')
+    const body = text.replace(markers.empty, '').replace(/\n$/, '')
     return `${gap}${fence}${language}\n${body ? `${body}\n` : ''}${fence}${gap}`
   },
 })
 
 turndown.addRule('blockquote', {
   filter: 'blockquote',
-  replacement(content: string) {
+  replacement(content: string, node: HTMLElement) {
     const quoted = content
       .replace(/^\n+|\n+$/g, '')
       .split('\n')
       .map((line) => (line ? `> ${line}` : '>'))
       .join('\n')
-    return `\n\n${quoted}\n\n`
+    return `${blockGap(node)}${quoted}${blockGap(node)}`
   },
 })
 
 /**
- * Whether markdown-it's linkify turns `text`, followed by the next word as it
- * will be written, back into this exact link with that word as plain text.
+ * Whether markdown-it's linkify turns `text`, between its neighbouring text
+ * exactly as that will be written, back into this exact link and nothing else.
  */
-function relinksAs(text: string, href: string, followingText: string): boolean {
-  const following = /^\S*/.exec(followingText)?.[0] ?? ''
+function relinksAs(
+  text: string,
+  href: string,
+  precedingText: string,
+  followingText: string,
+): boolean {
   const template = document.createElement('template')
-  // The following word may still get its `[`, `]`, `$` escaped later
+  // The neighbours may still get their `[`, `]`, `$` escaped later
   // (resolveLiterals), so both spellings must leave the link unchanged.
-  return [plainLiterals, escapedLiterals].every((write) => {
-    template.innerHTML = md.renderInline(text + write(turndown.escape(following)))
-    const [link, ...rest] = Array.from(template.content.childNodes)
+  // At a line edge a Unicode space is also written as a reference (`&nbsp;`).
+  const spellings = [plainLiterals, escapedLiterals].flatMap((write) => [
+    (neighbour: string) => write(turndown.escape(neighbour)),
+    (neighbour: string) => escapeEdgeSpaces(write(turndown.escape(neighbour))),
+  ])
+  return spellings.every((write) => {
+    template.innerHTML = md.renderInline(write(precedingText) + text + write(followingText))
+    const elements = template.content.querySelectorAll('*')
+    const link = elements[0]
     return (
+      elements.length === 1 &&
       link?.nodeName === 'A' &&
-      (link as Element).getAttribute('href') === href &&
-      link.textContent === text &&
-      rest.every((node) => node.nodeType === 3) &&
-      rest.map((node) => node.textContent).join('') === following
+      link.getAttribute('href') === href &&
+      link.textContent === text
     )
   })
 }
@@ -557,9 +700,18 @@ turndown.addRule('link', {
       !title &&
       node.childNodes.length === 1 &&
       node.firstChild?.nodeType === 3 &&
-      (!previous || (previous.nodeType === 3 && /[\s(]$/.test(previous.textContent ?? ''))) &&
-      (!next || next.nodeType === 3)
-    if (bareCandidate && relinksAs(text, href, next?.textContent ?? '')) return text
+      // the neighbouring text must end the URL itself (whitespace), or be all
+      // that sits next to the link; formatted markup beyond it is not checked
+      (!previous ||
+        (previous.nodeType === 3 &&
+          (/[ \t\n]/.test(previous.textContent ?? '') || !previous.previousSibling))) &&
+      (!next ||
+        (next.nodeType === 3 && (/[ \t\n]/.test(next.textContent ?? '') || !next.nextSibling)))
+    if (
+      bareCandidate &&
+      relinksAs(text, href, previous?.textContent ?? '', next?.textContent ?? '')
+    )
+      return text
     const titlePart = title ? ` "${title.replace(/"/g, '\\"')}"` : ''
     return `[${content}](${markdownDestination(href)}${titlePart})`
   },
@@ -632,7 +784,8 @@ turndown.addRule('superscript', {
 turndown.addRule('tableCell', {
   filter: ['th', 'td'],
   replacement(content: string) {
-    return ` ${content.trim().replace(/\n+/g, ' ').replace(/\|/g, '\\|')} |`
+    const cell = content.replace(/^[ \t\n]+|[ \t\n]+$/g, '').replace(/\n+/g, ' ')
+    return ` ${escapeEdgeSpaces(cell).replace(/\|/g, '\\|')} |`
   },
 })
 
@@ -653,8 +806,8 @@ turndown.addRule('tableRow', {
 
 turndown.addRule('table', {
   filter: 'table',
-  replacement(content: string) {
-    return `\n\n${content.trimEnd()}\n\n`
+  replacement(content: string, node: HTMLElement) {
+    return `${blockGap(node)}${content.trimEnd()}${blockGap(node)}`
   },
 })
 
@@ -669,7 +822,6 @@ turndown.addRule('tableSection', {
 /**
  * Convert HTML (from TipTap) to Markdown string.
  */
-const EMPTY_BLOCK = '\uE00F'
 
 /**
  * Prepare editor HTML for Turndown, which drops empty elements (deleting an
@@ -686,14 +838,19 @@ function prepareForTurndown(html: string): DocumentFragment {
   const pending: Element[] = Array.from(template.content.children)
   for (let element = pending.pop(); element; element = pending.pop()) {
     if (element.hasAttribute('data-latex')) {
-      element.textContent = EMPTY_BLOCK
+      element.textContent = markers.empty
       continue
     }
-    if (!element.firstChild && MARKED_WHEN_EMPTY.test(element.nodeName)) {
+    // Turndown also drops whitespace-only elements (a no-break-space paragraph).
+    if (
+      !element.firstElementChild &&
+      MARKED_WHEN_EMPTY.test(element.nodeName) &&
+      /^\s*$/.test(element.textContent ?? '')
+    ) {
       const parent = element.parentElement?.nodeName ?? ''
       // A top-level empty paragraph is a blank line and can stay dropped.
-      if (element.nodeName !== 'P' || /^(LI|DIV|BLOCKQUOTE)$/.test(parent)) {
-        element.append(EMPTY_BLOCK)
+      if (element.firstChild || element.nodeName !== 'P' || /^(LI|DIV|BLOCKQUOTE)$/.test(parent)) {
+        element.append(markers.empty)
       }
     }
     for (let child = element.firstElementChild; child; child = child.nextElementSibling) {
@@ -707,7 +864,10 @@ const MARKED_WHEN_EMPTY = /^(LI|BLOCKQUOTE|P|H[1-6]|CODE)$/
 
 export function htmlToMarkdown(html: string): string {
   if (!html) return ''
-  const converted = turndown.turndown(prepareForTurndown(html)).replace(/ ?\uE00F/g, '')
+  chooseMarkers(html)
+  const converted = turndown
+    .turndown(prepareForTurndown(html))
+    .replace(new RegExp(` ?${markers.empty}`, 'g'), '')
   const markdown = resolveLiterals(converted)
   // Files end with a newline, like the markdown they were loaded from.
   return markdown ? `${markdown}\n` : ''
