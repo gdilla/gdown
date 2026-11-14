@@ -9,6 +9,8 @@
 - **On mount:** SourceEditor assembles `tab.editorState.frontmatter` + `tab.editorState.markdown` to initialize CodeMirror content.
 - **Undo boundary:** tab switches and file reloads go through `restoreContent()`, which replaces the whole `EditorState` (`view.setState`) so Undo cannot reach the previous document. Do not load content with `dispatch({ changes })` — even with `addToHistory: false`, older history entries replay into the new document.
 - **NEVER** add Cmd+/ handling to App.vue — it causes double-fire bugs.
+- **Find:** source mode uses `@codemirror/search` (exposed `openFind()`); App.vue routes Cmd+F/H there instead of `findReplaceStore`.
+- **Outline:** SourceEditor owns the outline while mounted (debounced `updateFromMarkdown` on edits, immediate refresh in `restoreContent()` since `setState` skips update listeners, `navigateToHeading(offset)`), and clears it on unmount — offsets are into front matter + body.
 
 ## CodeMirror Extensions
 Custom extensions are in `src/codemirror/`:
