@@ -54,13 +54,14 @@ const IMG_SRC_RE = /(<img\b[^>]*?\bsrc=")([^"]+)(")/g
  */
 export function resolveRelativeSrc(src: string, documentDir: string): string {
   if (!src || !documentDir || /^[a-z][a-z\d+.-]*:/i.test(src) || src.startsWith('//')) return src
-  let path = src.startsWith('/') ? src : `${documentDir}/${src.replace(/^\.\//, '')}`
+  let source = src.replace(/^\.\//, '')
   try {
-    path = decodeURIComponent(path)
+    source = decodeURIComponent(source)
   } catch {
     // Not valid percent-encoding: use the path as written.
   }
-  return convertFileSrc(path)
+  // documentDir is a native path: a literal `%` in it must stay as is.
+  return convertFileSrc(source.startsWith('/') ? source : `${documentDir}/${source}`)
 }
 
 /**

@@ -33,6 +33,8 @@ md.linkify.set({ fuzzyLink: false })
  * prices like "$5 and $10" stay text. `\$` outside math stays a literal
  * dollar; inside, backslash pairs (`\$`, `\\`) are part of the LaTeX.
  */
+const WHOLE_INLINE_MATH =
+  /^\$((?:[^\s$\\]|\\[\s\S])(?:(?:[^$\\]|\\[\s\S])*(?:[^\s$\\]|\\[\s\S]))?)\$$/
 const INLINE_MATH_AT =
   /\$((?:[^\s$\\]|\\[\s\S])(?:(?:[^$\\]|\\[\s\S])*(?:[^\s$\\]|\\[\s\S]))?)\$(?!\d)/y
 
@@ -113,6 +115,19 @@ md.renderer.rules.math_block = (tokens, idx) => {
   return `<div data-type="math-block" data-latex="${latex}">${latex}</div>\n`
 }
 
+// markdown-it renders image alt text from `text` tokens only, so an escaped
+// character in alt (`![scan\]](…)`) would be dropped; treat it as text.
+md.core.ruler.push('image_alt_escapes', (state) => {
+  for (const block of state.tokens) {
+    for (const token of block.children ?? []) {
+      if (token.type !== 'image') continue
+      for (const child of token.children ?? []) {
+        if (child.type === 'text_special') child.type = 'text'
+      }
+    }
+  }
+})
+
 const TASK_MARKER = /^\[([ xX])\](?=\s|$)\s?/
 
 /**
@@ -187,10 +202,12 @@ export function markdownToHtml(markdown: string): string {
 function mathMarkdown(node: HTMLElement): string | null {
   const type = node.getAttribute('data-type')
   if (type !== 'math-inline' && type !== 'math-block') return null
-  const latex = node.getAttribute('data-latex') ?? node.textContent ?? ''
+  const latex = node.getAttribute('data-latex') ?? ''
   if (type === 'math-block') return `${blockGap(node)}$$\n${latex}\n$$${blockGap(node)}`
-  const inline = latex.trim()
-  if (!inline) return ''
+  // Edge whitespace cannot be written (`$ x $` is not math) unless it is an
+  // escaped space (`5 \\ `); keep the LaTeX as is when only that form parses.
+  const inline = [latex.trim(), latex].find((candidate) => WHOLE_INLINE_MATH.test(`$${candidate}$`))
+  if (inline === undefined) return `$${latex.trim()}$`
   // A `$` followed by a digit does not close math (Pandoc rule, so "$5 and
   // $10" stays text); an empty HTML comment keeps `$x$2` as math and loads as nothing.
   return /^\d/.test(node.nextSibling?.textContent ?? '') ? `$${inline}$<!---->` : `$${inline}$`
@@ -205,6 +222,8 @@ const turndown = new TurndownService({
   emDelimiter: '*',
   strongDelimiter: '**',
   linkStyle: 'inlined',
+  // Code spans keep their exact spacing (Turndown collapses it by default).
+  preformattedCode: true,
 })
 
 /**
@@ -220,41 +239,52 @@ turndown.escape = (text: string): string =>
     .replace(/`/g, '\\`')
     .replace(/<(?=[A-Za-z/!?])/g, '\\<') // `<` only when it would open raw HTML
     .replace(/~~/g, '\\~\\~')
-    // `$` and `[` can pair across formatting and text nodes: mark them and
+    // `$`, `[`, `]`, a trailing `!` (before a link) and the `:` of an unlinked
+    // `scheme://` can change meaning with their surroundings: mark them and
     // decide on the whole document (resolveLiterals).
     .replace(/\$/g, LITERAL_DOLLAR)
-    .replace(/\[/g, LITERAL_BRACKET)
+    .replace(/\[/g, LITERAL_OPEN)
+    .replace(/]/g, LITERAL_CLOSE)
+    .replace(/!$/, LITERAL_BANG)
+    .replace(/:(?=\/\/)/g, LITERAL_COLON)
 
 const LITERAL_DOLLAR = '\uE000'
-const LITERAL_BRACKET = '\uE001'
-const LITERALS = /[\uE000\uE001]/
-const plainLiterals = (markdown: string) => markdown.replace(/\uE000/g, '$').replace(/\uE001/g, '[')
-const escapedLiterals = (markdown: string) =>
-  markdown.replace(/\uE000/g, '\\$').replace(/\uE001/g, '\\[')
+const LITERAL_OPEN = '\uE001'
+const LITERAL_CLOSE = '\uE002'
+const LITERAL_BANG = '\uE003'
+const LITERAL_COLON = '\uE004'
+const LITERALS = /[\uE000-\uE004]/
+const writeLiterals = (escapeClose: boolean, plain: boolean) => (markdown: string) =>
+  markdown
+    .replace(/\uE000/g, plain ? '$' : '\\$')
+    .replace(/\uE001/g, plain ? '[' : '\\[')
+    .replace(/\uE002/g, escapeClose ? '\\]' : ']')
+    .replace(/\uE003/g, plain ? '!' : '\\!')
+    .replace(/\uE004/g, plain ? ':' : '\\:')
+const plainLiterals = writeLiterals(false, true)
+// `]` only needs escaping inside a link label; try the lighter form first.
+const openersEscaped = writeLiterals(false, false)
+const escapedLiterals = writeLiterals(true, false)
+const LITERAL_FORMS = [plainLiterals, openersEscaped, escapedLiterals]
 
-/** The blocks, links, images and math the loader would build from `markdown`. */
+/**
+ * Everything the loader builds from `markdown`: every token's type, attributes
+ * (link targets, task-list markers, tightness) and parsed text, so two inputs
+ * compare equal only when they load as the same document.
+ */
 function loadedSyntax(markdown: string): string {
-  const describe = (token: Token) =>
-    token.type === 'link_open' || token.type === 'image'
-      ? `${token.type}(${token.attrGet('href') ?? token.attrGet('src')})`
-      : token.type.startsWith('math')
-        ? `${token.type}(${token.content})`
-        : token.type
-  return md
-    .parse(markdown, {})
-    .map((token) =>
-      [
-        describe(token),
-        ...(token.children ?? [])
-          .filter((child) => /^(link_open|image|math_inline)$/.test(child.type))
-          .map(describe),
-      ].join(' '),
-    )
-    .join('\n')
+  const describe = (token: Token): string => {
+    const attrs = token.attrs ? JSON.stringify(token.attrs) : ''
+    // `inline`/`image` content is raw source (escapes differ); their children are compared.
+    const content = token.type === 'inline' || token.type === 'image' ? '' : token.content
+    const children = token.children ? `[${token.children.map(describe).join(' ')}]` : ''
+    return `${token.type}${attrs}:${content}${children}`
+  }
+  return md.parse(markdown, {}).map(describe).join('\n')
 }
 
 /**
- * Write literal `$` and `[` bare unless that would reload as math or a link
+ * Write literal `$`, `[` and `]` bare unless that would reload as math or a link
  * (e.g. `\$5 for **one** and 10\$`, `fn[a[0]](x)`). Bare is kept when the
  * loader builds the same blocks, links and math as from the fully escaped
  * text; otherwise decide per line, and escape everything as a last resort.
@@ -266,23 +296,43 @@ function resolveLiterals(markdown: string): string {
   if (loadedSyntax(plain) === target) return plain
   const perLine = markdown
     .split('\n')
-    .map((line) =>
-      LITERALS.test(line) &&
-      loadedSyntax(plainLiterals(line)) !== loadedSyntax(escapedLiterals(line))
-        ? escapedLiterals(line)
-        : plainLiterals(line),
-    )
+    .map((line) => {
+      if (!LITERALS.test(line)) return line
+      const lineTarget = loadedSyntax(escapedLiterals(line))
+      const form = LITERAL_FORMS.find((write) => loadedSyntax(write(line)) === lineTarget)
+      return (form ?? escapedLiterals)(line)
+    })
     .join('\n')
-  return loadedSyntax(perLine) === target ? perLine : escapedLiterals(markdown)
+  if (loadedSyntax(perLine) === target) return perLine
+  const lighter = openersEscaped(markdown)
+  return loadedSyntax(lighter) === target ? lighter : escapedLiterals(markdown)
 }
 
 /** Escape paragraph lines that would otherwise reload as a list, heading or quote. */
 function escapeLineStarts(markdown: string): string {
-  return markdown
-    .replace(/^([-+])(?=\s|$)|^-(?=-+\s*$)/gm, (marker) => `\\${marker}`)
-    .replace(/^#(?=#{0,5}(?:\s|$))/gm, '\\#')
-    .replace(/^>/gm, '\\>')
-    .replace(/^(\d{1,9})([.)])(?=\s|$)/gm, '$1\\$2')
+  return (
+    markdown
+      .replace(/^([-+])(?=\s|$)|^-(?=-+\s*$)/gm, (marker) => `\\${marker}`)
+      .replace(/^#(?=#{0,5}(?:\s|$))/gm, '\\#')
+      .replace(/^>/gm, '\\>')
+      .replace(/^(\d{1,9})([.)])(?=\s|$)/gm, '$1\\$2')
+      // A line of `=` after a hard break would turn the line above into a heading.
+      .replace(/\n(=+)(?=[ \t]*(?:\n|$))/g, '\n\\$1')
+  )
+}
+
+/**
+ * A link or image destination: as written when markdown reads it back
+ * unchanged (no spaces or angle brackets, balanced parentheses), else `<…>`.
+ */
+function markdownDestination(url: string): string {
+  let depth = 0
+  for (const char of url) {
+    if (char === '(') depth++
+    else if (char === ')' && --depth < 0) break
+  }
+  if (depth === 0 && !/[\s<>\\]/.test(url)) return url
+  return `<${url.replace(/[<>\\]/g, '\\$&')}>`
 }
 
 /** The <li> a block sits in: its parent, or the <li> around a task item's content <div>. */
@@ -421,6 +471,30 @@ turndown.addRule('taskItemParts', {
   replacement: (content: string, node: HTMLElement) => (node.nodeName === 'DIV' ? content : ''),
 })
 
+// Alt text is inline markdown and the destination ends at `)` or a space:
+// escape the one and wrap the other when needed.
+turndown.addRule('image', {
+  filter: 'img',
+  replacement(_content: string, node: HTMLElement) {
+    const src = node.getAttribute('src')
+    if (!src) return ''
+    const alt = turndown.escape(node.getAttribute('alt') ?? '')
+    const title = node.getAttribute('title')
+    const titlePart = title ? ` "${title.replace(/"/g, '\\"')}"` : ''
+    return `![${alt}](${markdownDestination(src)}${titlePart})`
+  },
+})
+
+turndown.addRule('heading', {
+  filter: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+  replacement(content: string, node: HTMLElement) {
+    const hashes = '#'.repeat(Number(node.nodeName.charAt(1)))
+    // A trailing run of `#` would be read as the heading's closing sequence.
+    const text = content.replace(/(^|\s)(#+)\s*$/, '$1\\$2')
+    return `\n\n${text ? `${hashes} ${text}` : hashes}\n\n`
+  },
+})
+
 turndown.addRule('codeBlock', {
   filter: (node) => node.nodeName === 'PRE' && node.firstChild?.nodeName === 'CODE',
   replacement(_content: string, node: HTMLElement) {
@@ -430,7 +504,8 @@ turndown.addRule('codeBlock', {
     const longestRun = Math.max(0, ...Array.from(text.matchAll(/^`{3,}/gm), (m) => m[0].length))
     const fence = '`'.repeat(Math.max(3, longestRun + 1))
     const gap = blockGap(node)
-    return `${gap}${fence}${language}\n${text.replace(/\n$/, '')}\n${fence}${gap}`
+    const body = text.replace(EMPTY_BLOCK, '').replace(/\n$/, '')
+    return `${gap}${fence}${language}\n${body ? `${body}\n` : ''}${fence}${gap}`
   },
 })
 
@@ -453,15 +528,19 @@ turndown.addRule('blockquote', {
 function relinksAs(text: string, href: string, followingText: string): boolean {
   const following = /^\S*/.exec(followingText)?.[0] ?? ''
   const template = document.createElement('template')
-  template.innerHTML = md.renderInline(text + plainLiterals(turndown.escape(following)))
-  const [link, ...rest] = Array.from(template.content.childNodes)
-  return (
-    link?.nodeName === 'A' &&
-    (link as Element).getAttribute('href') === href &&
-    link.textContent === text &&
-    rest.every((node) => node.nodeType === 3) &&
-    rest.map((node) => node.textContent).join('') === following
-  )
+  // The following word may still get its `[`, `]`, `$` escaped later
+  // (resolveLiterals), so both spellings must leave the link unchanged.
+  return [plainLiterals, escapedLiterals].every((write) => {
+    template.innerHTML = md.renderInline(text + write(turndown.escape(following)))
+    const [link, ...rest] = Array.from(template.content.childNodes)
+    return (
+      link?.nodeName === 'A' &&
+      (link as Element).getAttribute('href') === href &&
+      link.textContent === text &&
+      rest.every((node) => node.nodeType === 3) &&
+      rest.map((node) => node.textContent).join('') === following
+    )
+  })
 }
 
 // A bare URL or email loads as a link whose text is its target. Write it back
@@ -482,7 +561,7 @@ turndown.addRule('link', {
       (!next || next.nodeType === 3)
     if (bareCandidate && relinksAs(text, href, next?.textContent ?? '')) return text
     const titlePart = title ? ` "${title.replace(/"/g, '\\"')}"` : ''
-    return `[${content}](${href.replace(/([()])/g, '\\$1')}${titlePart})`
+    return `[${content}](${markdownDestination(href)}${titlePart})`
   },
 })
 
@@ -590,9 +669,37 @@ turndown.addRule('tableSection', {
 /**
  * Convert HTML (from TipTap) to Markdown string.
  */
+const EMPTY_BLOCK = '\uE00F'
+
+/**
+ * Prepare editor HTML for Turndown, which drops empty elements (deleting an
+ * empty list item, quote, heading or code block and merging what surrounds
+ * it) and moves edge whitespace of an element's text outside its markdown.
+ * Empty blocks get a marker so they serialize as `-`, `>`, `#` or an empty
+ * fence; math text (the LaTeX is read from data-latex) is replaced by the
+ * marker so a LaTeX ending in `\ ` gains no space. Markers are removed after.
+ */
+function prepareForTurndown(html: string): DocumentFragment {
+  const template = document.createElement('template')
+  template.innerHTML = html
+  for (const math of template.content.querySelectorAll('[data-latex]')) {
+    math.textContent = EMPTY_BLOCK
+  }
+  for (const element of template.content.querySelectorAll(
+    'li, blockquote, li > p, li > div > p, blockquote > p, h1, h2, h3, h4, h5, h6, pre > code',
+  )) {
+    if (!element.textContent && !element.querySelector('img, input, hr, br, [data-latex]')) {
+      const p = element.nodeName === 'LI' || element.nodeName === 'BLOCKQUOTE'
+      if (!p || !element.firstElementChild) element.append(EMPTY_BLOCK)
+    }
+  }
+  return template.content
+}
+
 export function htmlToMarkdown(html: string): string {
   if (!html) return ''
-  const markdown = resolveLiterals(turndown.turndown(html))
+  const converted = turndown.turndown(prepareForTurndown(html)).replace(/ ?\uE00F/g, '')
+  const markdown = resolveLiterals(converted)
   // Files end with a newline, like the markdown they were loaded from.
   return markdown ? `${markdown}\n` : ''
 }

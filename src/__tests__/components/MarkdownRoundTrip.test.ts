@@ -6,6 +6,8 @@ import type { Editor as TiptapEditor } from '@tiptap/core'
 import Editor from '../../components/Editor.vue'
 import { useTabsStore } from '../../stores/tabs'
 import { serializeTabToFile } from '../../stores/autoSave'
+import { markdownToHtml } from '../../utils/markdownConverter'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import claudeMd from '../../../CLAUDE.md?raw'
 import readmeMd from '../../../README.md?raw'
 
@@ -63,6 +65,25 @@ async function roundTrip(markdown: string): Promise<string> {
 }
 
 let wrapper: VueWrapper | undefined
+
+async function mountEditor(): Promise<TiptapEditor> {
+  wrapper = mount(Editor, {
+    global: {
+      stubs: {
+        EditorContent: { template: '<div />' },
+        LinkTooltip: true,
+        InsertLinkDialog: true,
+        FindReplace: true,
+      },
+    },
+  })
+  await nextTick()
+  const editor = (
+    wrapper.vm as unknown as { getEditor: () => TiptapEditor | undefined }
+  ).getEditor()
+  if (!editor) throw new Error('editor did not mount')
+  return editor
+}
 
 describe('WYSIWYG markdown round-trip', () => {
   beforeEach(() => {
@@ -143,6 +164,47 @@ describe('WYSIWYG markdown round-trip', () => {
     expect(serializeTabToFile(tab)).toBe(
       '- [ ] todo\n- [x] done\n\nthen\n\n- a\n- b\n\nsee $x^2$ and [CLAUDE.md](http://CLAUDE.md)\n',
     )
+  })
+
+  it('serializes images inserted in WYSIWYG so they reload with the same alt and path', async () => {
+    setActivePinia(createPinia())
+    const tab = useTabsStore().createTab(DOC_PATH, '')
+    const editor = await mountEditor()
+    const image = (name: string, alt: string) => ({
+      type: 'image',
+      attrs: { src: convertFileSrc(`/Users/me/notes/${name}`), alt },
+    })
+    editor.commands.setContent({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            image('scan].png', 'scan]'),
+            { type: 'text', text: ' ' },
+            image('a).png', 'a)'),
+            { type: 'text', text: ' ' },
+            image('assets/x.png', 'x'),
+          ],
+        },
+      ],
+    })
+    vi.advanceTimersByTime(200)
+
+    const saved = serializeTabToFile(tab)
+    expect(saved).toBe('![scan\\]](scan%5D.png) ![a)](<a).png>) ![x](assets/x.png)\n')
+    const template = document.createElement('template')
+    template.innerHTML = markdownToHtml(saved)
+    expect(
+      Array.from(template.content.querySelectorAll('img'), (img) => [
+        img.getAttribute('alt'),
+        decodeURI(img.getAttribute('src') ?? ''),
+      ]),
+    ).toEqual([
+      ['scan]', 'scan].png'],
+      ['a)', 'a).png'],
+      ['x', 'assets/x.png'],
+    ])
   })
 
   for (const [name, source] of [

@@ -494,12 +494,14 @@ describe('review regressions', () => {
     })
   })
 
+  // Generous bounds so parallel CI load cannot flake them: the quadratic
+  // implementation took minutes at these sizes, the linear one ~1 s.
   describe('performance', () => {
     it('serializes a 5,000-item list in linear time', () => {
       const items = Array.from({ length: 5000 }, (_, i) => `<li><p>item ${i}</p></li>`).join('')
       const started = performance.now()
       const out = md(`<ul data-tight="true">${items}</ul>`)
-      expect(performance.now() - started).toBeLessThan(2000)
+      expect(performance.now() - started).toBeLessThan(10_000)
       expect(out.split('\n')).toHaveLength(5001)
     })
 
@@ -512,7 +514,7 @@ describe('review regressions', () => {
       const ordered = Array.from({ length: 5000 }, (_, i) => `<li><p>o ${i}</p></li>`).join('')
       const started = performance.now()
       const out = md(`<ul data-type="taskList">${tasks}</ul><p>x</p><ol>${ordered}</ol>`)
-      expect(performance.now() - started).toBeLessThan(3000)
+      expect(performance.now() - started).toBeLessThan(10_000)
       expect(out).toContain('- [ ] t 4999\n\nx\n\n1. o 0\n')
       expect(out).toContain('5000. o 4999\n')
     })
@@ -520,7 +522,7 @@ describe('review regressions', () => {
     it('escapes 100,000 unclosed brackets in linear time', () => {
       const started = performance.now()
       md(`<p>${'['.repeat(100_000)}</p>`)
-      expect(performance.now() - started).toBeLessThan(2000)
+      expect(performance.now() - started).toBeLessThan(10_000)
     })
   })
 
@@ -541,5 +543,97 @@ describe('review regressions', () => {
       const source = '1. Install:\n   ```sh\n   pnpm i\n   ```\n2. Run\n3. Done\n'
       expect(rt(source)).toBe(source)
     })
+  })
+})
+
+describe('second review regressions', () => {
+  const md = (html: string) => htmlToMarkdown(html)
+  const rt = (source: string) => htmlToMarkdown(markdownToHtml(source))
+
+  it.each(['[a\\]b](https://example.com)', '[a \\[b](https://example.com)'])(
+    'keeps literal brackets inside the link label %s',
+    (link) => {
+      expect(rt(`See ${link} now`)).toBe(`See ${link} now\n`)
+    },
+  )
+
+  it('keeps balanced brackets in a link label as the same link', () => {
+    const html = markdownToHtml('See [\\[1\\]](https://example.com) now')
+    expect(markdownToHtml(rt('See [\\[1\\]](https://example.com) now'))).toBe(html)
+  })
+
+  it.each(['- \\[x] literal', '- \\[ ] literal'])(
+    'keeps a task-looking ordinary bullet %s escaped',
+    (source) => {
+      expect(rt(source)).toBe(`${source}\n`)
+      expect(markdownToHtml(rt(source))).not.toContain('taskItem')
+    },
+  )
+
+  it('escapes setext underline candidates after a hard break', () => {
+    const out = md('<p>a<br>===</p><p>b<br>---</p>')
+    expect(markdownToHtml(out)).not.toMatch(/<h[12]/)
+    expect(markdownToHtml(out)).not.toContain('<hr')
+  })
+
+  it('escapes image alt text and wraps destinations markdown would cut short', () => {
+    expect(md('<p><img src="scan].png" alt="scan]"></p>')).toBe('![scan\\]](scan].png)\n')
+    expect(md('<p><img src="a).png" alt="a)"></p>')).toBe('![a)](<a).png>)\n')
+    expect(md('<p><img src="my pic.png" alt="p"></p>')).toBe('![p](<my pic.png>)\n')
+    expect(md('<p><img src="assets/x_(1).png" alt="x"></p>')).toBe('![x](assets/x_(1).png)\n')
+    for (const [src, alt] of [
+      ['scan].png', 'scan]'],
+      ['a).png', 'a)'],
+      ['my pic.png', 'p'],
+    ]) {
+      const template = document.createElement('template')
+      template.innerHTML = markdownToHtml(md(`<p><img src="${src}" alt="${alt}"></p>`))
+      const img = template.content.querySelector('img')
+      expect(img?.getAttribute('alt')).toBe(alt)
+      expect(decodeURI(img?.getAttribute('src') ?? '')).toBe(src)
+    }
+  })
+
+  it('keeps link destinations with unbalanced parentheses or spaces intact', () => {
+    for (const href of ['https://x.com/a)', 'https://x.com/a(b', 'notes/my file.md']) {
+      const template = document.createElement('template')
+      template.innerHTML = markdownToHtml(md(`<p><a href="${href}">t</a></p>`))
+      expect(decodeURI(template.content.querySelector('a')?.getAttribute('href') ?? '')).toBe(href)
+    }
+  })
+})
+
+describe('sibling defects found by the round-trip sweep', () => {
+  const md = (html: string) => htmlToMarkdown(html)
+
+  it('keeps empty list items, quotes, headings and code blocks', () => {
+    expect(
+      md(
+        '<ul><li><p></p></li></ul><blockquote><p></p></blockquote><h2></h2>' +
+          '<pre><code class="language-js"></code></pre>',
+      ),
+    ).toBe('-\n\n>\n\n##\n\n```js\n```\n')
+  })
+
+  it('escapes a `!` that would turn the following link into an image', () => {
+    const out = md('<p>!<a href="https://e.com/a b">t</a></p>')
+    expect(markdownToHtml(out)).not.toContain('<img')
+    expect(markdownToHtml(out)).toContain('<a href="https://e.com/a%20b">t</a>')
+  })
+
+  it('keeps unlinked URL-like text unlinked when its neighbours get escaped', () => {
+    const out = md('<p>~~https://e.com_&lt;&lt;</p>')
+    expect(markdownToHtml(out)).not.toContain('<a')
+  })
+
+  it('escapes a trailing # run in a heading so it is not a closing sequence', () => {
+    expect(md('<h1>a #</h1>')).toBe('# a \\#\n')
+  })
+
+  it('keeps code span spacing and math ending in an escaped space', () => {
+    expect(md('<p><code>a  b</code></p>')).toBe('`a  b`\n')
+    expect(md('<p><span data-type="math-inline" data-latex="5 \\ ">5 \\ </span>x</p>')).toBe(
+      '$5 \\ $x\n',
+    )
   })
 })

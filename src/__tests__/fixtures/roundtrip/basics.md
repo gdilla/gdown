@@ -25,3 +25,10 @@ console.log(x)
 ---
 
 Final paragraph.
+
+Labels with brackets: [a\]b](https://example.com) and [a \[b](https://example.com).
+
+- \[x] not a task
+
+Line one  
+\===

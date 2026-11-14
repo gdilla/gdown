@@ -132,6 +132,16 @@ describe('resolveImagePaths', () => {
     )
   })
 
+  it('decodes only the markdown source, not a native directory with a literal %', () => {
+    expect(resolveRelativeSrc('assets/a%20b.png', '/Users/me/notes%20archive')).toBe(
+      'asset://localhost/%2FUsers%2Fme%2Fnotes%2520archive%2Fassets%2Fa%20b.png',
+    )
+    const resolved = resolveImagePaths('<img src="assets/a.png">', '/Users/me/notes%20archive')
+    expect(unresolveImagePaths(resolved, '/Users/me/notes%20archive')).toBe(
+      '<img src="assets/a.png">',
+    )
+  })
+
   it('resolves absolute local paths and ./ prefixes', () => {
     const result = resolveImagePaths('<img src="/Users/me/a.png"><img src="./b.png">', docDir)
     expect(result).toBe(
