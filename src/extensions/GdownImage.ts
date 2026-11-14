@@ -161,6 +161,13 @@ export const GdownImage = Image.extend({
       loading: {
         default: 'lazy',
       },
+      // The markdown spelling of a resolved local path (see imagePathResolver)
+      originalSrc: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.getAttribute('data-original-src'),
+        renderHTML: (attributes: { originalSrc?: string | null }) =>
+          attributes.originalSrc ? { 'data-original-src': attributes.originalSrc } : {},
+      },
     }
   },
 

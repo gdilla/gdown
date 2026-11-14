@@ -12,19 +12,17 @@ import katex from 'katex'
 
 /**
  * Input rule: typing `$<latex>$` (with a trailing `$`) converts the text
- * into an inline math node.  The regex captures everything between two `$`
- * delimiters typed in sequence.
+ * into an inline math node. Like Pandoc/markdown-it math, the LaTeX must not
+ * start or end with whitespace, so "costs $5 and $10" stays plain text.
  */
 function makeInlineMathInputRule() {
-  // Match: non-escaped $, followed by non-empty content (no newlines), followed by $
-  // The lookbehind (?<=\s|^) ensures the opening $ follows whitespace or line start
   const rule = new InputRule({
-    find: /(?:^|\s)\$([^$\n]+)\$$/,
+    find: /(?:^|\s)\$([^\s$](?:[^$\n]*[^\s$\\])?)\$$/,
     handler: ({ state, range, match }) => {
       const latex = match[1]
-      if (!latex || !latex.trim()) return null
+      if (!latex) return null
 
-      const node = state.schema.nodes.mathInline!.create({ latex: latex.trim() })
+      const node = state.schema.nodes.mathInline!.create({ latex })
 
       // Adjust start to keep any leading whitespace
       const fullMatch = match[0]
@@ -72,11 +70,13 @@ export const MathInline = Node.create({
     ]
   },
 
-  renderHTML({ HTMLAttributes }) {
+  // The LaTeX is the text content (not a content hole: this is an atom node),
+  // so serializers and plain-text copies see it.
+  renderHTML({ node, HTMLAttributes }) {
     return [
       'span',
       mergeAttributes(HTMLAttributes, { 'data-type': 'math-inline', class: 'math-inline' }),
-      0,
+      node.attrs.latex,
     ]
   },
 

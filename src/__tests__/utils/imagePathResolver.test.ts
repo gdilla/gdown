@@ -4,7 +4,6 @@ import {
   unresolveImagePaths,
   resolveRelativeSrc,
   getDocumentDir,
-  isAbsoluteSrc,
 } from '../../utils/imagePathResolver'
 
 // Mock convertFileSrc to simulate Tauri's asset protocol
@@ -13,7 +12,7 @@ vi.mock('@tauri-apps/api/core', async () => {
   return {
     ...actual,
     invoke: vi.fn().mockResolvedValue(''),
-    convertFileSrc: vi.fn((path: string) => `http://asset.localhost/${path}`),
+    convertFileSrc: vi.fn((path: string) => `asset://localhost/${encodeURIComponent(path)}`),
   }
 })
 
@@ -36,37 +35,12 @@ describe('getDocumentDir', () => {
   })
 })
 
-describe('isAbsoluteSrc', () => {
-  it('returns true for http URLs', () => {
-    expect(isAbsoluteSrc('http://example.com/img.png')).toBe(true)
-    expect(isAbsoluteSrc('https://example.com/img.png')).toBe(true)
-  })
-
-  it('returns true for data URLs', () => {
-    expect(isAbsoluteSrc('data:image/png;base64,abc')).toBe(true)
-  })
-
-  it('returns true for blob URLs', () => {
-    expect(isAbsoluteSrc('blob:http://localhost/abc')).toBe(true)
-  })
-
-  it('returns true for absolute file paths', () => {
-    expect(isAbsoluteSrc('/Users/foo/photo.png')).toBe(true)
-  })
-
-  it('returns false for relative paths', () => {
-    expect(isAbsoluteSrc('assets/photo.png')).toBe(false)
-    expect(isAbsoluteSrc('images/2024/photo.png')).toBe(false)
-    expect(isAbsoluteSrc('photo.png')).toBe(false)
-  })
-})
-
 describe('resolveRelativeSrc', () => {
   const docDir = '/Users/foo/notes'
 
   it('resolves a relative path to an asset URL', () => {
     expect(resolveRelativeSrc('assets/photo.png', docDir)).toBe(
-      'http://asset.localhost//Users/foo/notes/assets/photo.png',
+      'asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fassets%2Fphoto.png',
     )
   })
 
@@ -95,7 +69,7 @@ describe('resolveImagePaths', () => {
     const html = '<img src="assets/photo.png">'
     const result = resolveImagePaths(html, docDir)
     expect(result).toBe(
-      '<img src="http://asset.localhost//Users/foo/notes/assets/photo.png" data-original-src="assets/photo.png">',
+      '<img src="asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fassets%2Fphoto.png" data-original-src="assets/photo.png">',
     )
   })
 
@@ -104,8 +78,8 @@ describe('resolveImagePaths', () => {
     const result = resolveImagePaths(html, docDir)
     expect(result).toContain('data-original-src="assets/a.png"')
     expect(result).toContain('data-original-src="assets/b.jpg"')
-    expect(result).toContain('http://asset.localhost//Users/foo/notes/assets/a.png')
-    expect(result).toContain('http://asset.localhost//Users/foo/notes/assets/b.jpg')
+    expect(result).toContain('asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fassets%2Fa.png')
+    expect(result).toContain('asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fassets%2Fb.jpg')
   })
 
   it('preserves absolute http URLs', () => {
@@ -121,7 +95,7 @@ describe('resolveImagePaths', () => {
   })
 
   it('preserves already-resolved asset URLs', () => {
-    const html = '<img src="http://asset.localhost//some/path.png">'
+    const html = '<img src="asset://localhost/%2Fsome%2Fpath.png">'
     const result = resolveImagePaths(html, docDir)
     expect(result).toBe(html)
   })
@@ -135,7 +109,7 @@ describe('resolveImagePaths', () => {
   it('handles images with alt and title attributes', () => {
     const html = '<img src="assets/photo.png" alt="My photo" title="A photo">'
     const result = resolveImagePaths(html, docDir)
-    expect(result).toContain('http://asset.localhost//Users/foo/notes/assets/photo.png')
+    expect(result).toContain('asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fassets%2Fphoto.png')
     expect(result).toContain('data-original-src="assets/photo.png"')
     expect(result).toContain('alt="My photo"')
     expect(result).toContain('title="A photo"')
@@ -144,7 +118,7 @@ describe('resolveImagePaths', () => {
   it('handles src with subdirectories', () => {
     const html = '<img src="images/2024/photo.png">'
     const result = resolveImagePaths(html, docDir)
-    expect(result).toContain('http://asset.localhost//Users/foo/notes/images/2024/photo.png')
+    expect(result).toContain('asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fimages%2F2024%2Fphoto.png')
     expect(result).toContain('data-original-src="images/2024/photo.png"')
   })
 
@@ -152,6 +126,28 @@ describe('resolveImagePaths', () => {
     const html = '<img src="assets/my%20photo.png">'
     const result = resolveImagePaths(html, docDir)
     expect(result).toContain('data-original-src="assets/my%20photo.png"')
+    // The file on disk is "my photo.png": decode before convertFileSrc re-encodes
+    expect(result).toContain(
+      'src="asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fassets%2Fmy%20photo.png"',
+    )
+  })
+
+  it('decodes only the markdown source, not a native directory with a literal %', () => {
+    expect(resolveRelativeSrc('assets/a%20b.png', '/Users/me/notes%20archive')).toBe(
+      'asset://localhost/%2FUsers%2Fme%2Fnotes%2520archive%2Fassets%2Fa%20b.png',
+    )
+    const resolved = resolveImagePaths('<img src="assets/a.png">', '/Users/me/notes%20archive')
+    expect(unresolveImagePaths(resolved, '/Users/me/notes%20archive')).toBe(
+      '<img src="assets/a.png">',
+    )
+  })
+
+  it('resolves absolute local paths and ./ prefixes', () => {
+    const result = resolveImagePaths('<img src="/Users/me/a.png"><img src="./b.png">', docDir)
+    expect(result).toBe(
+      '<img src="asset://localhost/%2FUsers%2Fme%2Fa.png" data-original-src="/Users/me/a.png">' +
+        '<img src="asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fb.png" data-original-src="./b.png">',
+    )
   })
 
   it('does not resolve blob URLs', () => {
@@ -166,26 +162,26 @@ describe('unresolveImagePaths', () => {
 
   it('restores original src from data-original-src', () => {
     const html =
-      '<img src="http://asset.localhost//Users/foo/notes/assets/photo.png" data-original-src="assets/photo.png">'
+      '<img src="asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fassets%2Fphoto.png" data-original-src="assets/photo.png">'
     const result = unresolveImagePaths(html, docDir)
     expect(result).toBe('<img src="assets/photo.png">')
   })
 
   it('strips asset URL prefix when no data-original-src', () => {
-    const html = '<img src="http://asset.localhost//Users/foo/notes/assets/photo.png">'
+    const html = '<img src="asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fassets%2Fphoto.png">'
     const result = unresolveImagePaths(html, docDir)
     expect(result).toBe('<img src="assets/photo.png">')
   })
 
   it('handles multiple images with mixed strategies', () => {
     const html =
-      '<img src="http://asset.localhost//Users/foo/notes/assets/a.png" data-original-src="assets/a.png">' +
-      '<img src="http://asset.localhost//Users/foo/notes/assets/b.jpg">'
+      '<img src="asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fassets%2Fa.png" data-original-src="assets/a.png">' +
+      '<img src="asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fassets%2Fb.jpg">'
     const result = unresolveImagePaths(html, docDir)
     expect(result).toContain('src="assets/a.png"')
     expect(result).toContain('src="assets/b.jpg"')
     expect(result).not.toContain('data-original-src')
-    expect(result).not.toContain('asset.localhost')
+    expect(result).not.toContain('asset://')
   })
 
   it('preserves non-asset images unchanged', () => {
@@ -202,15 +198,24 @@ describe('unresolveImagePaths', () => {
 
   it('returns html unchanged when docDir is empty', () => {
     const html =
-      '<img src="http://asset.localhost//path/photo.png" data-original-src="assets/photo.png">'
+      '<img src="asset://localhost/%2Fpath%2Fphoto.png" data-original-src="assets/photo.png">'
     expect(unresolveImagePaths(html, '')).toBe(html)
   })
 
-  it('does not strip asset URLs from a different document dir', () => {
-    const html = '<img src="http://asset.localhost//other/dir/assets/photo.png">'
-    const result = unresolveImagePaths(html, docDir)
-    // Should not strip because the path doesn't start with docDir
-    expect(result).toBe(html)
+  it('writes asset URLs outside the document dir as absolute paths', () => {
+    const html = '<img src="asset://localhost/%2Fother%2Fdir%2Fassets%2Fphoto.png">'
+    expect(unresolveImagePaths(html, docDir)).toBe('<img src="/other/dir/assets/photo.png">')
+  })
+
+  it('decodes asset URLs and re-encodes the markdown path', () => {
+    const html = '<img src="asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fassets%2Fmy%20pic.png">'
+    expect(unresolveImagePaths(html, docDir)).toBe('<img src="assets/my%20pic.png">')
+  })
+
+  it('ignores a stale data-original-src that no longer matches src', () => {
+    const html =
+      '<img src="asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fnew.png" data-original-src="old.png">'
+    expect(unresolveImagePaths(html, docDir)).toBe('<img src="new.png">')
   })
 })
 
@@ -224,9 +229,19 @@ describe('round-trip', () => {
     expect(restored).toBe(original)
   })
 
+  it('round-trips a path containing & without entity-encoding it', () => {
+    const resolved = resolveImagePaths('<img src="a&amp;b.png">', docDir)
+    const template = document.createElement('template')
+    template.innerHTML = unresolveImagePaths(resolved, docDir)
+    expect(template.content.querySelector('img')?.getAttribute('src')).toBe('a&b.png')
+    expect(resolved).toContain('src="asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fa%26b.png"')
+  })
+
   it('round-trips multiple images with mixed sources', () => {
     const original =
       '<img src="assets/local.png">' +
+      '<img src="/abs/local.png">' +
+      '<img src="./images/a%20b.png">' +
       '<img src="https://example.com/remote.png">' +
       '<img src="data:image/png;base64,abc">'
     const resolved = resolveImagePaths(original, docDir)
@@ -237,7 +252,7 @@ describe('round-trip', () => {
   it('unresolve handles asset URLs without data-original-src (input rule path)', () => {
     // Simulates what happens when input rule resolves a path directly
     const html =
-      '<img src="http://asset.localhost//Users/foo/notes/assets/typed-image.png" alt="test">'
+      '<img src="asset://localhost/%2FUsers%2Ffoo%2Fnotes%2Fassets%2Ftyped-image.png" alt="test">'
     const result = unresolveImagePaths(html, docDir)
     expect(result).toBe('<img src="assets/typed-image.png" alt="test">')
   })

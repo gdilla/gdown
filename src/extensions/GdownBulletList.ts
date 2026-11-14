@@ -1,6 +1,21 @@
-import BulletList from "@tiptap/extension-bullet-list";
-import ListItem from "@tiptap/extension-list-item";
-import { wrappingInputRule } from "@tiptap/core";
+import BulletList from '@tiptap/extension-bullet-list'
+import ListItem from '@tiptap/extension-list-item'
+import { wrappingInputRule } from '@tiptap/core'
+
+/**
+ * Whether the markdown list was tight (no blank lines between items). Set by
+ * markdownToHtml (`data-tight`) and read back by htmlToMarkdown; lists created
+ * in the editor default to tight.
+ */
+export const tightListAttribute = {
+  tight: {
+    default: true,
+    parseHTML: (element: HTMLElement) => element.getAttribute('data-tight') !== 'false',
+    renderHTML: (attributes: { tight?: boolean }) => ({
+      'data-tight': String(attributes.tight !== false),
+    }),
+  },
+}
 
 /**
  * GdownListItem: Custom list item with Typora-like indentation behavior.
@@ -16,85 +31,78 @@ export const GdownListItem = ListItem.extend({
     return {
       ...this.parent?.(),
       HTMLAttributes: {
-        class: "gdown-list-item",
+        class: 'gdown-list-item',
       },
-      bulletListTypeName: "bulletList",
-      orderedListTypeName: "orderedList",
-    };
+      bulletListTypeName: 'bulletList',
+      orderedListTypeName: 'orderedList',
+    }
   },
 
   addKeyboardShortcuts() {
     return {
       // Tab indents (sinks) the list item
       Tab: () => {
-        if (this.editor.isActive("listItem")) {
-          return this.editor.chain().focus().sinkListItem("listItem").run();
+        if (this.editor.isActive('listItem')) {
+          return this.editor.chain().focus().sinkListItem('listItem').run()
         }
-        return false;
+        return false
       },
 
       // Shift+Tab outdents (lifts) the list item
-      "Shift-Tab": () => {
-        if (this.editor.isActive("listItem")) {
-          return this.editor.chain().focus().liftListItem("listItem").run();
+      'Shift-Tab': () => {
+        if (this.editor.isActive('listItem')) {
+          return this.editor.chain().focus().liftListItem('listItem').run()
         }
-        return false;
+        return false
       },
 
       // Enter on empty list item: exit the list
       Enter: () => {
-        const { state } = this.editor;
-        const { selection } = state;
-        const { $from } = selection;
+        const { state } = this.editor
+        const { selection } = state
+        const { $from } = selection
 
-        if (!selection.empty) return false;
+        if (!selection.empty) return false
 
         // Check if inside a listItem
-        if (!this.editor.isActive("listItem")) return false;
+        if (!this.editor.isActive('listItem')) return false
 
         // Only handle empty paragraphs inside list items
-        if ($from.parent.content.size !== 0) return false;
+        if ($from.parent.content.size !== 0) return false
 
         // Check nesting depth - if nested, lift first
-        let listDepth = 0;
+        let listDepth = 0
         for (let d = $from.depth; d > 0; d--) {
-          const nodeType = $from.node(d).type.name;
-          if (
-            nodeType === "bulletList" ||
-            nodeType === "orderedList"
-          ) {
-            listDepth++;
+          const nodeType = $from.node(d).type.name
+          if (nodeType === 'bulletList' || nodeType === 'orderedList') {
+            listDepth++
           }
         }
 
         if (listDepth > 1) {
           // Nested: lift out one level
-          return this.editor
-            .chain()
-            .focus()
-            .liftListItem("listItem")
-            .run();
+          return this.editor.chain().focus().liftListItem('listItem').run()
         }
 
         // Top level: exit the list entirely
-        return this.editor.chain().focus().liftListItem("listItem").run();
+        return this.editor.chain().focus().liftListItem('listItem').run()
       },
 
       // Backspace at start of list item
       Backspace: () => {
-        const { state } = this.editor;
-        const { selection } = state;
-        const { $from } = selection;
+        const { state } = this.editor
+        const { selection } = state
+        const { $from } = selection
 
-        if (!selection.empty || $from.parentOffset !== 0) return false;
-        if (!this.editor.isActive("listItem")) return false;
+        if (!selection.empty || $from.parentOffset !== 0) return false
+        if (!this.editor.isActive('listItem')) return false
 
         // Try to lift the list item
-        return this.editor.chain().focus().liftListItem("listItem").run();
+        return this.editor.chain().focus().liftListItem('listItem').run()
       },
-    };
+    }
   },
-});
+})
 
 /**
  * GdownBulletList: Custom TipTap Bullet List extension with Typora-like behavior.
@@ -105,16 +113,20 @@ export const GdownListItem = ListItem.extend({
  * - Keyboard shortcut: Cmd+Shift+U (Typora shortcut for unordered list)
  */
 export const GdownBulletList = BulletList.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...tightListAttribute }
+  },
+
   addOptions() {
     return {
       ...this.parent?.(),
       HTMLAttributes: {
-        class: "gdown-bullet-list",
+        class: 'gdown-bullet-list',
       },
-      itemTypeName: "listItem",
+      itemTypeName: 'listItem',
       keepMarks: true,
       keepAttributes: false,
-    };
+    }
   },
 
   addInputRules() {
@@ -134,15 +146,15 @@ export const GdownBulletList = BulletList.extend({
         find: /^\s*([+])\s$/,
         type: this.type,
       }),
-    ];
+    ]
   },
 
   addKeyboardShortcuts() {
     return {
       // Typora shortcut: Cmd+Shift+U for unordered list
-      "Mod-Shift-u": () => {
-        return this.editor.chain().focus().toggleBulletList().run();
+      'Mod-Shift-u': () => {
+        return this.editor.chain().focus().toggleBulletList().run()
       },
-    };
+    }
   },
-});
+})
