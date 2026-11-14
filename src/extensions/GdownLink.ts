@@ -23,6 +23,11 @@ export const GdownLink = Link.extend({
       openOnClick: false,
       linkOnPaste: true,
       autolink: true,
+      // Link typed or pasted text only when it has a scheme or is an email.
+      // Bare filenames and domains (CLAUDE.md, example.com) stay text, as they
+      // do when a markdown file is loaded.
+      shouldAutoLink: (url: string) =>
+        /^[a-z][a-z\d+.-]*:/i.test(url) || /^[^\s@/:]+@[^\s@/]+\.[^\s@/]+$/.test(url),
       HTMLAttributes: {
         class: 'gdown-link',
         rel: 'noopener noreferrer nofollow',
