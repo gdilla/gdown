@@ -42,6 +42,8 @@ describe('InsertLinkDialog', () => {
   })
 
   async function openFor(from: number, to: number): Promise<void> {
+    // The dialog links the editor's live selection (as Cmd+K opens it).
+    editor.commands.setTextSelection({ from, to })
     const text = from === to ? undefined : editor.state.doc.textBetween(from, to)
     window.dispatchEvent(new CustomEvent('gdown:insert-link', { detail: { from, to, text } }))
     await nextTick()

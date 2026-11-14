@@ -47,7 +47,8 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import type { Editor } from '@tiptap/core'
-import { applyLink, isPlainTextRange } from '../utils/linkEditing'
+import type { SelectionBookmark } from '@tiptap/pm/state'
+import { applyLink, isReplaceableSelection } from '../utils/linkEditing'
 
 const props = defineProps<{
   editor: Editor
@@ -60,18 +61,18 @@ const linkTitle = ref('')
 const textInput = ref<HTMLInputElement | null>(null)
 const urlInput = ref<HTMLInputElement | null>(null)
 
-let savedFrom = 0
-let savedTo = 0
-// False when the selection holds non-text inline content (e.g. an image) or
-// spans blocks: such a selection is only ever linked in place, never replaced.
+// The editor selection when the dialog opened, of whatever class (a
+// CellSelection has one range per cell; the event's from/to cover only one).
+let savedSelection: SelectionBookmark | null = null
+// False for selections that are only ever linked in place, never replaced
+// (non-text content, several blocks or cells, node or all-document selections).
 const textEditable = ref(true)
 
-function handleInsertLink(event: Event) {
-  const detail = (event as CustomEvent).detail || {}
-  savedFrom = detail.from || 0
-  savedTo = detail.to || 0
-  textEditable.value = isPlainTextRange(props.editor, savedFrom, savedTo)
-  linkText.value = detail.text || ''
+function handleInsertLink() {
+  const { selection, doc } = props.editor.state
+  savedSelection = selection.getBookmark()
+  textEditable.value = isReplaceableSelection(selection)
+  linkText.value = textEditable.value ? doc.textBetween(selection.from, selection.to) : ''
   linkUrl.value = ''
   linkTitle.value = ''
   visible.value = true
@@ -90,7 +91,9 @@ function confirm() {
   const href = linkUrl.value.trim()
   if (!href) return
 
-  applyLink(props.editor, savedFrom, savedTo, linkText.value || href, {
+  if (!savedSelection) return
+  const selection = savedSelection.resolve(props.editor.state.doc)
+  applyLink(props.editor, selection, linkText.value || href, {
     href,
     title: linkTitle.value || null,
     target: '_blank',

@@ -8,57 +8,68 @@ export interface LinkAttrs {
 }
 
 /**
- * True when [from, to] is plain text inside one block, so its text may be
- * replaced. Ranges holding non-text inline content (e.g. an image) or spanning
- * blocks are only ever linked in place.
+ * True when the selection's text may be replaced by an edited link text: a
+ * caret, or a TextSelection of plain text inside one textblock. Node, cell
+ * (one range per cell) and all-document selections, and ranges holding
+ * non-text inline content (e.g. an image) or spanning blocks, are only ever
+ * linked in place.
  */
-export function isPlainTextRange(editor: Editor, from: number, to: number): boolean {
-  const { doc } = editor.state
-  const $from = doc.resolve(from)
-  // Both ends in one textblock (Cmd+A resolves both ends to the doc itself).
-  if (!$from.parent.isTextblock || !$from.sameParent(doc.resolve(to))) return false
+export function isReplaceableSelection(selection: Selection): boolean {
+  if (!(selection instanceof TextSelection)) return false
+  const { $from, $to } = selection
+  if (!$from.parent.isTextblock || !$from.sameParent($to)) return false
   let plain = true
-  doc.nodesBetween(from, to, (node) => {
+  $from.doc.nodesBetween($from.pos, $to.pos, (node) => {
     if (node.isInline && !node.isText) plain = false
   })
   return plain
 }
 
 /**
- * Chain command: collapse the selection to the end of the current one, so the
- * next keystroke cannot overwrite the content that was just (un)linked. A
- * character typed there joins the link (the link mark is inclusive, as on main).
+ * Chain command: collapse the selection to the nearest text position at the
+ * end of its LAST range (a CellSelection has one range per cell, and its
+ * from/to describe only one of them), so the next keystroke cannot overwrite
+ * what was just (un)linked. A character typed there joins the link (the link
+ * mark is inclusive, as on main).
  */
 export function collapseToSelectionEnd({ tr }: CommandProps): boolean {
-  tr.setSelection(Selection.near(tr.doc.resolve(tr.selection.to), -1))
+  const $end = tr.doc.resolve(Math.max(...tr.selection.ranges.map((range) => range.$to.pos)))
+  // A text caret (Selection.near could re-select a node such as a horizontal rule).
+  tr.setSelection(
+    Selection.findFrom($end, -1, true) ?? Selection.findFrom($end, 1, true) ?? Selection.near($end),
+  )
   return true
 }
 
 /**
- * Link [from, to]. `text` replaces the range's text only when the range is
- * empty or plain text in one block; otherwise the content is linked in place.
+ * Link `selection` (every range of it). `text` replaces the selected text only
+ * when isReplaceableSelection(); otherwise the content is linked in place.
  * Replaces inline text directly: insertContentAt can rewrite the parent block
  * (e.g. turn a heading into a paragraph when the range starts the block).
  */
 export function applyLink(
   editor: Editor,
-  from: number,
-  to: number,
+  selection: Selection,
   text: string,
   attrs: LinkAttrs,
 ): void {
-  const unchanged = !text || text === editor.state.doc.textBetween(from, to)
-  if (from !== to && (unchanged || !isPlainTextRange(editor, from, to))) {
+  const replaceable = isReplaceableSelection(selection)
+  const { from, to, empty } = selection
+  const current = replaceable ? editor.state.doc.textBetween(from, to) : ''
+  if (!empty && (!replaceable || !text || text === current)) {
     editor
       .chain()
       .focus()
-      .setTextSelection({ from, to })
+      .command(({ tr }) => {
+        tr.setSelection(selection)
+        return true
+      })
       .setLink(attrs)
       .command(collapseToSelectionEnd)
       .run()
     return
   }
-  if (!text) return
+  if (!text || !replaceable) return
   editor
     .chain()
     .focus()

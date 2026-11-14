@@ -67,10 +67,12 @@ import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import type { Editor } from '@tiptap/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { useEditorSettingsStore } from '../stores/editorSettings'
+import { getMarkRange } from '@tiptap/core'
+import { TextSelection } from '@tiptap/pm/state'
 import {
   applyLink,
   collapseToSelectionEnd,
-  isPlainTextRange,
+  isReplaceableSelection,
   type LinkAttrs,
 } from '../utils/linkEditing'
 
@@ -92,6 +94,7 @@ let hideTimer: ReturnType<typeof setTimeout> | null = null
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
 let linkFrom = 0
 let linkTo = 0
+let hoveredLinkPos = 0
 let linkAttrs: Omit<LinkAttrs, 'href'> = {}
 let editorDom: HTMLElement | null = null
 
@@ -106,6 +109,8 @@ function show(linkHref: string, anchorEl: HTMLElement) {
   cancelHide()
   href.value = linkHref
   editing.value = false
+  // Hovering does not move the editor selection: remember which link this is.
+  hoveredLinkPos = props.editor.view.posAtDOM(anchorEl, 0)
 
   // Use fixed viewport coords — works regardless of scroll position
   const linkRect = anchorEl.getBoundingClientRect()
@@ -151,11 +156,19 @@ async function copyLink() {
   }, 1500)
 }
 
+/** Range of the hovered link (not of the editor selection, which may be elsewhere). */
+function hoveredLinkRange(): { from: number; to: number } | undefined {
+  const { doc, schema } = props.editor.state
+  return getMarkRange(doc.resolve(hoveredLinkPos), schema.marks.link!) || undefined
+}
+
 function removeLink() {
+  const range = hoveredLinkRange()
+  if (!range) return
   props.editor
     .chain()
     .focus()
-    .extendMarkRange('link')
+    .setTextSelection(range)
     .unsetLink()
     .command(collapseToSelectionEnd)
     .run()
@@ -163,13 +176,14 @@ function removeLink() {
 }
 
 function startEdit() {
-  props.editor.chain().extendMarkRange('link').run()
-  const { from, to } = props.editor.state.selection
-  linkFrom = from
-  linkTo = to
+  const range = hoveredLinkRange()
+  if (!range) return
+  props.editor.commands.setTextSelection(range)
+  linkFrom = range.from
+  linkTo = range.to
   const { title = null, target = null } = props.editor.getAttributes('link')
   linkAttrs = { title, target }
-  editTextEditable.value = isPlainTextRange(props.editor, linkFrom, linkTo)
+  editTextEditable.value = isReplaceableSelection(props.editor.state.selection)
   editText.value = props.editor.state.doc.textBetween(linkFrom, linkTo, ' ')
   editUrl.value = href.value
   editing.value = true
@@ -179,7 +193,8 @@ function startEdit() {
 function saveEdit() {
   const url = editUrl.value.trim()
   if (!url) return
-  applyLink(props.editor, linkFrom, linkTo, editText.value.trim(), { ...linkAttrs, href: url })
+  const selection = TextSelection.create(props.editor.state.doc, linkFrom, linkTo)
+  applyLink(props.editor, selection, editText.value.trim(), { ...linkAttrs, href: url })
   href.value = url
   editing.value = false
 }

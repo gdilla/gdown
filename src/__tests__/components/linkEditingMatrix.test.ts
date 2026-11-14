@@ -19,6 +19,8 @@ import { markRaw, nextTick } from 'vue'
 import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import type { Node as PMNode } from '@tiptap/pm/model'
+import { Selection } from '@tiptap/pm/state'
+import { CellSelection } from '@tiptap/pm/tables'
 import { GdownLink } from '../../extensions/GdownLink'
 import { GdownImage } from '../../extensions/GdownImage'
 import { GdownTable, TableRow, TableCell, TableHeader } from '../../extensions/GdownTable'
@@ -175,7 +177,35 @@ interface DialogShape {
   name: string
   html: string
   select: Select
+  /** What the link covers when it is not simply the selected content (main's result). */
+  linked?: string
+  /** False when the caret ends outside any link, so a typed character stays plain. */
+  typedJoinsLink?: boolean
 }
+
+/** Position of the table cell containing `label`. */
+function cellPos(editor: Editor, label: string): number {
+  const $pos = editor.state.doc.resolve(find(editor, label))
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    if (['tableCell', 'tableHeader'].includes($pos.node(depth).type.name)) return $pos.before(depth)
+  }
+  throw new Error(`"${label}" is not in a table cell`)
+}
+
+const selectCells =
+  (make: (editor: Editor) => CellSelection): Select =>
+  (editor) => {
+    editor.view.dispatch(editor.state.tr.setSelection(make(editor)))
+  }
+
+const grid =
+  '<table>' +
+  ['1', '2', '3']
+    .map(
+      (row) => `<tr>${['A', 'B', 'C'].map((col) => `<td><p>${col}${row}</p></td>`).join('')}</tr>`,
+    )
+    .join('') +
+  '</table>'
 
 const word =
   (w: string, toWord = w): Select =>
@@ -254,6 +284,41 @@ const dialogShapes: DialogShape[] = [
     html: '<p>Line one<br>Line two</p>',
     select: word('one', 'two'),
   },
+  // Selection classes other than TextSelection. On main the dialog linked every
+  // range of the live selection (setLink acts on selection.ranges).
+  {
+    name: 'CellSelection 1x2',
+    html: grid,
+    select: selectCells((e) =>
+      CellSelection.create(e.state.doc, cellPos(e, 'A1'), cellPos(e, 'B1')),
+    ),
+  },
+  {
+    name: 'CellSelection 2x2',
+    html: grid,
+    select: selectCells((e) =>
+      CellSelection.create(e.state.doc, cellPos(e, 'A1'), cellPos(e, 'B2')),
+    ),
+  },
+  {
+    name: 'CellSelection whole row',
+    html: grid,
+    select: selectCells((e) => CellSelection.rowSelection(e.state.doc.resolve(cellPos(e, 'A2')))),
+  },
+  {
+    name: 'CellSelection whole column',
+    html: grid,
+    select: selectCells((e) => CellSelection.colSelection(e.state.doc.resolve(cellPos(e, 'B1')))),
+  },
+  {
+    // A horizontal rule has no inline content: main linked nothing.
+    name: 'NodeSelection on a horizontal rule',
+    html: '<p>Before</p><hr><p>After</p>',
+    select: (editor) =>
+      editor.commands.setNodeSelection(find(editor, 'Before') + 'Before'.length + 1),
+    linked: '',
+    typedJoinsLink: false,
+  },
 ]
 
 type DialogAction = 'url' | 'text' | 'title'
@@ -281,9 +346,20 @@ describe('InsertLinkDialog selection matrix', () => {
         const { from, to, empty } = editor.state.selection
         const before = { structure: structure(editor), prefix: text(editor, 0, from) }
         const suffix = text(editor, to)
-        const selected = editor.state.doc.textBetween(from, to, '', leaf)
+        // Every range counts (a CellSelection has one per cell); the caret then
+        // collapses to the nearest text position at the end of the last range.
+        const ranges = [...editor.state.selection.ranges].sort((x, y) => x.$from.pos - y.$from.pos)
+        const selected =
+          shape.linked ??
+          ranges.map((r) => editor.state.doc.textBetween(r.$from.pos, r.$to.pos, '', leaf)).join('')
+        const end = Math.max(...ranges.map((r) => r.$to.pos))
         const fullBefore = text(editor)
-        const upToEnd = text(editor, 0, to)
+        const upToEnd = text(
+          editor,
+          0,
+          Selection.findFrom(editor.state.doc.resolve(end), -1, true)!.from,
+        )
+        const typedLinked = shape.typedJoinsLink === false ? selected : selected + 'X'
 
         editor.commands.keyboardShortcut('Mod-k')
         await nextTick()
@@ -319,8 +395,8 @@ describe('InsertLinkDialog selection matrix', () => {
         } else {
           expect(text(editor)).toBe(fullBefore)
           expect(linkedContent(editor, NEW)).toBe(selected)
-          if (action === 'title') expect(linkTitle(editor, NEW)).toBe('Tip')
-          await expectCaretThenType(editor, upToEnd, NEW, selected + 'X')
+          if (action === 'title' && selected) expect(linkTitle(editor, NEW)).toBe('Tip')
+          await expectCaretThenType(editor, upToEnd, NEW, typedLinked)
         }
       })
     }
@@ -372,7 +448,21 @@ describe('InsertLinkDialog selection matrix', () => {
 // ── Tooltip ──────────────────────────────────────────────────────────
 
 const a = (inner: string) => `<a href="${OLD}">${inner}</a>`
-const tooltipShapes: Array<{ name: string; html: string; plain: boolean }> = [
+const tooltipShapes: Array<{
+  name: string
+  html: string
+  plain: boolean
+  /** The editor caret is in another paragraph while the link is hovered. */
+  caretElsewhere?: boolean
+}> = [
+  {
+    // Hovering does not move the editor selection; Edit/Unlink must act on the
+    // hovered link. Main acted on the editor selection instead (pre-existing bug).
+    name: 'hovered link while the caret is elsewhere',
+    html: `<p>Other line</p><p>Go ${a('docs')} now</p>`,
+    plain: true,
+    caretElsewhere: true,
+  },
   { name: 'link at heading start', html: `<h2>${a('Alpha')} beta</h2>`, plain: true },
   {
     name: 'link mid list item',
@@ -455,7 +545,9 @@ describe('LinkTooltip link matrix', () => {
           upToEnd: text(editor, 0, to),
         }
 
-        editor.commands.setTextSelection(from + 1)
+        editor.commands.setTextSelection(
+          shape.caretElsewhere ? find(editor, 'Other') + 2 : from + 1,
+        )
         editor.view.dom
           .querySelector('a')!
           .dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
