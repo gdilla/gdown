@@ -87,7 +87,7 @@ pub(crate) fn resolve_write_target(path: &Path) -> Result<PathBuf, String> {
 /// permission bits are kept (best effort). Returns the conflict baseline mtime
 /// (see `baseline_mtime`).
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<u64, String> {
-    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let target = resolve_write_target(path)?;
     let dir = match target.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
@@ -624,6 +624,54 @@ mod tests {
         let written: u64 = write_file(file.clone(), "x".into()).unwrap();
 
         assert_eq!(written, get_file_modified_time(file).unwrap());
+    }
+
+    #[test]
+    fn test_write_file_through_dangling_chained_and_looping_links() {
+        use std::os::unix::fs::symlink;
+        let dir = tempdir().unwrap();
+        let d = dir.path();
+
+        // Dangling: the link survives and its named target is created.
+        symlink("drafts/new.md", d.join("dangling.md")).unwrap();
+        fs::create_dir(d.join("drafts")).unwrap();
+        write_file(s(&d.join("dangling.md")), "first".into()).unwrap();
+        assert!(fs::symlink_metadata(d.join("dangling.md"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            fs::read_to_string(d.join("drafts/new.md")).unwrap(),
+            "first"
+        );
+
+        // Relative chain: both links survive, the final target is written.
+        fs::write(d.join("real.md"), "old").unwrap();
+        symlink("real.md", d.join("rel.md")).unwrap();
+        symlink("rel.md", d.join("chain.md")).unwrap();
+        write_file(s(&d.join("chain.md")), "second".into()).unwrap();
+        assert!(fs::symlink_metadata(d.join("chain.md"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(fs::symlink_metadata(d.join("rel.md"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read_to_string(d.join("real.md")).unwrap(), "second");
+
+        // Loop: a clean error; neither link is replaced.
+        symlink("loop-b.md", d.join("loop-a.md")).unwrap();
+        symlink("loop-a.md", d.join("loop-b.md")).unwrap();
+        assert!(write_file(s(&d.join("loop-a.md")), "x".into()).is_err());
+        assert!(fs::symlink_metadata(d.join("loop-a.md"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(fs::symlink_metadata(d.join("loop-b.md"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
     }
 
     #[test]
