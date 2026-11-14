@@ -341,19 +341,6 @@ export const useTabsStore = defineStore('tabs', () => {
         }
       }
 
-      // Writes run off the main thread, so a tab resolved earlier can be edited
-      // while a later tab saves. Let every save settle first (an in-flight write
-      // still leaves its tab dirty), then refuse to quit if any tab the user did
-      // not choose to discard is dirty again.
-      flushLiveEditorState()
-      await autoSaveStore.waitForAllSaves()
-      const changed = tabs.value.filter((tab) => tab.isModified && !deferredDiscards.has(tab.id))
-      if (changed.length > 0) {
-        for (const tab of changed) resumeAutoSave(tab.id, autoSaveStore)
-        restoreDeferredTimers()
-        return false
-      }
-
       for (const tabId of deferredDiscards) {
         discardTab(tabId, true, autoSaveStore)
       }
