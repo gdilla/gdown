@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useTabsStore } from './tabs'
+import MarkdownIt from 'markdown-it'
 import { markdownToHtml } from '../utils/markdownConverter'
 import { copyAsRichText, copyAsPlainText, unescapeMarkdown } from '../utils/clipboardUtils'
 import { flushLiveEditorState } from '../utils/flushEditorState'
@@ -124,7 +125,7 @@ export const useOutlineStore = defineStore('outline', () => {
   function updateFromMarkdown(markdown: string) {
     const { body } = parseFrontMatter(markdown)
     const bodyOffset = markdown.length - body.length
-    headings.value = scanAtxHeadings(body).map(({ offset, level, text }) => ({
+    headings.value = scanHeadings(body).headings.map(({ offset, level, text }) => ({
       id: `heading-${bodyOffset + offset}`,
       level,
       text,
@@ -165,8 +166,7 @@ export const useOutlineStore = defineStore('outline', () => {
       return null
     }
 
-    const lines = markdown.split('\n')
-    const headingLines = scanAtxHeadings(markdown)
+    const { lines, headings: headingLines } = scanHeadings(markdown)
 
     if (headingIndex >= headingLines.length) {
       return null
@@ -189,7 +189,11 @@ export const useOutlineStore = defineStore('outline', () => {
       endLine--
     }
 
-    const sectionMd = lines.slice(startLine, endLine).join('\n')
+    // Lines keep their own terminators; drop only the section's last one.
+    const sectionMd = lines
+      .slice(startLine, endLine)
+      .join('')
+      .replace(/(?:\r\n|\r|\n)$/, '')
     const cleanMd = unescapeMarkdown(sectionMd)
     const sectionHtml = markdownToHtml(cleanMd)
     return { markdown: cleanMd, html: sectionHtml }
@@ -266,56 +270,54 @@ function extractTextFromNode(node: any): string {
   return ''
 }
 
-// Prefix-only patterns (no `$`), so a match never backtracks across the line.
-const ATX_OPEN = /^#{1,6}[ \t]/
-const FENCE = /^ {0,3}(`{3,}|~{3,})/
+// Block structure depends only on `html` (HTML blocks), so this matches the
+// WYSIWYG renderer's markdown-it config in utils/markdownConverter.ts.
+const blockParser = new MarkdownIt({ html: true })
 
-/** Heading text without its optional closing `#` sequence. Linear in the line length. */
-function atxHeadingText(content: string): string {
-  const text = content.trim()
-  let end = text.length
-  while (end > 0 && text[end - 1] === '#') end--
-  if (end === 0) return '' // only hashes: an empty heading
-  if (end < text.length && (text[end - 1] === ' ' || text[end - 1] === '\t')) {
-    return text.slice(0, end).trimEnd()
-  }
-  return text
+/** Block-level tokens only (no inline parsing). Token `map` values are 0-based lines. */
+function parseMarkdownBlocks(markdown: string): ReturnType<MarkdownIt['parse']> {
+  const tokens: ReturnType<MarkdownIt['parse']> = []
+  blockParser.block.parse(markdown.replace(/\r\n?/g, '\n'), blockParser, {}, tokens)
+  return tokens
+}
+
+/** Lines with their terminators (\n, \r\n or a lone \r — counted as markdown-it does). */
+function splitLines(markdown: string): string[] {
+  return markdown.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g) ?? []
 }
 
 /**
- * Find non-empty ATX headings in markdown, skipping fenced code blocks.
- * `line` is the 0-based line index; `offset` the character offset of the line.
- * CRLF-safe: a trailing `\r` is ignored for matching but counted in offsets.
+ * Find non-empty ATX and setext headings with markdown-it, so fenced code (also
+ * inside lists and blockquotes), indented code and HTML blocks are skipped
+ * exactly as the WYSIWYG renderer skips them. `line` is the 0-based line index
+ * into `lines`; `offset` the character offset of that line in `markdown`.
  */
-function scanAtxHeadings(
-  markdown: string,
-): { line: number; offset: number; level: number; text: string }[] {
-  const found: { line: number; offset: number; level: number; text: string }[] = []
-  const lines = markdown.split('\n')
-  let fence: string | null = null
+function scanHeadings(markdown: string): {
+  lines: string[]
+  headings: { line: number; offset: number; level: number; text: string }[]
+} {
+  const lines = splitLines(markdown)
+  const offsets: number[] = []
   let offset = 0
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i]!
-    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
-    const fenceMatch = FENCE.exec(line)
-    const marker = fenceMatch?.[1]
-    const info = fenceMatch ? line.slice(fenceMatch[0].length) : ''
-    if (fence) {
-      // A closing fence uses the same character, is at least as long, and has no info string.
-      if (marker && marker[0] === fence[0] && marker.length >= fence.length && !info.trim()) {
-        fence = null
-      }
-    } else if (marker && !(marker[0] === '`' && info.includes('`'))) {
-      fence = marker
-    } else {
-      const open = ATX_OPEN.exec(line)
-      if (open) {
-        const level = open[0].length - 1
-        const text = atxHeadingText(line.slice(open[0].length))
-        if (text) found.push({ line: i, offset, level, text })
-      }
-    }
-    offset += rawLine.length + 1 // +1 for newline
+  for (const line of lines) {
+    offsets.push(offset)
+    offset += line.length
   }
-  return found
+
+  const headings: { line: number; offset: number; level: number; text: string }[] = []
+  const tokens = parseMarkdownBlocks(markdown)
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!
+    if (token.type !== 'heading_open' || !token.map) continue
+    const text = tokens[i + 1]?.content.trim() ?? ''
+    const line = token.map[0]
+    if (text)
+      headings.push({
+        line,
+        offset: offsets[line] ?? offset,
+        level: Number(token.tag.slice(1)),
+        text,
+      })
+  }
+  return { lines, headings }
 }

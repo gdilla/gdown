@@ -190,6 +190,29 @@ Some paragraph.
       expect(store.headings[1]!.pos).toBe(doc.indexOf('## B'))
     })
 
+    it('handles fences opened on a list marker or inside a blockquote', () => {
+      const store = useOutlineStore()
+      const doc = '# A\n\n- ```js\n  # in list\n  ```\n\n> ```\n> # in quote\n> ```\n\n# B'
+
+      store.updateFromMarkdown(doc)
+
+      expect(store.headings.map((h) => h.text)).toEqual(['A', 'B'])
+      expect(store.headings[1]!.pos).toBe(doc.indexOf('# B'))
+    })
+
+    it('ignores indented code and includes setext headings', () => {
+      const store = useOutlineStore()
+      const doc = 'Title\n=====\n\n    # indented code\n\nSub\n---\n'
+
+      store.updateFromMarkdown(doc)
+
+      expect(store.headings.map((h) => [h.level, h.text])).toEqual([
+        [1, 'Title'],
+        [2, 'Sub'],
+      ])
+      expect(store.headings[1]!.pos).toBe(doc.indexOf('Sub'))
+    })
+
     it('keeps a # that is not a closing sequence', () => {
       const store = useOutlineStore()
 
@@ -362,6 +385,14 @@ Some paragraph.
 
       expect(store.getSectionContent(-1)).toBeNull()
       expect(store.getSectionContent(99)).toBeNull()
+    })
+
+    it('copies the right section around a list-contained fence', () => {
+      const md = '# A\n\n- ```js\n  x\n  ```\n\n# B\n\nb text'
+      const store = setupWithMarkdown(md)
+
+      expect(store.getSectionContent(0)!.markdown).toBe('# A\n\n- ```js\n  x\n  ```')
+      expect(store.getSectionContent(1)!.markdown).toBe('# B\n\nb text')
     })
 
     it('finds sections in CRLF markdown', () => {
