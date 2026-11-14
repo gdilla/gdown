@@ -25,36 +25,40 @@ export function getDocumentDir(filePath: string | null | undefined): string | nu
 }
 
 /**
- * The asset URL prefix that convertFileSrc produces on macOS.
- * Used to reverse asset URLs back to filesystem paths.
+ * Asset URLs as produced by convertFileSrc: `asset://localhost/<encoded path>`
+ * on macOS/Linux, `http(s)://asset.localhost/<encoded path>` on Windows.
  */
-const ASSET_PREFIX = 'http://asset.localhost/'
+const ASSET_URL_RE = /^(?:asset:\/\/localhost\/|https?:\/\/asset\.localhost\/)(.+)$/
+
+/** Decode an asset URL back to its filesystem path, or null if `src` is not one. */
+function assetUrlToPath(src: string): string | null {
+  const encoded = ASSET_URL_RE.exec(src)?.[1]
+  if (!encoded) return null
+  try {
+    return decodeURIComponent(encoded)
+  } catch {
+    return null
+  }
+}
 
 // Matches <img ... src="..." ...> tags, capturing the full tag for replacement
 const IMG_SRC_RE = /(<img\b[^>]*?\bsrc=")([^"]+)(")/g
 
 /**
- * Check whether a src value is already absolute (http, https, data, blob, asset).
- */
-export function isAbsoluteSrc(src: string): boolean {
-  return (
-    src.startsWith('http://') ||
-    src.startsWith('https://') ||
-    src.startsWith('data:') ||
-    src.startsWith('blob:') ||
-    src.startsWith('asset:') ||
-    src.startsWith('/')
-  )
-}
-
-/**
- * Resolve a single relative image path to a Tauri asset protocol URL.
- * Returns the src unchanged if it's already absolute.
+ * Resolve a local image path (relative to the document, or absolute) to a
+ * Tauri asset protocol URL. URLs with a scheme (http, data, blob, asset…)
+ * are returned unchanged. Markdown paths are URL-encoded (`my%20pic.png`), so
+ * they are decoded before convertFileSrc encodes the filesystem path.
  */
 export function resolveRelativeSrc(src: string, documentDir: string): string {
-  if (!src || !documentDir || isAbsoluteSrc(src)) return src
-  const absolutePath = `${documentDir}/${src}`
-  return convertFileSrc(absolutePath)
+  if (!src || !documentDir || /^[a-z][a-z\d+.-]*:/i.test(src) || src.startsWith('//')) return src
+  let path = src.startsWith('/') ? src : `${documentDir}/${src.replace(/^\.\//, '')}`
+  try {
+    path = decodeURIComponent(path)
+  } catch {
+    // Not valid percent-encoding: use the path as written.
+  }
+  return convertFileSrc(path)
 }
 
 /**
@@ -69,52 +73,45 @@ export function resolveRelativeSrc(src: string, documentDir: string): string {
 export function resolveImagePaths(html: string, documentDir: string): string {
   if (!html || !documentDir) return html
 
-  return html.replace(IMG_SRC_RE, (_match, prefix: string, src: string, suffix: string) => {
-    if (isAbsoluteSrc(src)) return _match
-
-    // Resolve relative path to absolute filesystem path
+  return html.replace(IMG_SRC_RE, (match, prefix: string, src: string, suffix: string) => {
     const assetUrl = resolveRelativeSrc(src, documentDir)
-
-    // Preserve original src for round-trip back to markdown
+    if (assetUrl === src) return match
+    // Preserve the markdown spelling of the path for the round-trip back
     return `${prefix}${assetUrl}${suffix} data-original-src="${src}"`
   })
 }
 
 /**
- * Restore original relative image paths from resolved asset URLs.
- * Handles two cases:
- * 1. Images with data-original-src attribute (from markdown load path)
- * 2. Images with asset:// URLs but no data-original-src (from input rules, drop, paste)
+ * Restore the markdown image paths from resolved asset URLs.
+ * 1. Images whose data-original-src still resolves to their src (markdown
+ *    load path) get that exact original spelling back.
+ * 2. Other asset URLs (input rules, drop, paste) are decoded to a path,
+ *    relative to the document when inside its directory, else absolute.
  *
  * @param html - HTML string (from Tiptap getHTML())
  * @param documentDir - Absolute path to the document's parent directory
- * @returns HTML with relative image paths restored
+ * @returns HTML with markdown image paths restored
  */
 export function unresolveImagePaths(html: string, documentDir: string): string {
-  if (!html || !documentDir) return html
+  if (!html || !documentDir || !html.includes('<img')) return html
 
-  // Strategy 1: Restore from data-original-src attribute
-  let result = html.replace(
-    /<img\b([^>]*?)\bsrc="[^"]*"([^>]*?)\bdata-original-src="([^"]*)"([^>]*?)>/g,
-    (_match, before: string, mid: string, originalSrc: string, after: string) => {
-      const attrs = `${before}src="${originalSrc}"${mid}${after}`.replace(/\s{2,}/g, ' ').trim()
-      return `<img ${attrs}>`
-    },
-  )
-
-  // Strategy 2: Strip asset URL prefix for images without data-original-src
-  // These come from input rules, drag-drop, paste where we resolved the URL
-  // but didn't add data-original-src to the node attributes
-  const assetDocPrefix = `${ASSET_PREFIX}${documentDir}/`
-  if (result.includes(ASSET_PREFIX)) {
-    result = result.replace(IMG_SRC_RE, (_match, prefix: string, src: string, suffix: string) => {
-      if (src.startsWith(assetDocPrefix)) {
-        const relativeSrc = src.substring(assetDocPrefix.length)
-        return `${prefix}${relativeSrc}${suffix}`
-      }
-      return _match
-    })
+  const template = document.createElement('template')
+  template.innerHTML = html
+  for (const img of template.content.querySelectorAll('img')) {
+    const src = img.getAttribute('src') ?? ''
+    const originalSrc = img.getAttribute('data-original-src')
+    img.removeAttribute('data-original-src')
+    if (originalSrc !== null && resolveRelativeSrc(originalSrc, documentDir) === src) {
+      img.setAttribute('src', originalSrc)
+      continue
+    }
+    const path = assetUrlToPath(src)
+    if (!path) continue
+    const docPrefix = `${documentDir}/`
+    img.setAttribute(
+      'src',
+      encodeURI(path.startsWith(docPrefix) ? path.slice(docPrefix.length) : path),
+    )
   }
-
-  return result
+  return template.innerHTML
 }
