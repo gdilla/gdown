@@ -68,6 +68,45 @@ describe('SearchHighlight — inline atom boundaries', () => {
   })
 })
 
+describe('SearchHighlight — regex matching per text run', () => {
+  it('keeps optional whitespace matches beside an inline math node', () => {
+    const ed = makeEditor(para(text('foo '), math('x'), text(' bar')))
+    search(ed, 'foo\\s*', false, true)
+    expect(matchedTexts(ed)).toEqual(['foo '])
+    search(ed, '\\s*bar', false, true)
+    expect(matchedTexts(ed)).toEqual([' bar'])
+  })
+
+  it('finds trailing whitespace at the end of a paragraph', () => {
+    const ed = makeEditor(para(text('a  ')), para(text('b')))
+    search(ed, '\\s+', false, true)
+    expect(matchedTexts(ed)).toEqual(['  '])
+  })
+
+  it('does not lose matches of negated classes next to a boundary', () => {
+    const ed = makeEditor(para(text('xa')), para(text('yz')))
+    search(ed, '[^a]+', false, true)
+    expect(matchedTexts(ed)).toEqual(['x', 'yz'])
+  })
+
+  it('anchors ^ and $ at each line: paragraph edges, inline nodes and code-block lines', () => {
+    const ed = makeEditor(
+      para(text('ab')),
+      para(text('bc')),
+      para(text('foo'), math('x'), text('bar')),
+      { type: 'codeBlock', content: [text('one\ntwo')] },
+    )
+    search(ed, '^b', false, true) // 'bc' and 'bar' (a run starts after the math node)
+    expect(getSearchState(ed.state)!.results.map((r) => r.from)).toEqual([5, 13])
+    search(ed, 'b$', false, true) // only 'ab'
+    expect(getSearchState(ed.state)!.results.map((r) => r.from)).toEqual([2])
+    search(ed, '^bar$', false, true)
+    expect(matchedTexts(ed)).toEqual(['bar'])
+    search(ed, '^two$', false, true)
+    expect(matchedTexts(ed)).toEqual(['two'])
+  })
+})
+
 describe('SearchHighlight — regex replacement', () => {
   it('expands capture groups in Replace All', () => {
     const ed = makeEditor(para(text('foo bar foo')))
@@ -91,11 +130,18 @@ describe('SearchHighlight — regex replacement', () => {
     expect(ed.getText()).toBe('<foo>bar foobaz')
   })
 
-  it("expands $` and $' and leaves unknown group references literal", () => {
+  it("keeps $` and $' literal and leaves unknown group references literal", () => {
     const ed = makeEditor(para(text('ab')))
     search(ed, '(b)', false, true)
     ed.commands.replaceAll("[$`|$'|$2|$10|$0]")
-    expect(ed.getText()).toBe('a[a||$2|b0|$0]')
+    expect(ed.getText()).toBe("a[$`|$'|$2|b0|$0]")
+  })
+
+  it("never copies surrounding document text into a replacement ($')", () => {
+    const ed = makeEditor(para(text('cost USD 5')), para(text('more USD text')))
+    search(ed, 'USD', false, true)
+    ed.commands.replaceAll("'$'")
+    expect(ed.getText()).toBe("cost '$' 5\n\nmore '$' text")
   })
 
   it('Replace All in regex mode costs about the same as plain mode', () => {

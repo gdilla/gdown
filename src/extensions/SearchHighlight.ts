@@ -68,47 +68,39 @@ const EMPTY_STATE: SearchPluginState = {
   decorations: DecorationSet.empty,
 }
 
-/** A stretch of the index text that is contiguous in the document. */
+/** Text that is contiguous in the document, and where it starts. */
 interface TextRun {
-  start: number // offset in the index text
-  end: number // exclusive offset in the index text
-  pos: number // document position of `start`
+  text: string
+  pos: number // document position of the first character
 }
 
 /**
- * Build the search index: the text of every text node, grouped into runs of
- * document-contiguous text. Any gap — a block boundary or a non-text inline
- * node such as inline math, an image or a hard break — starts a new run and
- * puts a '\n' in the index, so a match can never span it.
+ * Group the document's text nodes into runs of document-contiguous text. Any
+ * gap — a block boundary or a non-text inline node such as inline math, an
+ * image or a hard break — starts a new run. Searching run by run means a match
+ * can never span a gap, and no valid match next to one is lost.
  */
-function getDocumentText(state: EditorState): { text: string; runs: TextRun[] } {
-  const parts: string[] = []
+function getTextRuns(state: EditorState): TextRun[] {
   const runs: TextRun[] = []
-  let length = 0
   let docEnd = -1
 
   state.doc.descendants((node, pos) => {
     if (!node.isText || !node.text) return true
     const last = runs[runs.length - 1]
-    if (last && pos === docEnd) {
-      last.end += node.text.length
-    } else {
-      if (last) {
-        parts.push('\n')
-        length += 1
-      }
-      runs.push({ start: length, end: length + node.text.length, pos })
-    }
-    parts.push(node.text)
-    length += node.text.length
+    if (last && pos === docEnd) last.text += node.text
+    else runs.push({ text: node.text, pos })
     docEnd = pos + node.nodeSize
     return true
   })
 
-  return { text: parts.join(''), runs }
+  return runs
 }
 
-/** Build the search regex, or null when the user's pattern is invalid. */
+/**
+ * Build the search regex, or null when the user's pattern is invalid.
+ * Multiline: `^` and `$` match at every line — the edges of each text run
+ * (paragraph edges, either side of an inline node) and code-block lines.
+ */
 function buildSearchRegex(
   searchTerm: string,
   caseSensitive: boolean,
@@ -116,7 +108,7 @@ function buildSearchRegex(
 ): RegExp | null {
   const source = useRegex ? searchTerm : searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   try {
-    return new RegExp(source, caseSensitive ? 'g' : 'gi')
+    return new RegExp(source, caseSensitive ? 'gm' : 'gim')
   } catch {
     return null
   }
@@ -135,31 +127,27 @@ function findMatches(
   const regex = buildSearchRegex(searchTerm, caseSensitive, useRegex)
   if (!regex) return []
 
-  const { text, runs } = getDocumentText(state)
   const results: SearchResult[] = []
-  let r = 0
-
-  // matchAll advances past empty matches itself, so patterns like `x*` or `^` terminate.
-  for (const match of text.matchAll(regex)) {
-    if (!match[0]) continue // an empty match has nothing to highlight or replace
-    const start = match.index
-    const end = start + match[0].length
-    while (r < runs.length && runs[r]!.end <= start) r++
-    const run = runs[r]
-    if (!run || start < run.start || end > run.end) continue // spans a boundary
-    results.push({ from: run.pos + start - run.start, to: run.pos + end - run.start, match })
+  for (const run of getTextRuns(state)) {
+    // matchAll advances past empty matches itself, so patterns like `x*` or `^` terminate.
+    for (const match of run.text.matchAll(regex)) {
+      if (!match[0]) continue // an empty match has nothing to highlight or replace
+      const from = run.pos + match.index
+      results.push({ from, to: from + match[0].length, match })
+    }
   }
-
   return results
 }
 
-// `$$`, `$&`, `` $` ``, `$'`, `$n`/`$nn` and `$<name>` — the same tokens as String.prototype.replace.
-const SUBSTITUTION = /\$(?:([$&`'])|(\d\d?)|<([^>]*)>)/g
+// `$$`, `$&`, `$n`/`$nn` and `$<name>`, as in String.prototype.replace. `` $` `` and
+// `$'` stay literal (as in the source editor's CodeMirror replace): expanding them
+// would copy surrounding document text into every replacement.
+const SUBSTITUTION = /\$(?:([$&])|(\d\d?)|<([^>]*)>)/g
 
 /**
  * Expand a regex replacement template for one match, following the
- * GetSubstitution rules of String.prototype.replace. Work is proportional to
- * the template, not the document, so Replace All stays linear.
+ * GetSubstitution rules of String.prototype.replace for the tokens above.
+ * Work is proportional to the template, not the document.
  */
 function expandReplacement(template: string, m: RegExpExecArray): string {
   const groupCount = m.length - 1
@@ -168,8 +156,6 @@ function expandReplacement(template: string, m: RegExpExecArray): string {
     (token: string, sym?: string, digits?: string, name?: string) => {
       if (sym === '$') return '$'
       if (sym === '&') return m[0]
-      if (sym === '`') return m.input.slice(0, m.index)
-      if (sym === "'") return m.input.slice(m.index + m[0].length)
       if (name !== undefined) return m.groups ? (m.groups[name] ?? '') : token
       // `$nn` names a two-digit group if it exists, else `$n` followed by a literal digit.
       let n = Number(digits)
