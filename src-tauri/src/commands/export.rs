@@ -526,14 +526,11 @@ pub fn run_pandoc_export(
 ) -> Result<ExportResult, String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     // Export through a symlink to its target, so the link survives the rename.
-    let resolved =
-        std::fs::canonicalize(output_path).unwrap_or_else(|_| PathBuf::from(output_path));
+    let resolved = super::fs::resolve_write_target(Path::new(output_path))?;
     let destination = resolved.as_path();
-    // Keep the extension: Pandoc infers PDF output from it.
-    let extension = destination
-        .extension()
-        .map(|e| format!(".{}", e.to_string_lossy()))
-        .unwrap_or_default();
+    // Pandoc infers PDF output from the -o extension, so the temp file takes the
+    // format's extension, never the (possibly symlinked) destination's name.
+    let extension = format!(".{}", config.format.default_extension());
     let prefix = export_temp_prefix(destination);
     // Remove temps an earlier export to this destination abandoned (quit or
     // crash), but only ones that cannot be live: this process's own (export_document
@@ -1212,6 +1209,85 @@ mod tests {
             .file_type()
             .is_symlink());
         assert_eq!(fs::read_to_string(&target).unwrap(), "done");
+    }
+
+    #[test]
+    fn test_export_through_a_dangling_symlink_creates_its_target() {
+        let bin = tempfile::tempdir().unwrap();
+        let pandoc = fake_pandoc(bin.path(), "printf done > \"$out\"");
+        let out_dir = tempfile::tempdir().unwrap();
+        let link = out_dir.path().join("report.html");
+        std::os::unix::fs::symlink("exports/report-final.html", &link).unwrap();
+        fs::create_dir(out_dir.path().join("exports")).unwrap();
+
+        html_export(&pandoc, &link).unwrap();
+
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        let target = out_dir.path().join("exports/report-final.html");
+        assert_eq!(fs::read_to_string(target).unwrap(), "done");
+    }
+
+    #[test]
+    fn test_pdf_export_through_a_symlink_keeps_the_pdf_extension() {
+        // Pandoc infers PDF output from the -o extension; the temp file must
+        // carry the format's extension, not the symlink target's.
+        let bin = tempfile::tempdir().unwrap();
+        let pandoc = fake_pandoc(bin.path(), "printf '%s' \"${out##*.}\" > \"$out\"");
+        let out_dir = tempfile::tempdir().unwrap();
+        let target = out_dir.path().join("target.dat");
+        let link = out_dir.path().join("report.pdf");
+        fs::write(&target, "old").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let config = ExportConfig::default_for(&ExportFormat::Pdf);
+        run_pandoc_export(
+            &pandoc,
+            &config,
+            "# Doc",
+            &link.to_string_lossy(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(fs::read_to_string(&target).unwrap(), "pdf");
+    }
+
+    #[test]
+    fn test_integration_docx_export_through_a_symlink_to_another_extension() {
+        let pandoc_path = match pandoc_or_skip() {
+            Some(p) => p,
+            None => {
+                eprintln!("SKIP: pandoc not found");
+                return;
+            }
+        };
+        let out_dir = tempfile::tempdir().unwrap();
+        let target = out_dir.path().join("target.dat");
+        let link = out_dir.path().join("out.docx");
+        fs::write(&target, "old").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let config = ExportConfig::default_for(&ExportFormat::Word);
+        run_pandoc_export(
+            &pandoc_path,
+            &config,
+            "# Doc",
+            &link.to_string_lossy(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // A .docx is a zip archive.
+        assert!(fs::read(&target).unwrap().starts_with(b"PK"));
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
     }
 
     #[test]
