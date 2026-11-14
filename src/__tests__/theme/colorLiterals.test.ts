@@ -95,11 +95,6 @@ const ALLOWLIST: AllowEntry[] = [
   },
   // Pending migration — each later commit on this branch removes its files.
   ...[
-    '/src/components/StatusBar.vue',
-    '/src/components/FindReplace.vue',
-    '/src/components/LinkTooltip.vue',
-    '/src/components/sidebar/Sidebar.vue',
-    '/src/components/sidebar/OutlinePanel.vue',
     '/src/components/RecentFiles.vue',
     '/src/components/SaveNotification.vue',
     '/src/components/source/SourceEditor.vue',

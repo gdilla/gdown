@@ -397,12 +397,12 @@ const sidebarStyle = computed(() => ({
 }
 
 .sidebar-content::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.15);
+  background-color: rgba(var(--ink-rgb), 0.15);
   border-radius: 3px;
 }
 
 .sidebar-content::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.25);
+  background-color: rgba(var(--ink-rgb), 0.25);
 }
 
 .sidebar-status {

@@ -391,7 +391,7 @@ const saveTooltip = computed(() => {
 
 .copy-confirm {
   font-size: 10px;
-  color: #4caf50;
+  color: var(--success-color);
   flex-shrink: 0;
 }
 
@@ -464,11 +464,11 @@ const saveTooltip = computed(() => {
 
 /* Saved state — subtle green check */
 .save-status--saved {
-  color: #86a386;
+  color: var(--save-ok-text);
 }
 
 .save-status--saved .save-status-icon {
-  color: #5a9a5a;
+  color: var(--save-ok-icon);
 }
 
 /* Unsaved state — amber dot */
@@ -500,11 +500,11 @@ const saveTooltip = computed(() => {
 
 /* Error state — red */
 .save-status--error {
-  color: #d94f4f;
+  color: var(--save-error-text);
 }
 
 .save-status--error .save-status-icon {
-  color: #c33;
+  color: var(--save-error-icon);
 }
 
 /* Word count center section */
@@ -621,7 +621,7 @@ const saveTooltip = computed(() => {
 }
 
 .copy-md-check {
-  color: #4caf50;
+  color: var(--success-color);
 }
 
 .status-bar-divider {
@@ -651,7 +651,7 @@ const saveTooltip = computed(() => {
 }
 
 .mode-toggle-btn.active {
-  background: rgba(74, 158, 255, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
   color: var(--tab-active-indicator, #4a9eff);
 }
 

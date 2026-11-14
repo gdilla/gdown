@@ -6,9 +6,9 @@
         <button
           class="toggle-replace-btn"
           :class="{ expanded: store.showReplace }"
-          @click="store.toggleReplace()"
           title="Toggle Replace"
           tabindex="-1"
+          @click="store.toggleReplace()"
         >
           <span class="chevron">›</span>
         </button>
@@ -28,44 +28,47 @@
             <button
               class="option-btn"
               :class="{ active: store.caseSensitive }"
-              @click="onToggleCaseSensitive"
               title="Match Case (⌥⌘C)"
+              @click="onToggleCaseSensitive"
             >
               Aa
             </button>
             <button
               class="option-btn regex-btn"
               :class="{ active: store.useRegex }"
-              @click="onToggleRegex"
               title="Use Regular Expression (⌥⌘R)"
+              @click="onToggleRegex"
             >
               .*
             </button>
           </div>
         </div>
 
-        <span class="match-count" :class="{ 'no-results': store.searchQuery && store.matchCount === 0 }">
+        <span
+          class="match-count"
+          :class="{ 'no-results': store.searchQuery && store.matchCount === 0 }"
+        >
           {{ store.matchDisplay }}
         </span>
 
         <div class="action-buttons">
           <button
             class="action-btn"
-            @click="onPrev"
             :disabled="store.matchCount === 0"
             title="Previous Match (⇧Enter)"
+            @click="onPrev"
           >
             <span class="btn-icon">‹</span>
           </button>
           <button
             class="action-btn"
-            @click="onNext"
             :disabled="store.matchCount === 0"
             title="Next Match (Enter)"
+            @click="onNext"
           >
             <span class="btn-icon">›</span>
           </button>
-          <button class="action-btn close-btn" @click="onClose" title="Close (Esc)">
+          <button class="action-btn close-btn" title="Close (Esc)" @click="onClose">
             <span class="btn-icon">✕</span>
           </button>
         </div>
@@ -87,17 +90,17 @@
         <div class="action-buttons replace-actions">
           <button
             class="action-btn"
-            @click="onReplace"
             :disabled="store.matchCount === 0"
             title="Replace (⌘⇧1)"
+            @click="onReplace"
           >
             <span class="btn-icon replace-icon">↻</span>
           </button>
           <button
             class="action-btn"
-            @click="onReplaceAll"
             :disabled="store.matchCount === 0"
             title="Replace All (⌘⌥Enter)"
+            @click="onReplaceAll"
           >
             <span class="btn-icon replace-all-icon">↻⁺</span>
           </button>
@@ -138,7 +141,7 @@ watch(
     } else {
       emit('close')
     }
-  }
+  },
 )
 
 // Focus replace input when replace row is shown
@@ -150,7 +153,7 @@ watch(
         replaceInputRef.value?.focus()
       })
     }
-  }
+  },
 )
 
 // Re-emit search when case sensitivity or regex toggles change
@@ -160,7 +163,7 @@ watch(
     if (store.searchQuery) {
       emit('search', store.searchQuery, store.caseSensitive, store.useRegex)
     }
-  }
+  },
 )
 
 function onSearchInput() {
@@ -228,7 +231,9 @@ function handlePanelKeydown(e: KeyboardEvent) {
   border: 1px solid var(--sidebar-border, #e0e0e0);
   border-top: none;
   border-radius: 0 0 8px 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.1),
+    0 1px 4px rgba(0, 0, 0, 0.06);
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
@@ -241,10 +246,14 @@ function handlePanelKeydown(e: KeyboardEvent) {
 
 /* Slide-down animation */
 .find-panel-enter-active {
-  transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+  transition:
+    transform 0.15s ease-out,
+    opacity 0.15s ease-out;
 }
 .find-panel-leave-active {
-  transition: transform 0.1s ease-in, opacity 0.1s ease-in;
+  transition:
+    transform 0.1s ease-in,
+    opacity 0.1s ease-in;
 }
 .find-panel-enter-from {
   transform: translateY(-100%);
@@ -277,7 +286,9 @@ function handlePanelKeydown(e: KeyboardEvent) {
   border-radius: 3px;
   font-size: 14px;
   line-height: 1;
-  transition: background 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s;
   flex-shrink: 0;
 }
 
@@ -320,7 +331,7 @@ function handlePanelKeydown(e: KeyboardEvent) {
 
 .find-input:focus {
   border-color: var(--tab-active-indicator, #4a9eff);
-  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.15);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.15);
 }
 
 .replace-input {
@@ -361,7 +372,7 @@ function handlePanelKeydown(e: KeyboardEvent) {
 
 .option-btn.active {
   background: var(--tab-active-indicator, #4a9eff);
-  color: #ffffff;
+  color: var(--accent-text);
   border-color: var(--tab-active-indicator, #4a9eff);
 }
 
@@ -417,7 +428,7 @@ function handlePanelKeydown(e: KeyboardEvent) {
 }
 
 .action-btn:active:not(:disabled) {
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(var(--ink-rgb), 0.1);
 }
 
 .close-btn .btn-icon {
