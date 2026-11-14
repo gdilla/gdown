@@ -63,7 +63,7 @@
           <button
             class="action-btn"
             :disabled="store.matchCount === 0"
-            title="Next Match (Enter)"
+            title="Next Match (Enter, ⌘G)"
             @click="onNext"
           >
             <span class="btn-icon">›</span>
@@ -201,12 +201,16 @@ function onPrev() {
   if (!flushSearch()) emit('prev')
 }
 
+// Replacing is only allowed while the Replace row is shown, so a shortcut in
+// Find-only mode can't apply an empty or hidden replacement.
 function onReplace() {
+  if (!store.showReplace) return
   flushSearch()
   emit('replace', store.replaceQuery)
 }
 
 function onReplaceAll() {
+  if (!store.showReplace) return
   flushSearch()
   emit('replaceAll', store.replaceQuery)
 }
@@ -248,23 +252,11 @@ function handlePanelKeydown(e: KeyboardEvent) {
     onReplaceAll()
     return
   }
-
-  // Cmd+G / Cmd+Shift+G for next/prev (Typora shortcuts)
-  if (e.metaKey && (e.key === 'g' || e.key === 'G')) {
-    e.preventDefault()
-    e.stopPropagation()
-    if (e.shiftKey) {
-      onPrev()
-    } else {
-      onNext()
-    }
-    return
-  }
 }
 
-// Cmd+G with focus in the editor while the panel is open. Keys pressed inside
-// the panel are handled (and stopped) by handlePanelKeydown. Shift+Cmd+G is
-// left alone here: outside the panel it is the app's "Open by Path" shortcut.
+// Cmd+G: next match while the panel is open, with focus in the panel or the
+// editor. Shift+Cmd+G is deliberately not bound: it is the app-wide native
+// "Open by Path" accelerator. Previous match is Shift+Enter.
 function handleWindowKeydown(e: KeyboardEvent) {
   if (store.visible && e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'g') {
     e.preventDefault()

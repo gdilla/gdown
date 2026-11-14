@@ -99,6 +99,29 @@ describe('FindReplace panel', () => {
     expect(w.emitted('replace')).toBeUndefined()
   })
 
+  it('Replace All shortcut does nothing in Find-only mode', async () => {
+    const { store, wrapper: w } = mountPanel(false)
+    store.replaceQuery = 'stale hidden replacement'
+    await type(w, 'foo')
+    await w
+      .find('input.find-input')
+      .trigger('keydown', { key: 'Enter', metaKey: true, altKey: true })
+    expect(w.emitted('replaceAll')).toBeUndefined()
+    expect(w.emitted('replace')).toBeUndefined()
+  })
+
+  it('leaves Shift+Cmd+G to the app (Open by Path) instead of going to the previous match', async () => {
+    const { wrapper: w } = mountPanel()
+    const reachedWindow = vi.fn((e: KeyboardEvent) => e.defaultPrevented)
+    window.addEventListener('keydown', reachedWindow)
+    await w.find('input.find-input').trigger('keydown', { key: 'G', metaKey: true, shiftKey: true })
+    window.removeEventListener('keydown', reachedWindow)
+
+    expect(w.emitted('prev')).toBeUndefined()
+    expect(w.emitted('next')).toBeUndefined()
+    expect(reachedWindow).toHaveReturnedWith(false)
+  })
+
   it('does not advertise the outline shortcut for Replace', () => {
     const { wrapper: w } = mountPanel(true)
     const titles = w.findAll('button').map((b) => b.attributes('title') ?? '')
