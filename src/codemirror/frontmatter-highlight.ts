@@ -21,7 +21,7 @@ import {
   ViewPlugin,
   type ViewUpdate,
 } from '@codemirror/view'
-import { RangeSetBuilder } from '@codemirror/state'
+import { RangeSetBuilder, type Text } from '@codemirror/state'
 
 // Decoration marks for different YAML token types
 const delimiterDeco = Decoration.mark({ class: 'cm-frontmatter-delimiter' })
@@ -33,40 +33,18 @@ const numberDeco = Decoration.mark({ class: 'cm-frontmatter-number' })
 const boolDeco = Decoration.mark({ class: 'cm-frontmatter-bool' })
 
 /**
- * Find the end of the front-matter block (the closing `---` line).
- * Returns the character position right after the closing delimiter line,
- * or -1 if no valid front-matter is found.
+ * Find the closing `---` line of a front-matter block that opens on line 1.
+ * Reads only the lines it needs, so typing never copies the whole document.
+ * Returns the 1-based closing line number, or 0 if there is no valid block.
  */
-function findFrontMatterRange(doc: string): { start: number; end: number } | null {
-  // Must start at position 0 with `---`
-  if (!doc.startsWith('---')) return null
+function findFrontMatterEndLine(doc: Text): number {
+  // Line 1 must be exactly `---` (optional trailing whitespace), followed by more lines
+  if (doc.lines < 2 || doc.line(1).text.trimEnd() !== '---') return 0
 
-  // Find the end of the first line
-  const firstNewline = doc.indexOf('\n')
-  if (firstNewline === -1) return null
-
-  // Check that the first line is just `---` (with optional trailing whitespace)
-  const firstLine = doc.slice(0, firstNewline).trim()
-  if (firstLine !== '---') return null
-
-  // Find closing `---`
-  let pos = firstNewline + 1
-  while (pos < doc.length) {
-    const lineEnd = doc.indexOf('\n', pos)
-    const line = lineEnd === -1 ? doc.slice(pos) : doc.slice(pos, lineEnd)
-    const trimmed = line.trim()
-
-    if (trimmed === '---') {
-      // Found closing delimiter
-      const closingEnd = lineEnd === -1 ? doc.length : lineEnd + 1
-      return { start: 0, end: closingEnd }
-    }
-
-    if (lineEnd === -1) break
-    pos = lineEnd + 1
+  for (let i = 2; i <= doc.lines; i++) {
+    if (doc.line(i).text.trim() === '---') return i
   }
-
-  return null
+  return 0
 }
 
 /**
@@ -75,16 +53,11 @@ function findFrontMatterRange(doc: string): { start: number; end: number } | nul
 function buildFrontMatterDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>()
   const doc = view.state.doc
-  const text = doc.toString()
-
-  const range = findFrontMatterRange(text)
-  if (!range) return builder.finish()
+  const endLine = findFrontMatterEndLine(doc)
 
   // Iterate over lines within the front-matter range
-  for (let i = 1; i <= doc.lines; i++) {
+  for (let i = 1; i <= endLine; i++) {
     const line = doc.line(i)
-    if (line.from >= range.end) break
-
     const lineText = line.text
     const trimmed = lineText.trim()
 
