@@ -67,12 +67,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, watch, nextTick, defineAsyncComponent } from 'vue'
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import TabBar from './components/tabs/TabBar.vue'
 import Editor from './components/Editor.vue'
-import SourceEditor from './components/source/SourceEditor.vue'
 import ImageViewer from './components/ImageViewer.vue'
 import Sidebar from './components/sidebar/Sidebar.vue'
 import OutlinePanel from './components/sidebar/OutlinePanel.vue'
@@ -84,6 +83,8 @@ import PreferencesWindow from './components/preferences/PreferencesWindow.vue'
 import ExportDialog from './components/ExportDialog.vue'
 import ExportToast from './components/ExportToast.vue'
 import QuickOpenDialog from './components/QuickOpenDialog.vue'
+// CodeMirror is only needed in source mode; keep it out of the startup chunk.
+const SourceEditor = defineAsyncComponent(() => import('./components/source/SourceEditor.vue'))
 import { useTabsStore } from './stores/tabs'
 import { useSidebarStore } from './stores/sidebar'
 import { useRecentFilesStore } from './stores/recentFiles'
