@@ -4,8 +4,8 @@
       <span class="mermaid-label">Mermaid Diagram</span>
       <button
         class="mermaid-toggle-btn"
-        @click="toggleEditing"
         :title="isEditing ? 'Preview diagram' : 'Edit source'"
+        @click="toggleEditing"
       >
         {{ isEditing ? 'Preview' : 'Edit' }}
       </button>
@@ -16,11 +16,11 @@
       <textarea
         ref="sourceTextarea"
         :value="node.textContent"
-        @input="handleInput"
-        @keydown="handleKeydown"
         spellcheck="false"
         placeholder="Enter Mermaid diagram code..."
         rows="6"
+        @input="handleInput"
+        @keydown="handleKeydown"
       ></textarea>
     </div>
 
@@ -30,7 +30,15 @@
         <span class="mermaid-error-icon">&#x26A0;</span>
         <span>{{ renderError }}</span>
       </div>
-      <div v-else-if="svgOutput" v-html="svgOutput" class="mermaid-svg-container"></div>
+      <div
+        v-else-if="svgOutput"
+        class="mermaid-svg-container"
+        @click="handleDiagramLinkClick"
+        @auxclick="handleDiagramLinkClick"
+        @contextmenu="handleDiagramLinkClick"
+        @submit.prevent
+        v-html="svgOutput"
+      ></div>
       <div v-else class="mermaid-placeholder">
         <span>Double-click to add Mermaid diagram code</span>
       </div>
@@ -38,10 +46,17 @@
   </node-view-wrapper>
 </template>
 
+<script lang="ts">
+// Module scope, shared by every diagram: Mermaid looks render targets up by id
+// in the document, so ids must be unique across blocks rendering concurrently.
+let nextRenderId = 0
+</script>
+
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { NodeViewWrapper } from '@tiptap/vue-3'
 import type { NodeViewProps } from '@tiptap/vue-3'
+import { openUrl } from '@tauri-apps/plugin-opener'
 
 const props = defineProps<NodeViewProps>()
 
@@ -50,28 +65,28 @@ const svgOutput = ref('')
 const renderError = ref('')
 const sourceTextarea = ref<HTMLTextAreaElement | null>(null)
 
-// Lazily loaded mermaid instance — imported only on first render
-let mermaidReady: Promise<typeof import('mermaid')['default']> | null = null
+// Lazily loaded mermaid module — imported only on first render
+let mermaidReady: Promise<(typeof import('mermaid'))['default']> | null = null
 
-function getMermaid(): Promise<typeof import('mermaid')['default']> {
+function getMermaid(): Promise<(typeof import('mermaid'))['default']> {
   if (!mermaidReady) {
-    mermaidReady = import('mermaid').then(({ default: m }) => {
-      m.initialize({
-        startOnLoad: false,
-        theme: 'default',
-        securityLevel: 'loose',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
-      })
-      return m
-    })
+    mermaidReady = import('mermaid').then(({ default: m }) => m)
   }
   return mermaidReady
 }
 
-let renderCounter = 0
+/** Mermaid theme matching the applied app theme (`dark`, `solarized-dark` → dark). */
+function mermaidTheme(): 'dark' | 'default' {
+  return document.documentElement.dataset.theme?.endsWith('dark') ? 'dark' : 'default'
+}
+
+/** Id of this block's most recent render; older in-flight renders are discarded. */
+let latestRenderId = ''
 
 async function renderDiagram() {
   const code = props.node.textContent.trim()
+  const id = `mermaid-render-${++nextRenderId}`
+  latestRenderId = id
   if (!code) {
     svgOutput.value = ''
     renderError.value = ''
@@ -79,18 +94,60 @@ async function renderDiagram() {
   }
 
   try {
-    renderCounter++
-    const id = `mermaid-${Date.now()}-${renderCounter}`
     const mermaid = await getMermaid()
+    // Re-initialised per render so the diagram follows the current app theme.
+    // initialize() is global, but every block reads the same data-theme and
+    // a render superseded by a later one is dropped below, so mixed themes
+    // cannot stick. 'strict' DOMPurifies labels and the final SVG, disables
+    // click callbacks and sanitises link URLs; documents cannot override it
+    // via %%{init}%% (secure key).
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: mermaidTheme(),
+      securityLevel: 'strict',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+    })
     const { svg } = await mermaid.render(id, code)
-    svgOutput.value = svg
+    if (id !== latestRenderId) return
+    svgOutput.value = stripInteractiveElements(svg)
     renderError.value = ''
   } catch (err: any) {
+    // On a syntax error Mermaid leaves its temporary container in <body>.
+    document.getElementById(`d${id}`)?.remove()
+    if (id !== latestRenderId) return
     renderError.value = err?.message || 'Failed to render diagram'
     svgOutput.value = ''
-    // Clean up any error elements mermaid may have injected
-    const errorEl = document.getElementById(`d${renderCounter}`)
-    if (errorEl) errorEl.remove()
+  }
+}
+
+/**
+ * 'strict' DOMPurifies HTML labels with DOMPurify's default allow-list, which
+ * keeps form controls and image maps. A diagram never needs them, and a form
+ * submit or <area> click would navigate the app webview, so drop them.
+ */
+function stripInteractiveElements(svg: string): string {
+  const template = document.createElement('template')
+  template.innerHTML = svg
+  template.content
+    .querySelectorAll('form, input, button, select, textarea, map, area')
+    .forEach((el) => el.remove())
+  return template.innerHTML
+}
+
+/**
+ * Links from `click A href "…"` must never navigate the app webview (that would
+ * replace Leaf with a remote page), whether by click, middle-click or the
+ * native context menu's "Open Link". Cmd/Ctrl+click opens http(s) links in the
+ * system browser, like editor links; other schemes are ignored.
+ */
+function handleDiagramLinkClick(event: MouseEvent) {
+  const link = (event.target as Element | null)?.closest('a, area')
+  if (!link) return
+  event.preventDefault()
+  const href =
+    link.getAttribute('href') ?? link.getAttributeNS('http://www.w3.org/1999/xlink', 'href')
+  if (href && /^https?:\/\//i.test(href) && (event.metaKey || event.ctrlKey)) {
+    openUrl(href).catch((err) => console.warn('Failed to open diagram link:', err))
   }
 }
 
@@ -108,11 +165,7 @@ function handleInput(event: Event) {
   const nodeEnd = pos + props.node.nodeSize - 1
 
   if (newContent) {
-    tr.replaceWith(
-      nodeStart,
-      nodeEnd,
-      props.editor.state.schema.text(newContent)
-    )
+    tr.replaceWith(nodeStart, nodeEnd, props.editor.state.schema.text(newContent))
   } else {
     tr.delete(nodeStart, nodeEnd)
   }
@@ -172,10 +225,18 @@ function autoResize(textarea: HTMLTextAreaElement) {
   textarea.style.height = textarea.scrollHeight + 'px'
 }
 
+// Re-render when the app theme changes (preferences store sets <html data-theme>)
+const themeObserver = new MutationObserver(() => {
+  if (!isEditing.value) renderDiagram()
+})
+
 // Render on mount
 onMounted(() => {
   renderDiagram()
+  themeObserver.observe(document.documentElement, { attributeFilter: ['data-theme'] })
 })
+
+onBeforeUnmount(() => themeObserver.disconnect())
 
 // Re-render when node content changes externally (e.g., undo/redo)
 watch(
@@ -188,7 +249,7 @@ watch(
     if (isEditing.value && sourceTextarea.value) {
       nextTick(() => autoResize(sourceTextarea.value!))
     }
-  }
+  },
 )
 </script>
 
@@ -198,7 +259,7 @@ watch(
   border: 1px solid #e1e4e8;
   border-radius: 6px;
   overflow: hidden;
-  background: #fff;
+  background: var(--bg-primary);
   transition: border-color 0.2s;
 }
 
@@ -224,7 +285,7 @@ watch(
 .mermaid-label {
   color: #586069;
   font-weight: 500;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
 }
 
 .mermaid-toggle-btn {
@@ -235,8 +296,10 @@ watch(
   font-size: 11px;
   color: #586069;
   cursor: pointer;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  transition: background 0.15s, color 0.15s;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .mermaid-toggle-btn:hover {
@@ -255,7 +318,7 @@ watch(
   border: none;
   outline: none;
   resize: vertical;
-  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.5;
   color: #24292e;
