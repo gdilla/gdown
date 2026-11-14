@@ -89,8 +89,8 @@ function confirm() {
   const text = linkText.value || href
   const chain = props.editor.chain().focus()
 
-  if (savedFrom !== savedTo && text === selectedText) {
-    // Unchanged selection: link it in place, keeping its inline formatting.
+  if (savedFrom !== savedTo && (!selectedText || text === selectedText)) {
+    // Non-text (e.g. image) or unchanged selection: link it in place, never replace it.
     chain.setTextSelection(range).setLink(attrs).run()
   } else {
     chain.insertContentAt(range, { type: 'text', text, marks: [{ type: 'link', attrs }] }).run()

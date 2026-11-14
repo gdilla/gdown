@@ -4,6 +4,7 @@ import { markRaw, nextTick } from 'vue'
 import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { GdownLink } from '../../extensions/GdownLink'
+import { GdownImage } from '../../extensions/GdownImage'
 import InsertLinkDialog from '../../components/InsertLinkDialog.vue'
 
 function field(id: string): HTMLInputElement {
@@ -28,7 +29,7 @@ describe('InsertLinkDialog', () => {
 
   beforeEach(() => {
     editor = new Editor({
-      extensions: [StarterKit.configure({ link: false }), GdownLink],
+      extensions: [StarterKit.configure({ link: false }), GdownLink, GdownImage],
       content: '<p>Hello world</p>',
     })
     // markRaw: Editor.vue passes a shallowRef editor; a deep reactive proxy breaks ProseMirror.
@@ -79,5 +80,17 @@ describe('InsertLinkDialog', () => {
     const link = editor.view.dom.querySelector('a')
     expect(link?.textContent).toBe('https://example.com')
     expect(link?.getAttribute('href')).toBe('https://example.com')
+  })
+
+  it('links a selected image in place instead of replacing it with the URL', async () => {
+    editor.commands.setContent('<p>Hello <img src="cat.png" alt="cat"> world</p>')
+    await openFor(7, 8) // the image node; no text in the selection
+    await type('link-url', 'https://example.com')
+    await insert()
+
+    const link = editor.view.dom.querySelector('a')
+    expect(link?.querySelector('img')?.getAttribute('src')).toBe('cat.png')
+    expect(link?.getAttribute('href')).toBe('https://example.com')
+    expect(editor.getText()).not.toContain('https://example.com')
   })
 })
