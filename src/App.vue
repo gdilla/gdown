@@ -1,75 +1,42 @@
 <template>
   <div class="app">
-    <!-- Inert once the quit handshake has taken its final snapshot. The conflict
-         dialog and quit prompts stay outside: the handshake can still need them.
-         `|| undefined` removes the attribute; inert="false" would still be inert. -->
-    <div class="app-ui" :inert="shutdownLocked || undefined">
-      <TabBar />
-      <div class="main-container" :class="{ 'single-file-mode': !sidebarStore.visible }">
-        <Sidebar />
-        <main class="editor-area">
-          <div v-if="tabsStore.activeTab" class="editor-content">
-            <ImageViewer v-if="tabsStore.activeTab.isImage" />
-            <Editor v-else-if="editorModeStore.mode === 'wysiwyg'" ref="editorRef" />
-            <SourceEditor v-else />
-          </div>
-          <div v-else class="no-tab-placeholder">
-            <div class="empty-state">
-              <h2 class="empty-state-title">gdown</h2>
-              <p class="empty-state-subtitle">Open a file or create a new document</p>
-              <div class="empty-state-actions">
-                <button class="empty-state-button" @click="tabsStore.createTab()">
-                  New Document
-                </button>
-                <button class="empty-state-button" @click="sidebarStore.openFolderDialog()">
-                  Open Folder
-                </button>
-              </div>
-              <RecentFiles v-if="recentFilesStore.hasRecent" class="empty-state-recent" />
-            </div>
-          </div>
-        </main>
-        <!-- Outline panel (right side, like Typora) -->
-        <aside v-if="outlineStore.visible" class="outline-aside">
-          <OutlinePanel @navigate="handleOutlineNavigate" />
-        </aside>
-      </div>
-      <StatusBar />
-      <SaveNotification />
-      <PreferencesWindow />
-      <ExportDialog />
-      <ExportToast />
-      <QuickOpenDialog />
-    </div>
-    <ConflictDialog />
-    <div v-if="finishingWork" class="close-prompt-backdrop finishing-work" role="presentation">
-      <div
-        class="close-prompt"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="finishing-work-title"
-      >
-        <h2 id="finishing-work-title">Finishing background work…</h2>
-        <p>Leaf will quit when the current export or save finishes.</p>
-        <div class="close-prompt-actions">
-          <button
-            ref="finishingWorkCancel"
-            type="button"
-            class="finishing-work-cancel"
-            @click="resolveFinishingWork('cancel')"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="close-prompt-save finishing-work-force"
-            @click="resolveFinishingWork('force')"
-          >
-            Quit Anyway
-          </button>
+    <TabBar />
+    <div class="main-container" :class="{ 'single-file-mode': !sidebarStore.visible }">
+      <Sidebar />
+      <main class="editor-area">
+        <div v-if="tabsStore.activeTab" class="editor-content">
+          <ImageViewer v-if="tabsStore.activeTab.isImage" />
+          <Editor v-else-if="editorModeStore.mode === 'wysiwyg'" ref="editorRef" />
+          <SourceEditor v-else />
         </div>
-      </div>
+        <div v-else class="no-tab-placeholder">
+          <div class="empty-state">
+            <h2 class="empty-state-title">gdown</h2>
+            <p class="empty-state-subtitle">Open a file or create a new document</p>
+            <div class="empty-state-actions">
+              <button class="empty-state-button" @click="tabsStore.createTab()">
+                New Document
+              </button>
+              <button class="empty-state-button" @click="sidebarStore.openFolderDialog()">
+                Open Folder
+              </button>
+            </div>
+            <RecentFiles v-if="recentFilesStore.hasRecent" class="empty-state-recent" />
+          </div>
+        </div>
+      </main>
+      <!-- Outline panel (right side, like Typora) -->
+      <aside v-if="outlineStore.visible" class="outline-aside">
+        <OutlinePanel @navigate="handleOutlineNavigate" />
+      </aside>
     </div>
+    <StatusBar />
+    <ConflictDialog />
+    <SaveNotification />
+    <PreferencesWindow />
+    <ExportDialog />
+    <ExportToast />
+    <QuickOpenDialog />
     <div
       v-if="closePrompt"
       class="close-prompt-backdrop"
@@ -160,44 +127,6 @@ const closePrompt = ref<ClosePrompt | null>(null)
 const closePromptElement = ref<HTMLElement | null>(null)
 let exitInProgress = false
 let exitApproved = false
-/** Set once the final quit snapshot is taken: nothing may be edited after it. */
-const shutdownLocked = ref(false)
-
-type FinishingWorkOutcome = 'drained' | 'cancel' | 'force'
-/** Visible while quit waits on a slow export or write. */
-const finishingWork = ref(false)
-const finishingWorkCancel = ref<HTMLButtonElement | null>(null)
-let finishingWorkResolver: ((outcome: FinishingWorkOutcome) => void) | null = null
-let finishingWorkTimer: ReturnType<typeof setTimeout> | null = null
-
-/**
- * Wait for exports and writes that run off the main thread. Shown only if it
- * takes noticeable time, with Cancel and Quit Anyway for a hung export.
- */
-function waitForBackgroundWork(): Promise<FinishingWorkOutcome> {
-  return new Promise((resolve) => {
-    finishingWorkResolver = resolve
-    finishingWorkTimer = setTimeout(() => {
-      finishingWork.value = true
-      void nextTick(() => finishingWorkCancel.value?.focus())
-    }, 300)
-    invoke('wait_for_background_io').then(
-      () => resolveFinishingWork('drained'),
-      // Tauri is unavailable in browser development mode.
-      () => resolveFinishingWork('drained'),
-    )
-  })
-}
-
-function resolveFinishingWork(outcome: FinishingWorkOutcome): void {
-  const resolve = finishingWorkResolver
-  if (!resolve) return
-  finishingWorkResolver = null
-  if (finishingWorkTimer) clearTimeout(finishingWorkTimer)
-  finishingWorkTimer = null
-  finishingWork.value = false
-  resolve(outcome)
-}
 
 function requestCloseDecision(tab: Tab): Promise<CloseDecision> {
   if (closePrompt.value) return Promise.resolve('cancel')
@@ -251,15 +180,6 @@ async function handleExitRequested(): Promise<void> {
   exitInProgress = true
 
   try {
-    // Exports and writes run off the main thread. Let them finish first, while
-    // editing is still allowed, so the snapshot below is the last word.
-    const background = await waitForBackgroundWork()
-    if (background === 'cancel') {
-      await invoke('cancel_exit')
-      return
-    }
-    shutdownLocked.value = true
-
     // Snapshot live editor state before any discard decision can clear a
     // recovery tab. The tab list remains open for the final session save.
     window.dispatchEvent(new Event('gdown:capture-state'))
@@ -275,7 +195,7 @@ async function handleExitRequested(): Promise<void> {
     // Keep the guard active while Rust tears down the window. This also stops
     // onUnmounted/beforeunload from recapturing discarded recovery text.
     exitApproved = true
-    await invoke('allow_exit', { force: background === 'force' })
+    await invoke('allow_exit')
   } catch (err) {
     console.error('Failed to prepare app exit:', err)
     try {
@@ -284,10 +204,7 @@ async function handleExitRequested(): Promise<void> {
       // Tauri is unavailable in browser development mode.
     }
   } finally {
-    if (!exitApproved) {
-      exitInProgress = false
-      shutdownLocked.value = false
-    }
+    if (!exitApproved) exitInProgress = false
   }
 }
 
@@ -778,13 +695,6 @@ onUnmounted(() => {
   flex-direction: column;
   height: 100vh;
   width: 100vw;
-}
-
-.app-ui {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
 }
 
 .main-container {
