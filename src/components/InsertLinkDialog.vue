@@ -11,6 +11,7 @@
             v-model="linkText"
             type="text"
             placeholder="Link text"
+            :disabled="!textEditable"
           />
         </div>
         <div class="dialog-field">
@@ -61,12 +62,26 @@ const urlInput = ref<HTMLInputElement | null>(null)
 let savedFrom = 0
 let savedTo = 0
 let selectedText = ''
+// False when the selection holds non-text inline content (e.g. an image) or
+// spans blocks: such a selection is only ever linked in place, never replaced.
+const textEditable = ref(true)
+
+function isPlainTextRange(from: number, to: number): boolean {
+  const { doc } = props.editor.state
+  if (!doc.resolve(from).sameParent(doc.resolve(to))) return false
+  let plain = true
+  doc.nodesBetween(from, to, (node) => {
+    if (node.isInline && !node.isText) plain = false
+  })
+  return plain
+}
 
 function handleInsertLink(event: Event) {
   const detail = (event as CustomEvent).detail || {}
   savedFrom = detail.from || 0
   savedTo = detail.to || 0
   selectedText = detail.text || ''
+  textEditable.value = isPlainTextRange(savedFrom, savedTo)
   linkText.value = selectedText
   linkUrl.value = ''
   linkTitle.value = ''
@@ -89,11 +104,19 @@ function confirm() {
   const text = linkText.value || href
   const chain = props.editor.chain().focus()
 
-  if (savedFrom !== savedTo && (!selectedText || text === selectedText)) {
-    // Non-text (e.g. image) or unchanged selection: link it in place, never replace it.
+  if (savedFrom !== savedTo && (!textEditable.value || !selectedText || text === selectedText)) {
+    // Non-text, multi-block or unchanged selection: link it in place, never replace it.
     chain.setTextSelection(range).setLink(attrs).run()
   } else {
-    chain.insertContentAt(range, { type: 'text', text, marks: [{ type: 'link', attrs }] }).run()
+    // Replace only the inline text (insertContentAt can rewrite the parent block,
+    // e.g. turn a heading into a paragraph), then link the new range.
+    chain
+      .command(({ tr, state }) => {
+        tr.insertText(text, savedFrom, savedTo)
+        tr.addMark(savedFrom, savedFrom + text.length, state.schema.marks.link!.create(attrs))
+        return true
+      })
+      .run()
   }
 
   visible.value = false

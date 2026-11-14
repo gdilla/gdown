@@ -93,4 +93,58 @@ describe('InsertLinkDialog', () => {
     expect(link?.getAttribute('href')).toBe('https://example.com')
     expect(editor.getText()).not.toContain('https://example.com')
   })
+
+  /** Range of `word` inside the first textblock of the given node type. */
+  function rangeOf(blockType: string, word: string): { from: number; to: number } {
+    let found: { from: number; to: number } | null = null
+    editor.state.doc.descendants((node, pos, parent) => {
+      if (found || !node.isTextblock) return
+      const owner = parent && parent.type.name !== 'doc' ? parent : node
+      const typeName = owner.type.name === 'listItem' ? 'listItem' : owner.type.name
+      if (typeName !== blockType) return
+      const offset = node.textContent.indexOf(word)
+      if (offset >= 0) found = { from: pos + 1 + offset, to: pos + 1 + offset + word.length }
+    })
+    if (!found) throw new Error(`${word} not found in ${blockType}`)
+    return found
+  }
+
+  const blocks: Array<[string, string]> = [
+    ['heading', '<h2>Hello big world</h2>'],
+    ['listItem', '<ul><li><p>Hello big world</p></li></ul>'],
+    ['blockquote', '<blockquote><p>Hello big world</p></blockquote>'],
+  ]
+  const words = ['Hello', 'big', 'world'] // block start, middle, end
+
+  for (const [blockType, html] of blocks) {
+    for (const word of words) {
+      it(`replaces "${word}" in a ${blockType} without changing the block`, async () => {
+        editor.commands.setContent(html)
+        // StarterKit may append a trailing paragraph; compare against the loaded shape.
+        const before = editor.getJSON().content?.map((node) => node.type)
+        const { from, to } = rangeOf(blockType, word)
+        await openFor(from, to)
+        await type('link-text', 'planet')
+        await type('link-url', 'https://example.com')
+        await insert()
+
+        expect(editor.getJSON().content?.map((node) => node.type)).toEqual(before)
+        expect(editor.getText().trim()).toBe('Hello big world'.replace(word, 'planet'))
+        expect(editor.view.dom.querySelector('a')?.textContent).toBe('planet')
+      })
+    }
+  }
+
+  it('links a mixed text + image selection in place and does not offer to edit its text', async () => {
+    editor.commands.setContent('<p>Hello <img src="cat.png" alt="cat"> world</p>')
+    await openFor(1, 13) // "Hello ", the image, " world"
+    expect(field('link-text').disabled).toBe(true)
+    await type('link-text', 'planet')
+    await type('link-url', 'https://example.com')
+    await insert()
+
+    expect(editor.view.dom.querySelector('img')?.getAttribute('src')).toBe('cat.png')
+    expect(editor.getText()).toBe('Hello  world')
+    expect(editor.view.dom.querySelector('a img')).not.toBeNull()
+  })
 })
