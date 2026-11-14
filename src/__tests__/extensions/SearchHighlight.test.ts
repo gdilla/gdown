@@ -233,3 +233,201 @@ describe('SearchHighlight — edge cases', () => {
     expect(state.currentIndex).toBe(3)
   })
 })
+
+/**
+ * Which match is current after X. Rule: an ordinary edit keeps the match that
+ * contains the current match's (mapped) start, else the next one, else wraps to
+ * the first; Replace moves to the first match after the inserted text (wrapping);
+ * Replace All and a new search (incl. toggling case/regex) start at the first.
+ */
+describe('SearchHighlight — current match tracking', () => {
+  type Case = {
+    name: string
+    doc: string
+    term: string
+    regex?: boolean
+    start: number // current index before the action
+    act: (ed: Editor) => void
+    expected: string | null // text of the current match afterwards (null = none)
+    expectedIndex: number
+  }
+  // In 'one two three' the second word spans positions 5..8.
+  const cases: Case[] = [
+    {
+      name: 'edit before the match',
+      doc: 'one two three',
+      term: '\\w+',
+      regex: true,
+      start: 1,
+      act: (ed) => ed.commands.insertContentAt(1, 'A '),
+      expected: 'two',
+      expectedIndex: 2,
+    },
+    {
+      name: 'insert at the start of the match',
+      doc: 'one two three',
+      term: '\\w+',
+      regex: true,
+      start: 1,
+      act: (ed) => ed.commands.insertContentAt(5, 'X'),
+      expected: 'Xtwo',
+      expectedIndex: 1,
+    },
+    {
+      name: 'insert in the middle of the match',
+      doc: 'one two three',
+      term: '\\w+',
+      regex: true,
+      start: 1,
+      act: (ed) => ed.commands.insertContentAt(6, 'X'),
+      expected: 'tXwo',
+      expectedIndex: 1,
+    },
+    {
+      name: 'insert at the end of the match',
+      doc: 'one two three',
+      term: '\\w+',
+      regex: true,
+      start: 1,
+      act: (ed) => ed.commands.insertContentAt(8, 'X'),
+      expected: 'twoX',
+      expectedIndex: 1,
+    },
+    {
+      name: 'edit after the match',
+      doc: 'one two three',
+      term: '\\w+',
+      regex: true,
+      start: 1,
+      act: (ed) => ed.commands.insertContentAt(14, ' four'),
+      expected: 'two',
+      expectedIndex: 1,
+    },
+    {
+      name: 'delete the whole match → next match',
+      doc: 'one two three',
+      term: '\\w+',
+      regex: true,
+      start: 1,
+      act: (ed) => ed.commands.deleteRange({ from: 5, to: 8 }),
+      expected: 'three',
+      expectedIndex: 1,
+    },
+    {
+      name: 'delete part of the match',
+      doc: 'one two three',
+      term: '\\w+',
+      regex: true,
+      start: 1,
+      act: (ed) => ed.commands.deleteRange({ from: 5, to: 7 }),
+      expected: 'o',
+      expectedIndex: 1,
+    },
+    {
+      name: 'delete the last match → wraps to first',
+      doc: 'one two three',
+      term: '\\w+',
+      regex: true,
+      start: 2,
+      act: (ed) => ed.commands.deleteRange({ from: 8, to: 14 }),
+      expected: 'one',
+      expectedIndex: 0,
+    },
+    {
+      name: 'edit creates a new earlier match',
+      doc: 'foo bar foo',
+      term: 'foo',
+      start: 1,
+      act: (ed) => ed.commands.insertContentAt(5, 'foo '),
+      expected: 'foo',
+      expectedIndex: 2,
+    },
+    {
+      name: 'edit removes all matches',
+      doc: 'foo bar foo',
+      term: 'foo',
+      start: 1,
+      act: (ed) => ed.commands.setContent('<p>nothing</p>'),
+      expected: null,
+      expectedIndex: -1,
+    },
+    {
+      name: 'Replace on a middle match → following match',
+      doc: 'a1 a2 a3',
+      term: 'a\\d',
+      regex: true,
+      start: 1,
+      act: (ed) => ed.commands.replaceCurrent('b'),
+      expected: 'a3',
+      expectedIndex: 1,
+    },
+    {
+      name: 'Replace on the last match wraps to the first',
+      doc: 'foo bar foo',
+      term: 'foo',
+      start: 1,
+      act: (ed) => ed.commands.replaceCurrent('baz'),
+      expected: 'foo',
+      expectedIndex: 0,
+    },
+    {
+      name: 'Replace All → first remaining match',
+      doc: 'foo bar foo',
+      term: 'foo',
+      start: 1,
+      act: (ed) => ed.commands.replaceAll('foofoo'),
+      expected: 'foo',
+      expectedIndex: 0,
+    },
+    {
+      name: 'undo of a Replace keeps following the same text',
+      doc: 'foo bar foo',
+      term: 'foo',
+      start: 0,
+      act: (ed) => {
+        ed.commands.replaceCurrent('baz')
+        ed.commands.undo()
+      },
+      expected: 'foo',
+      expectedIndex: 1,
+    },
+    {
+      name: 'tab switch (content replaced) → first match',
+      doc: 'foo foo foo',
+      term: 'foo',
+      start: 2,
+      act: (ed) => ed.commands.setContent('<p>x foo y foo</p>'),
+      expected: 'foo',
+      expectedIndex: 0,
+    },
+    {
+      name: 'toggling case re-runs the search from the first match',
+      doc: 'Foo foo FOO',
+      term: 'foo',
+      start: 2,
+      act: (ed) => ed.commands.setSearchTerm('foo', true, false),
+      expected: 'foo',
+      expectedIndex: 0,
+    },
+    {
+      name: 'toggling regex re-runs the search from the first match',
+      doc: 'a.c abc',
+      term: 'a.c',
+      start: 0,
+      act: (ed) => ed.commands.setSearchTerm('a.c', false, true),
+      expected: 'a.c',
+      expectedIndex: 0,
+    },
+  ]
+
+  it.each(cases)('$name', ({ doc, term, regex, start, act, expected, expectedIndex }) => {
+    const ed = makeEditor(para(text(doc)))
+    search(ed, term, false, regex ?? false)
+    ed.commands.setSearchIndex(start)
+    act(ed)
+    const state = getSearchState(ed.state)!
+    expect(state.currentIndex).toBe(expectedIndex)
+    const current = state.results[state.currentIndex]
+    expect(current ? ed.state.doc.textBetween(current.from, current.to) : null).toBe(expected)
+  })
+})

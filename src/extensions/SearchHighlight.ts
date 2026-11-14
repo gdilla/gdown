@@ -412,15 +412,18 @@ export const SearchHighlight = Extension.create<SearchHighlightOptions>({
               if (results.length > 0) {
                 const current =
                   meta?.type === 'afterReplaceAll' ? undefined : value.results[value.currentIndex]
-                // After Replace continue past the inserted text (so a replacement
-                // containing the term is not matched again); otherwise stay on
-                // the same match as it moves with the edit.
+                // After Replace: the first match starting past the inserted text
+                // (so a replacement containing the term is not matched again).
+                // Other edits: the match containing the current match's mapped
+                // start (e.g. text typed into it), else the next one.
+                // Either way, wrap to the first match when none follows.
+                const afterReplace = meta?.type === 'afterReplace'
                 const anchor = current
-                  ? tr.mapping.map(meta?.type === 'afterReplace' ? current.to : current.from)
+                  ? tr.mapping.map(afterReplace ? current.to : current.from)
                   : 0
                 currentIndex = Math.max(
                   0,
-                  results.findIndex((r) => r.from >= anchor),
+                  results.findIndex((r) => (afterReplace ? r.from >= anchor : r.to > anchor)),
                 )
               }
               return {
