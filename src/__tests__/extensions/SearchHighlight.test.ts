@@ -91,6 +91,38 @@ describe('SearchHighlight — regex replacement', () => {
     expect(ed.getText()).toBe('<foo>bar foobaz')
   })
 
+  it("expands $` and $' and leaves unknown group references literal", () => {
+    const ed = makeEditor(para(text('ab')))
+    search(ed, '(b)', false, true)
+    ed.commands.replaceAll("[$`|$'|$2|$10|$0]")
+    expect(ed.getText()).toBe('a[a||$2|b0|$0]')
+  })
+
+  it('Replace All in regex mode costs about the same as plain mode', () => {
+    // 2000 matches in ~4 MB of index text. Expansion work proportional to the
+    // document per match (the old sticky-regex copy) made regex mode several
+    // times slower than plain mode here; comparing the two keeps the check
+    // independent of machine speed.
+    const paragraphs = () =>
+      Array.from({ length: 2000 }, () => para(text('x1' + ' lorem'.repeat(333))))
+    function timeReplaceAll(term: string, useRegex: boolean, replacement: string): number {
+      const ed = makeEditor(...paragraphs())
+      search(ed, term, false, useRegex)
+      expect(getSearchState(ed.state)!.results).toHaveLength(2000)
+      const started = performance.now()
+      ed.commands.replaceAll(replacement)
+      const elapsed = performance.now() - started
+      expect(ed.state.doc.firstChild!.textContent.startsWith('y1 lorem')).toBe(true)
+      ed.destroy()
+      editor = undefined
+      return elapsed
+    }
+
+    const plainMs = timeReplaceAll('x1', false, 'y1')
+    const regexMs = timeReplaceAll('x(\\d)', true, 'y$1')
+    expect(regexMs).toBeLessThan(plainMs * 2 + 250)
+  })
+
   it('keeps the replacement literal in plain mode', () => {
     const ed = makeEditor(para(text('(foo)')))
     search(ed, '(foo)')

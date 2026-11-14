@@ -113,11 +113,10 @@ function buildSearchRegex(
   searchTerm: string,
   caseSensitive: boolean,
   useRegex: boolean,
-  flags: 'g' | 'y',
 ): RegExp | null {
   const source = useRegex ? searchTerm : searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   try {
-    return new RegExp(source, caseSensitive ? flags : flags + 'i')
+    return new RegExp(source, caseSensitive ? 'g' : 'gi')
   } catch {
     return null
   }
@@ -133,7 +132,7 @@ function findMatches(
   useRegex: boolean,
 ): SearchResult[] {
   if (!searchTerm) return []
-  const regex = buildSearchRegex(searchTerm, caseSensitive, useRegex, 'g')
+  const regex = buildSearchRegex(searchTerm, caseSensitive, useRegex)
   if (!regex) return []
 
   const { text, runs } = getDocumentText(state)
@@ -154,25 +153,43 @@ function findMatches(
   return results
 }
 
+// `$$`, `$&`, `` $` ``, `$'`, `$n`/`$nn` and `$<name>` — the same tokens as String.prototype.replace.
+const SUBSTITUTION = /\$(?:([$&`'])|(\d\d?)|<([^>]*)>)/g
+
 /**
- * The text that replaces `result`. Plain mode is literal; regex mode expands
- * `$1`, `$&`, `$$`, `$<name>` etc. by letting the engine re-run the pattern at
- * the match offset (sticky flag) on the same index text, so lookarounds and
- * anchors see the same context they did during the search.
+ * Expand a regex replacement template for one match, following the
+ * GetSubstitution rules of String.prototype.replace. Work is proportional to
+ * the template, not the document, so Replace All stays linear.
  */
+function expandReplacement(template: string, m: RegExpExecArray): string {
+  const groupCount = m.length - 1
+  return template.replace(
+    SUBSTITUTION,
+    (token: string, sym?: string, digits?: string, name?: string) => {
+      if (sym === '$') return '$'
+      if (sym === '&') return m[0]
+      if (sym === '`') return m.input.slice(0, m.index)
+      if (sym === "'") return m.input.slice(m.index + m[0].length)
+      if (name !== undefined) return m.groups ? (m.groups[name] ?? '') : token
+      // `$nn` names a two-digit group if it exists, else `$n` followed by a literal digit.
+      let n = Number(digits)
+      let rest = ''
+      if (digits!.length === 2 && (n < 1 || n > groupCount)) {
+        n = Number(digits![0])
+        rest = digits![1]!
+      }
+      return n >= 1 && n <= groupCount ? (m[n] ?? '') + rest : token
+    },
+  )
+}
+
+/** The text that replaces `result`: literal in plain mode, expanded in regex mode. */
 function replacementFor(
   value: SearchPluginState,
   result: SearchResult,
   replacement: string,
 ): string {
-  if (!value.useRegex) return replacement
-  const { match } = result
-  const sticky = buildSearchRegex(value.searchTerm, value.caseSensitive, true, 'y')
-  if (!sticky) return replacement
-  sticky.lastIndex = match.index
-  const out = match.input.replace(sticky, replacement)
-  const tailLength = match.input.length - match.index - match[0].length
-  return out.slice(match.index, out.length - tailLength)
+  return value.useRegex ? expandReplacement(replacement, result.match) : replacement
 }
 
 /**
