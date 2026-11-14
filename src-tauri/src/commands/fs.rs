@@ -566,6 +566,17 @@ mod tests {
     }
 
     #[test]
+    fn test_write_file_accepts_a_maximum_length_file_name() {
+        let dir = tempdir().unwrap();
+        // 255 bytes is the APFS/ext4 name limit; the temp name must not grow it.
+        let file = dir.path().join(format!("{}.md", "a".repeat(252)));
+
+        write_file(s(&file), "long".into()).unwrap();
+
+        assert_eq!(fs::read_to_string(&file).unwrap(), "long");
+    }
+
+    #[test]
     fn test_write_file_failure_leaves_no_temp_file() {
         let dir = tempdir().unwrap();
         // Renaming a file over a non-empty directory fails after the temp file exists.
