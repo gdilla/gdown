@@ -11,7 +11,7 @@
         </div>
         <div v-else class="no-tab-placeholder">
           <div class="empty-state">
-            <h2 class="empty-state-title">gdown</h2>
+            <h2 class="empty-state-title">Leaf</h2>
             <p class="empty-state-subtitle">Open a file or create a new document</p>
             <div class="empty-state-actions">
               <button class="empty-state-button" @click="tabsStore.createTab()">

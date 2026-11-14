@@ -31,7 +31,7 @@
             <div>
               <strong class="pandoc-missing-title">Pandoc is required for export</strong>
               <p class="pandoc-missing-subtitle">
-                gdown uses
+                Leaf uses
                 <a href="#" class="inline-link" @click.prevent="openPandocHomepage">Pandoc</a> to
                 convert Markdown to other formats. It was not found on your system.
               </p>
