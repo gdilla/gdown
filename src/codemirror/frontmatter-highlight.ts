@@ -41,8 +41,12 @@ function findFrontMatterEndLine(doc: Text): number {
   // Line 1 must be exactly `---` (optional trailing whitespace), followed by more lines
   if (doc.lines < 2 || doc.line(1).text.trimEnd() !== '---') return 0
 
-  for (let i = 2; i <= doc.lines; i++) {
-    if (doc.line(i).text.trim() === '---') return i
+  // iterLines walks the text sequentially; doc.line(i) would search the text
+  // tree again for every line, which is slow when the block is never closed.
+  let lineNumber = 2
+  for (const text of doc.iterLines(2)) {
+    if (text.trim() === '---') return lineNumber
+    lineNumber++
   }
   return 0
 }
