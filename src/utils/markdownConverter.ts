@@ -682,19 +682,28 @@ const EMPTY_BLOCK = '\uE00F'
 function prepareForTurndown(html: string): DocumentFragment {
   const template = document.createElement('template')
   template.innerHTML = html
-  for (const math of template.content.querySelectorAll('[data-latex]')) {
-    math.textContent = EMPTY_BLOCK
-  }
-  for (const element of template.content.querySelectorAll(
-    'li, blockquote, li > p, li > div > p, blockquote > p, h1, h2, h3, h4, h5, h6, pre > code',
-  )) {
-    if (!element.textContent && !element.querySelector('img, input, hr, br, [data-latex]')) {
-      const p = element.nodeName === 'LI' || element.nodeName === 'BLOCKQUOTE'
-      if (!p || !element.firstElementChild) element.append(EMPTY_BLOCK)
+  // One walk over the elements (selector queries are slow on long documents).
+  const pending: Element[] = Array.from(template.content.children)
+  for (let element = pending.pop(); element; element = pending.pop()) {
+    if (element.hasAttribute('data-latex')) {
+      element.textContent = EMPTY_BLOCK
+      continue
+    }
+    if (!element.firstChild && MARKED_WHEN_EMPTY.test(element.nodeName)) {
+      const parent = element.parentElement?.nodeName ?? ''
+      // A top-level empty paragraph is a blank line and can stay dropped.
+      if (element.nodeName !== 'P' || /^(LI|DIV|BLOCKQUOTE)$/.test(parent)) {
+        element.append(EMPTY_BLOCK)
+      }
+    }
+    for (let child = element.firstElementChild; child; child = child.nextElementSibling) {
+      pending.push(child)
     }
   }
   return template.content
 }
+
+const MARKED_WHEN_EMPTY = /^(LI|BLOCKQUOTE|P|H[1-6]|CODE)$/
 
 export function htmlToMarkdown(html: string): string {
   if (!html) return ''
