@@ -127,11 +127,16 @@ The WYSIWYG/source switch uses `v-if` in App.vue — **two separate components**
 ```
 
 **Content handoff protocol:**
-1. WYSIWYG→source: `handleToggleMode()` in Editor.vue reads `editor.getHTML()`, converts to markdown,
-   saves to `tabsStore.saveEditorState(tabId, { markdown })` BEFORE calling `setMode('source')`
-2. Source→wysiwyg: `onMounted` in Editor.vue reads `tab.editorState.markdown` and loads into Tiptap
-3. `captureState()` in Editor.vue `onBeforeUnmount` MUST NOT overwrite tab state with empty content
-   (guarded: only saves if `body.trim()` is non-empty)
+1. WYSIWYG→source: `handleToggleMode()` in Editor.vue calls `flushSnapshot()` (→ `captureState()`
+   serializes `editor.getHTML()` into body `markdown` + `frontmatter`), saves `{ doc: null }`, THEN
+   calls `setMode('source')`. `onBeforeUnmount` sees `unmountForModeSwitch` and only cancels the
+   snapshot timer, so the handoff is not overwritten; any other unmount flushes the pending snapshot.
+2. Source→wysiwyg: SourceEditor's Cmd+/ handler runs `captureEditorState()` (body, front-matter,
+   `doc: null`) before `setMode('wysiwyg')`; Editor.vue `onMounted` → `restoreState()` loads the TipTap
+   JSON `doc` when present and there is no front-matter, otherwise front-matter + markdown as HTML.
+3. Undo boundary: every programmatic load (mount, tab switch, external/conflict reload) resets undo
+   history — Editor.vue `resetUndoHistory()`, SourceEditor.vue `restoreContent()` → `view.setState()`.
+   Never load a document with a plain `setContent`/`dispatch({ changes })` alone (Undo would cross tabs).
 
 **Keyboard shortcut rule:** Cmd+/ is handled by:
 - `Editor.vue` window listener → wysiwyg→source (calls `handleToggleMode`)

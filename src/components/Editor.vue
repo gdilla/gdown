@@ -276,7 +276,6 @@ const editor = useEditor({
       tabsStore.markContentChanged(tabId)
       scheduleSnapshot()
     }
-
   },
   onSelectionUpdate: ({ editor: ed }) => {
     if (isRestoringContent || isSwitchingMode) return
@@ -376,6 +375,24 @@ function captureNavigation(tabId: string): void {
 }
 
 /**
+ * Make the just-loaded document the floor of the undo stack, so Undo cannot
+ * cross into the previous tab's content or before an external reload.
+ * prosemirror-history has no reset; re-registering its plugin re-initialises
+ * only the history field (EditorState.reconfigure keeps other plugin state).
+ * A load transaction with addToHistory: false is not enough: older entries are
+ * remapped and can still replay into the new document.
+ */
+function resetUndoHistory(): void {
+  const ed = editor.value
+  if (!ed) return
+  const plugins = ed.state.plugins
+  const withoutHistory = ed.unregisterPlugin('history')
+  const historyPlugin = plugins.find((plugin) => !withoutHistory?.plugins.includes(plugin))
+  // Reinstate the original plugin order with a freshly initialised history field.
+  if (historyPlugin) ed.registerPlugin(historyPlugin, () => [...plugins])
+}
+
+/**
  * Restore editor state from a tab's saved state.
  */
 function restoreState(state: EditorState): void {
@@ -405,6 +422,7 @@ function restoreWysiwygState(state: EditorState): void {
     } else {
       editor.value.commands.setContent('', { emitUpdate: false })
     }
+    resetUndoHistory()
   } finally {
     isRestoringContent = false
   }
@@ -527,6 +545,7 @@ function handleFileReloaded(e: Event) {
   isRestoringContent = true
   try {
     editor.value.commands.setContent(html, { emitUpdate: false })
+    resetUndoHistory()
   } finally {
     isRestoringContent = false
   }
