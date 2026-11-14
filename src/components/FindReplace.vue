@@ -21,8 +21,9 @@
             class="find-input"
             placeholder="Find"
             @input="onSearchInput"
-            @keydown.enter.prevent="onNext"
-            @keydown.shift.enter.prevent="onPrev"
+            @blur="flushSearch"
+            @keydown.enter.exact.prevent="onNext"
+            @keydown.shift.enter.exact.prevent="onPrev"
           />
           <div class="input-options">
             <button
@@ -63,7 +64,7 @@
           <button
             class="action-btn"
             :disabled="store.matchCount === 0"
-            title="Next Match (Enter)"
+            title="Next Match (Enter, ⌘G)"
             @click="onNext"
           >
             <span class="btn-icon">›</span>
@@ -84,14 +85,14 @@
             type="text"
             class="find-input replace-input"
             placeholder="Replace"
-            @keydown.enter.prevent="onReplace"
+            @keydown.enter.exact.prevent="onReplace"
           />
         </div>
         <div class="action-buttons replace-actions">
           <button
             class="action-btn"
             :disabled="store.matchCount === 0"
-            title="Replace (⌘⇧1)"
+            title="Replace (Enter)"
             @click="onReplace"
           >
             <span class="btn-icon replace-icon">↻</span>
@@ -111,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useFindReplaceStore } from '../stores/findReplace'
 
 const store = useFindReplaceStore()
@@ -139,6 +140,7 @@ watch(
         searchInputRef.value?.select()
       })
     } else {
+      cancelPendingSearch()
       emit('close')
     }
   },
@@ -160,29 +162,57 @@ watch(
 watch(
   () => [store.caseSensitive, store.useRegex],
   () => {
-    if (store.searchQuery) {
-      emit('search', store.searchQuery, store.caseSensitive, store.useRegex)
-    }
+    if (store.searchQuery) runSearch()
   },
 )
 
-function onSearchInput() {
+// Search-as-you-type is debounced so each keystroke doesn't re-scan the document.
+const SEARCH_DEBOUNCE_MS = 150
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelPendingSearch() {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = null
+}
+
+function runSearch() {
+  cancelPendingSearch()
   emit('search', store.searchQuery, store.caseSensitive, store.useRegex)
 }
 
+/** Run a pending debounced search now. Returns whether one was pending. */
+function flushSearch(): boolean {
+  if (!searchTimer) return false
+  runSearch()
+  return true
+}
+
+function onSearchInput() {
+  cancelPendingSearch()
+  searchTimer = setTimeout(runSearch, SEARCH_DEBOUNCE_MS)
+}
+
+// Enter with a search still pending runs it (landing on the first match)
+// instead of moving past a stale result.
 function onNext() {
-  emit('next')
+  if (!flushSearch()) emit('next')
 }
 
 function onPrev() {
-  emit('prev')
+  if (!flushSearch()) emit('prev')
 }
 
+// Replacing is only allowed while the Replace row is shown, so a shortcut in
+// Find-only mode can't apply an empty or hidden replacement.
 function onReplace() {
+  if (!store.showReplace) return
+  flushSearch()
   emit('replace', store.replaceQuery)
 }
 
 function onReplaceAll() {
+  if (!store.showReplace) return
+  flushSearch()
   emit('replaceAll', store.replaceQuery)
 }
 
@@ -207,18 +237,39 @@ function handlePanelKeydown(e: KeyboardEvent) {
     return
   }
 
-  // Cmd+G / Cmd+Shift+G for next/prev (Typora shortcuts)
-  if (e.metaKey && (e.key === 'g' || e.key === 'G')) {
+  // ⌥⌘C / ⌥⌘R toggle Match Case / Regex. Match on `code`: Option changes `key` on macOS.
+  if (e.metaKey && e.altKey && (e.code === 'KeyC' || e.code === 'KeyR')) {
     e.preventDefault()
     e.stopPropagation()
-    if (e.shiftKey) {
-      onPrev()
-    } else {
-      onNext()
-    }
+    if (e.code === 'KeyC') onToggleCaseSensitive()
+    else onToggleRegex()
+    return
+  }
+
+  // ⌘⌥Enter: Replace All
+  if (e.metaKey && e.altKey && e.key === 'Enter') {
+    e.preventDefault()
+    e.stopPropagation()
+    onReplaceAll()
     return
   }
 }
+
+// Cmd+G: next match while the panel is open, with focus in the panel or the
+// editor. Shift+Cmd+G is deliberately not bound: it is the app-wide native
+// "Open by Path" accelerator. Previous match is Shift+Enter.
+function handleWindowKeydown(e: KeyboardEvent) {
+  if (store.visible && e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'g') {
+    e.preventDefault()
+    onNext()
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', handleWindowKeydown))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleWindowKeydown)
+  cancelPendingSearch()
+})
 </script>
 
 <style scoped>
