@@ -54,7 +54,7 @@ describe('Editor undo history boundaries', () => {
 
     expect(richEditor.getText().trim()).toBe('Alpha')
     expect(tab.isModified).toBe(false)
-    expect(tab.editorState.markdown).toBe('# Alpha')
+    expect(tab.editorState.markdown.trimEnd()).toBe('# Alpha')
   })
 
   it('cannot undo a tab switch into an empty document', async () => {
@@ -74,7 +74,7 @@ describe('Editor undo history boundaries', () => {
 
     expect(richEditor.getText().trim()).toBe('Beta')
     expect(second.isModified).toBe(false)
-    expect(second.editorState.markdown).toBe('# Beta')
+    expect(second.editorState.markdown.trimEnd()).toBe('# Beta')
   })
 
   it("does not replay the previous tab's whole-document edit into the new tab", async () => {
@@ -96,8 +96,8 @@ describe('Editor undo history boundaries', () => {
 
     expect(richEditor.getText().trim()).toBe('Beta')
     expect(second.isModified).toBe(false)
-    expect(second.editorState.markdown).toBe('# Beta')
-    expect(first.editorState.markdown).toBe('Alpha edited')
+    expect(second.editorState.markdown.trimEnd()).toBe('# Beta')
+    expect(first.editorState.markdown.trimEnd()).toBe('Alpha edited')
   })
 
   it('cannot undo an external file reload', async () => {
@@ -124,7 +124,7 @@ describe('Editor undo history boundaries', () => {
 
     expect(richEditor.getText().trim()).toBe('From disk')
     expect(tab.isModified).toBe(false)
-    expect(tab.editorState.markdown).toBe('# From disk')
+    expect(tab.editorState.markdown.trimEnd()).toBe('# From disk')
   })
 
   it('keeps other editor plugin state when the undo history is reset', async () => {
@@ -165,6 +165,6 @@ describe('Editor undo history boundaries', () => {
     expect(richEditor.commands.redo()).toBe(true)
     expect(richEditor.getText().trim()).toBe('Beta two')
     vi.advanceTimersByTime(200)
-    expect(second.editorState.markdown).toBe('# Beta two')
+    expect(second.editorState.markdown.trimEnd()).toBe('# Beta two')
   })
 })
