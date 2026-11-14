@@ -47,7 +47,7 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import type { Editor } from '@tiptap/core'
-import type { SelectionBookmark } from '@tiptap/pm/state'
+import type { Selection, SelectionBookmark, Transaction } from '@tiptap/pm/state'
 import { applyLink, isReplaceableSelection } from '../utils/linkEditing'
 
 const props = defineProps<{
@@ -92,7 +92,14 @@ function confirm() {
   if (!href) return
 
   if (!savedSelection) return
-  const selection = savedSelection.resolve(props.editor.state.doc)
+  let selection: Selection
+  try {
+    selection = savedSelection.resolve(props.editor.state.doc)
+  } catch {
+    // Saved against a document that has since changed: link nothing.
+    visible.value = false
+    return
+  }
   applyLink(props.editor, selection, linkText.value || href, {
     href,
     title: linkTitle.value || null,
@@ -113,12 +120,21 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
+// The saved selection belongs to one document: close on any change.
+function onTransaction({ transaction }: { transaction: Transaction }) {
+  if (!transaction.docChanged || !visible.value) return
+  visible.value = false
+  savedSelection = null
+}
+
 onMounted(() => {
+  props.editor.on('transaction', onTransaction)
   window.addEventListener('gdown:insert-link', handleInsertLink)
   window.addEventListener('keydown', handleKeydown)
 })
 
 onUnmounted(() => {
+  props.editor.off('transaction', onTransaction)
   window.removeEventListener('gdown:insert-link', handleInsertLink)
   window.removeEventListener('keydown', handleKeydown)
 })

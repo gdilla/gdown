@@ -68,7 +68,7 @@ import type { Editor } from '@tiptap/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { useEditorSettingsStore } from '../stores/editorSettings'
 import { getMarkRange } from '@tiptap/core'
-import { TextSelection } from '@tiptap/pm/state'
+import { TextSelection, type Transaction } from '@tiptap/pm/state'
 import {
   applyLink,
   collapseToSelectionEnd,
@@ -92,9 +92,9 @@ const urlInput = ref<HTMLInputElement | null>(null)
 
 let hideTimer: ReturnType<typeof setTimeout> | null = null
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
-let linkFrom = 0
-let linkTo = 0
-let hoveredLinkPos = 0
+// Start of the hovered link in the CURRENT document; -1 when there is none.
+// Any document change dismisses the popup and clears it (see onTransaction).
+let hoveredLinkPos = -1
 let linkAttrs: Omit<LinkAttrs, 'href'> = {}
 let editorDom: HTMLElement | null = null
 
@@ -159,6 +159,7 @@ async function copyLink() {
 /** Range of the hovered link (not of the editor selection, which may be elsewhere). */
 function hoveredLinkRange(): { from: number; to: number } | undefined {
   const { doc, schema } = props.editor.state
+  if (hoveredLinkPos < 0 || hoveredLinkPos > doc.content.size) return undefined
   return getMarkRange(doc.resolve(hoveredLinkPos), schema.marks.link!) || undefined
 }
 
@@ -179,12 +180,10 @@ function startEdit() {
   const range = hoveredLinkRange()
   if (!range) return
   props.editor.commands.setTextSelection(range)
-  linkFrom = range.from
-  linkTo = range.to
   const { title = null, target = null } = props.editor.getAttributes('link')
   linkAttrs = { title, target }
   editTextEditable.value = isReplaceableSelection(props.editor.state.selection)
-  editText.value = props.editor.state.doc.textBetween(linkFrom, linkTo, ' ')
+  editText.value = props.editor.state.doc.textBetween(range.from, range.to, ' ')
   editUrl.value = href.value
   editing.value = true
   nextTick(() => urlInput.value?.focus())
@@ -193,7 +192,9 @@ function startEdit() {
 function saveEdit() {
   const url = editUrl.value.trim()
   if (!url) return
-  const selection = TextSelection.create(props.editor.state.doc, linkFrom, linkTo)
+  const range = hoveredLinkRange()
+  if (!range) return
+  const selection = TextSelection.create(props.editor.state.doc, range.from, range.to)
   applyLink(props.editor, selection, editText.value.trim(), { ...linkAttrs, href: url })
   href.value = url
   editing.value = false
@@ -227,13 +228,23 @@ function handleMouseout(e: MouseEvent) {
   scheduleHide()
 }
 
+// The cached link position belongs to one document: dismiss on any change.
+function onTransaction({ transaction }: { transaction: Transaction }) {
+  if (!transaction.docChanged) return
+  visible.value = false
+  editing.value = false
+  hoveredLinkPos = -1
+}
+
 onMounted(() => {
+  props.editor.on('transaction', onTransaction)
   editorDom = props.editor.view.dom
   editorDom.addEventListener('mouseover', handleMouseover)
   editorDom.addEventListener('mouseout', handleMouseout)
 })
 
 onUnmounted(() => {
+  props.editor.off('transaction', onTransaction)
   editorDom?.removeEventListener('mouseover', handleMouseover)
   editorDom?.removeEventListener('mouseout', handleMouseout)
   editorDom = null
