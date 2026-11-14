@@ -569,6 +569,8 @@ function relativePath(fromDir: string, target: string): string {
 
 // Handle insert-image event (Cmd+Shift+I): pick a local image with the native dialog.
 async function handleInsertImage() {
+  // The picker is async: another tab can become active before it resolves.
+  const tabId = renderedTabId
   const selected = await open({
     title: 'Insert Image',
     multiple: false,
@@ -580,13 +582,23 @@ async function handleInsertImage() {
       },
     ],
   })
-  if (typeof selected !== 'string' || !editor.value) return
+  if (typeof selected !== 'string' || !editor.value || tabId === null || tabId !== renderedTabId)
+    return
 
   // Markdown path: relative to a saved document, absolute for an untitled one,
-  // URL-encoded like other markdown paths. It is displayed through the asset
-  // protocol and kept as originalSrc so htmlToMd writes it back unchanged.
-  const dir = getDocumentDir(tabsStore.activeTab?.filePath)
-  const markdownPath = encodeURI(dir ? relativePath(dir, selected) : selected)
+  // each segment percent-encoded (incl. : ( ) # ?) so it is a valid markdown
+  // destination. It is displayed through the asset protocol and kept as
+  // originalSrc so htmlToMd writes it back unchanged.
+  const dir = getDocumentDir(tabsStore.tabs.find((tab) => tab.id === tabId)?.filePath)
+  const markdownPath = (dir ? relativePath(dir, selected) : selected)
+    .split('/')
+    .map((segment) =>
+      encodeURIComponent(segment).replace(
+        /[!'()*]/g,
+        (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+      ),
+    )
+    .join('/')
   const alt = (selected.split('/').pop() ?? '').replace(/\.[^/.]+$/, '')
   editor.value
     .chain()

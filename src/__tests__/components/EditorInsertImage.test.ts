@@ -30,8 +30,12 @@ describe('Editor insert image', () => {
     vi.unstubAllGlobals()
   })
 
-  async function mountEditorFor(filePath: string | null): Promise<string> {
-    const tab = useTabsStore().createTab(filePath, 'Intro')
+  async function mountEditorFor(
+    filePath: string | null,
+    { reuseActiveTab = false } = {},
+  ): Promise<string> {
+    const tabsStore = useTabsStore()
+    const tab = reuseActiveTab ? tabsStore.activeTab! : tabsStore.createTab(filePath, 'Intro')
     wrapper = mount(Editor, {
       global: {
         stubs: {
@@ -110,5 +114,71 @@ describe('Editor insert image', () => {
 
     expect(displaySrc).toBeNull()
     expect(markdown).not.toContain('![')
+  })
+
+  /** Reload saved markdown into a fresh editor beside `filePath`; return its image attrs. */
+  async function reload(markdown: string, filePath: string) {
+    wrapper?.unmount()
+    const tabsStore = useTabsStore()
+    tabsStore.createTab(filePath, markdown)
+    await mountEditorFor(null, { reuseActiveTab: true })
+    const editor = (wrapper!.vm as unknown as { getEditor(): TiptapEditor }).getEditor()
+    let attrs: Record<string, unknown> | null = null
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === 'image') attrs = node.attrs
+    })
+    return attrs as { src: string; originalSrc: string; alt: string } | null
+  }
+
+  it.each([
+    ['a:b.png', 'a%3Ab.png'],
+    ['a).png', 'a%29.png'],
+    ['x (1).png', 'x%20%281%29.png'],
+    ['#1?.png', '%231%3F.png'],
+  ])('encodes reserved characters in %s so the saved path reloads', async (name, encoded) => {
+    const tabId = await mountEditorFor('/docs/notes/doc.md')
+    const { displaySrc, markdown } = await insert(tabId, `/docs/notes/sub/${name}`)
+    expect(displaySrc).toBe(asset(`/docs/notes/sub/${name}`))
+    expect(markdown).toContain(`(sub/${encoded})`)
+
+    const image = await reload(markdown!, '/docs/notes/reloaded.md')
+    expect(image?.originalSrc).toBe(`sub/${encoded}`)
+    expect(image?.src).toBe(asset(`/docs/notes/sub/${name}`))
+  })
+
+  // Skipped until this branch is rebased onto the markdownConverter fix that
+  // escapes ] in image alt text (owned by the fix/markdown-roundtrip agent).
+  it.skip('keeps a filename-derived alt text with ] through save and reload', async () => {
+    const tabId = await mountEditorFor('/docs/notes/doc.md')
+    const { markdown } = await insert(tabId, '/docs/notes/scan].png')
+
+    const image = await reload(markdown!, '/docs/notes/reloaded.md')
+    expect(image?.alt).toBe('scan]')
+    expect(image?.src).toBe(asset('/docs/notes/scan].png'))
+  })
+
+  it('discards the picked image if another tab became active while the picker was open', async () => {
+    const tabsStore = useTabsStore()
+    const firstId = await mountEditorFor('/docs/notes/doc.md')
+    let pick: (path: string) => void = () => {}
+    mockedOpen.mockReturnValue(
+      new Promise((resolve) => {
+        pick = (path) => resolve(path)
+      }),
+    )
+    window.dispatchEvent(new CustomEvent('gdown:insert-image'))
+    await flushPromises()
+
+    const second = tabsStore.createTab('/docs/other/next.md', 'Other')
+    await flushPromises()
+    expect(tabsStore.activeTabId).toBe(second.id)
+    pick('/docs/notes/photo.png')
+    await flushPromises()
+    window.dispatchEvent(new Event('gdown:capture-state'))
+
+    const markdownOf = (id: string) => tabsStore.tabs.find((tab) => tab.id === id)?.editorState
+    expect(markdownOf(second.id)?.markdown).not.toContain('![')
+    expect(markdownOf(firstId)?.markdown ?? '').not.toContain('![')
+    expect(JSON.stringify(markdownOf(firstId)?.doc ?? null)).not.toContain('photo')
   })
 })
