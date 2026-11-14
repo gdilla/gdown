@@ -1,5 +1,5 @@
-import OrderedList from "@tiptap/extension-ordered-list";
-import { wrappingInputRule } from "@tiptap/core";
+import OrderedList from '@tiptap/extension-ordered-list'
+import { wrappingInputRule } from '@tiptap/core'
 
 /**
  * GdownOrderedList: Custom TipTap Ordered List extension with Typora-like behavior.
@@ -16,12 +16,12 @@ export const GdownOrderedList = OrderedList.extend({
     return {
       ...this.parent?.(),
       HTMLAttributes: {
-        class: "gdown-ordered-list",
+        class: 'gdown-ordered-list',
       },
-      itemTypeName: "listItem",
+      itemTypeName: 'listItem',
       keepMarks: true,
       keepAttributes: false,
-    };
+    }
   },
 
   addAttributes() {
@@ -30,18 +30,18 @@ export const GdownOrderedList = OrderedList.extend({
       start: {
         default: 1,
         parseHTML: (element) => {
-          return element.hasAttribute("start")
-            ? parseInt(element.getAttribute("start") ?? "1", 10)
-            : 1;
+          return element.hasAttribute('start')
+            ? parseInt(element.getAttribute('start') ?? '1', 10)
+            : 1
         },
         renderHTML: (attributes) => {
           if (attributes.start === 1) {
-            return {};
+            return {}
           }
-          return { start: attributes.start };
+          return { start: attributes.start }
         },
       },
-    };
+    }
   },
 
   addInputRules() {
@@ -51,18 +51,18 @@ export const GdownOrderedList = OrderedList.extend({
         find: /^\s*(\d+)\.\s$/,
         type: this.type,
         getAttributes: (match) => ({
-          start: parseInt(match[1] ?? "1", 10),
+          start: parseInt(match[1] ?? '1', 10),
         }),
       }),
-    ];
+    ]
   },
 
   addKeyboardShortcuts() {
     return {
       // Typora shortcut: Cmd+Shift+O for ordered list
-      "Mod-Shift-o": () => {
-        return this.editor.chain().focus().toggleOrderedList().run();
+      'Mod-Shift-o': () => {
+        return this.editor.chain().focus().toggleOrderedList().run()
       },
-    };
+    }
   },
-});
+})

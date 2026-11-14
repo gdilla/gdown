@@ -4,7 +4,7 @@ import { TableCell } from '@tiptap/extension-table-cell'
 import { TableHeader } from '@tiptap/extension-table-header'
 
 export const GdownTable = Table.configure({
-  resizable: false,  // keep simple
+  resizable: false, // keep simple
   HTMLAttributes: { class: 'gdown-table' },
 })
 

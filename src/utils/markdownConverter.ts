@@ -37,10 +37,7 @@ export function markdownToHtml(markdown: string): string {
   // If front-matter exists, render it as a special div that the FrontMatter node can parse
   if (hasFrontMatter && rawYaml) {
     // Escape HTML entities in the YAML content
-    const escapedYaml = rawYaml
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
+    const escapedYaml = rawYaml.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     // Turndown collapses whitespace in ordinary HTML text nodes. Keep an
     // encoded copy on the transient node so multiline YAML survives a rich
     // mode round-trip byte-for-byte.
@@ -67,10 +64,7 @@ const turndown = new TurndownService({
 // Front-matter div → YAML block with --- delimiters
 turndown.addRule('frontmatter', {
   filter(node: HTMLElement) {
-    return (
-      node.nodeName === 'DIV' &&
-      node.getAttribute('data-type') === 'frontmatter'
-    )
+    return node.nodeName === 'DIV' && node.getAttribute('data-type') === 'frontmatter'
   },
   replacement(_content: string, node: HTMLElement) {
     // Get raw text content (not the turndown-processed content which may mangle YAML)
@@ -101,10 +95,7 @@ turndown.addRule('strikethrough', {
 // Task list items
 turndown.addRule('taskListItem', {
   filter(node: HTMLElement) {
-    return (
-      node.nodeName === 'LI' &&
-      node.parentElement?.getAttribute('data-type') === 'taskList'
-    )
+    return node.nodeName === 'LI' && node.parentElement?.getAttribute('data-type') === 'taskList'
   },
   replacement(content: string, node: HTMLElement) {
     const checked = node.getAttribute('data-checked') === 'true'
@@ -118,10 +109,7 @@ turndown.addRule('taskListItem', {
 // Task list (ul with data-type="taskList")
 turndown.addRule('taskList', {
   filter(node: HTMLElement) {
-    return (
-      node.nodeName === 'UL' &&
-      node.getAttribute('data-type') === 'taskList'
-    )
+    return node.nodeName === 'UL' && node.getAttribute('data-type') === 'taskList'
   },
   replacement(content: string) {
     // Items already formatted by taskListItem rule
@@ -178,7 +166,9 @@ turndown.addRule('tableRow', {
     const parent = node.parentElement
     const isHeaderRow =
       parent?.nodeName === 'THEAD' ||
-      (parent?.nodeName === 'TBODY' && !node.previousElementSibling && !parent.previousElementSibling?.nodeName)
+      (parent?.nodeName === 'TBODY' &&
+        !node.previousElementSibling &&
+        !parent.previousElementSibling?.nodeName)
     if (isHeaderRow && parent?.nodeName === 'THEAD') {
       const cellCount = node.querySelectorAll('th, td').length
       const separator = `|${' --- |'.repeat(cellCount)}\n`
