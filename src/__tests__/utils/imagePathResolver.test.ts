@@ -60,6 +60,19 @@ describe('resolveRelativeSrc', () => {
   it('returns src unchanged when docDir is empty', () => {
     expect(resolveRelativeSrc('assets/photo.png', '')).toBe('assets/photo.png')
   })
+
+  it('decodes only the markdown source, then collapses .. after joining', () => {
+    expect(resolveRelativeSrc('../shared/my%20pic.png', '/docs/a%20b/notes')).toBe(
+      `asset://localhost/${encodeURIComponent('/docs/a%20b/shared/my pic.png')}`,
+    )
+  })
+
+  it('resolves an absolute source without a document dir (untitled)', () => {
+    expect(resolveRelativeSrc('/pics/my%20cat.jpg', null)).toBe(
+      `asset://localhost/${encodeURIComponent('/pics/my cat.jpg')}`,
+    )
+    expect(resolveRelativeSrc('cat.jpg', null)).toBe('cat.jpg')
+  })
 })
 
 describe('resolveImagePaths', () => {

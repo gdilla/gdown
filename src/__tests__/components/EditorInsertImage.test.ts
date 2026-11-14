@@ -135,6 +135,8 @@ describe('Editor insert image', () => {
     ['a).png', 'a%29.png'],
     ['x (1).png', 'x%20%281%29.png'],
     ['#1?.png', '%231%3F.png'],
+    ['my pic.png', 'my%20pic.png'],
+    ['café ü.png', 'caf%C3%A9%20%C3%BC.png'],
   ])('encodes reserved characters in %s so the saved path reloads', async (name, encoded) => {
     const tabId = await mountEditorFor('/docs/notes/doc.md')
     const { displaySrc, markdown } = await insert(tabId, `/docs/notes/sub/${name}`)
@@ -146,15 +148,25 @@ describe('Editor insert image', () => {
     expect(image?.src).toBe(asset(`/docs/notes/sub/${name}`))
   })
 
-  // Skipped until this branch is rebased onto the markdownConverter fix that
-  // escapes ] in image alt text (owned by the fix/markdown-roundtrip agent).
-  it.skip('keeps a filename-derived alt text with ] through save and reload', async () => {
+  it('keeps a filename-derived alt text with ] through save and reload', async () => {
     const tabId = await mountEditorFor('/docs/notes/doc.md')
     const { markdown } = await insert(tabId, '/docs/notes/scan].png')
+    expect(markdown).toContain('![scan\\]](scan%5D.png)')
 
     const image = await reload(markdown!, '/docs/notes/reloaded.md')
     expect(image?.alt).toBe('scan]')
     expect(image?.src).toBe(asset('/docs/notes/scan].png'))
+  })
+
+  it('keeps a literal %20 in the document folder (only the markdown path is decoded)', async () => {
+    const tabId = await mountEditorFor('/docs/a%20b/doc.md')
+    const { displaySrc, markdown } = await insert(tabId, '/docs/a%20b/my pic.png')
+    expect(displaySrc).toBe(asset('/docs/a%20b/my pic.png'))
+    expect(markdown).toContain('![my pic](my%20pic.png)')
+
+    const image = await reload(markdown!, '/docs/a%20b/reloaded.md')
+    expect(image?.originalSrc).toBe('my%20pic.png')
+    expect(image?.src).toBe(asset('/docs/a%20b/my pic.png'))
   })
 
   it('discards the picked image if another tab became active while the picker was open', async () => {
