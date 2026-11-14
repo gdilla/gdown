@@ -174,7 +174,8 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
       const currentModTime = await invoke<number>('get_file_modified_time', { path: filePath })
       if (
         !needsRecoveryConflict &&
-        (knownModTime === undefined || currentModTime <= knownModTime)
+        // Any difference is a change: git checkout and rsync -t can set an older mtime.
+        (knownModTime === undefined || currentModTime === knownModTime)
       ) {
         return 'overwrite'
       }
@@ -241,8 +242,12 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
   }
 
   async function writeFileToDisk(filePath: string, content: string): Promise<void> {
-    await invoke('write_file', { path: filePath, content })
-    await trackFileModifiedTime(filePath)
+    // write_file returns the mtime of the file it wrote. A separate stat could
+    // trust an external write that landed in between as our own baseline.
+    knownModifiedTimes.value[filePath] = await invoke<number>('write_file', {
+      path: filePath,
+      content,
+    })
   }
 
   async function performSave(tabId: string): Promise<boolean> {
@@ -491,7 +496,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         const currentModTime = await invoke<number>('get_file_modified_time', {
           path: filePath,
         })
-        if (currentModTime <= knownModTime) continue
+        if (currentModTime === knownModTime) continue
 
         const diskContent = await invoke<string>('read_file', { path: filePath })
         const currentTab = tabsStore.tabs.find((candidate) => candidate.id === tab.id)

@@ -39,10 +39,8 @@ describe('useAutoSaveStore', () => {
       frontmatterAttributes: { title: 'Note' },
     })
     tabsStore.setModified(tab.id, true)
-    mockedInvoke
-      .mockResolvedValueOnce(100)
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce(101)
+    // get_file_modified_time, then write_file returning the written mtime
+    mockedInvoke.mockResolvedValueOnce(100).mockResolvedValueOnce(101)
 
     await expect(autoSaveStore.saveTab(tab.id)).resolves.toBe(true)
 
@@ -66,10 +64,8 @@ describe('useAutoSaveStore', () => {
       tabsStore.setModified(tab.id, true)
     }
     window.addEventListener('gdown:capture-state', capture)
-    mockedInvoke
-      .mockResolvedValueOnce(100)
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce(101)
+    // get_file_modified_time, then write_file returning the written mtime
+    mockedInvoke.mockResolvedValueOnce(100).mockResolvedValueOnce(101)
 
     try {
       await expect(autoSaveStore.saveTab(tab.id)).resolves.toBe(true)
@@ -90,11 +86,8 @@ describe('useAutoSaveStore', () => {
 
     const tab = tabsStore.createTab('/tmp/note.md', '# Before')
     tabsStore.setModified(tab.id, true)
-    const write = deferred<void>()
-    mockedInvoke
-      .mockResolvedValueOnce(100)
-      .mockReturnValueOnce(write.promise)
-      .mockResolvedValueOnce(101)
+    const write = deferred<number>()
+    mockedInvoke.mockResolvedValueOnce(100).mockReturnValueOnce(write.promise)
 
     const saving = autoSaveStore.saveTab(tab.id)
     await vi.waitFor(() => {
@@ -103,7 +96,7 @@ describe('useAutoSaveStore', () => {
 
     tabsStore.saveEditorState(tab.id, { markdown: '# After' })
     tabsStore.setModified(tab.id, true)
-    write.resolve()
+    write.resolve(101)
 
     await expect(saving).resolves.toBe(false)
     expect(tabsStore.tabs[0]?.editorState.markdown).toBe('# After')
@@ -119,13 +112,14 @@ describe('useAutoSaveStore', () => {
     const secondTab = tabsStore.createTab('/tmp/second.md', '# Second')
     tabsStore.setModified(firstTab.id, true)
     tabsStore.setModified(secondTab.id, true)
-    const firstWrite = deferred<void>()
+    const firstWrite = deferred<number>()
     let writeCount = 0
     mockedInvoke.mockImplementation(async (command) => {
       if (command === 'get_file_modified_time') return 100
       if (command === 'write_file') {
         writeCount += 1
         if (writeCount === 1) return firstWrite.promise
+        return 100
       }
       return undefined
     })
@@ -135,7 +129,7 @@ describe('useAutoSaveStore', () => {
     await vi.waitFor(() => expect(writeCount).toBe(1))
     expect(writeCount).toBe(1)
 
-    firstWrite.resolve()
+    firstWrite.resolve(100)
     await Promise.all([firstSave, secondSave])
     expect(writeCount).toBe(2)
   })
@@ -149,7 +143,7 @@ describe('useAutoSaveStore', () => {
     const secondTab = tabsStore.createTab('/tmp/second.md', '# Second')
     tabsStore.setModified(firstTab.id, true)
     tabsStore.setModified(secondTab.id, true)
-    const firstWrite = deferred<void>()
+    const firstWrite = deferred<number>()
     const writes: Array<{ path: string; content: string }> = []
     let writeCount = 0
     let queuedEditReady = false
@@ -166,6 +160,7 @@ describe('useAutoSaveStore', () => {
         writes.push(args as { path: string; content: string })
         writeCount += 1
         if (writeCount === 1) return firstWrite.promise
+        return 100
       }
       return undefined
     })
@@ -180,7 +175,7 @@ describe('useAutoSaveStore', () => {
       queuedEditReady = true
       tabsStore.markContentChanged(secondTab.id)
       tabsStore.setModified(secondTab.id, true)
-      firstWrite.resolve()
+      firstWrite.resolve(100)
 
       await Promise.all([firstSave, secondSave])
     } finally {
@@ -210,6 +205,7 @@ describe('useAutoSaveStore', () => {
       if (command === 'write_file') {
         writeCount += 1
         modifiedTime = 201
+        return modifiedTime
       }
       return undefined
     })
@@ -234,7 +230,7 @@ describe('useAutoSaveStore', () => {
     const tab = tabsStore.createTab('/tmp/note.md', '# Local')
     tabsStore.setModified(tab.id, true)
     autoSaveStore.knownModifiedTimes['/tmp/note.md'] = 100
-    const write = deferred<void>()
+    const write = deferred<number>()
     let writeCount = 0
     let modifiedTime = 200
     mockedInvoke.mockImplementation(async (command) => {
@@ -262,7 +258,7 @@ describe('useAutoSaveStore', () => {
     expect(closeSettled).toBe(false)
 
     modifiedTime = 201
-    write.resolve()
+    write.resolve(modifiedTime)
     await expect(closing).resolves.toBe(true)
     expect(tabsStore.tabs).toHaveLength(0)
   })
@@ -282,7 +278,10 @@ describe('useAutoSaveStore', () => {
         dialogCount += 1
         return dialog.promise
       }
-      if (command === 'write_file') writeCount += 1
+      if (command === 'write_file') {
+        writeCount += 1
+        return 100
+      }
       return command === 'get_file_modified_time' ? 100 : undefined
     })
 
@@ -295,6 +294,102 @@ describe('useAutoSaveStore', () => {
     await expect(Promise.all([first, second])).resolves.toEqual([true, true])
     expect(dialogCount).toBe(1)
     expect(writeCount).toBe(1)
+  })
+
+  describe('modified-time baseline', () => {
+    function mockDisk(initialTime: number) {
+      const disk = { time: initialTime, content: '# External', writes: 0, reads: 0 }
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'get_file_modified_time') return disk.time
+        if (command === 'read_file') {
+          disk.reads += 1
+          return disk.content
+        }
+        if (command === 'write_file') {
+          disk.writes += 1
+          disk.time += 10
+          return disk.time
+        }
+        return undefined
+      })
+      return disk
+    }
+
+    it('trusts the mtime write_file returns, so a write right after ours is detected', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const tab = tabsStore.createTab('/tmp/note.md', '# Local')
+      tabsStore.setModified(tab.id, true)
+      const disk = { time: 100, content: '# External' }
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'get_file_modified_time') return disk.time
+        if (command === 'read_file') return disk.content
+        if (command === 'write_file') {
+          // Another tool writes the file before Leaf can stat it.
+          disk.time = 160
+          return 150
+        }
+        return undefined
+      })
+
+      await expect(autoSaveStore.saveTab(tab.id)).resolves.toBe(true)
+      expect(autoSaveStore.knownModifiedTimes['/tmp/note.md']).toBe(150)
+
+      await autoSaveStore.checkForExternalChanges()
+      expect(tabsStore.tabs[0]?.editorState.markdown).toBe('# External')
+      expect(autoSaveStore.knownModifiedTimes['/tmp/note.md']).toBe(160)
+    })
+
+    it('reloads a clean tab when the disk mtime moves backwards', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      tabsStore.createTab('/tmp/note.md', '# Local')
+      autoSaveStore.knownModifiedTimes['/tmp/note.md'] = 200
+      const disk = mockDisk(100) // git checkout / rsync -t restore an older mtime
+
+      await autoSaveStore.checkForExternalChanges()
+
+      expect(disk.reads).toBe(1)
+      expect(tabsStore.tabs[0]?.editorState.markdown).toBe('# External')
+    })
+
+    it('raises a conflict before saving over a file whose mtime moved backwards', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const tab = tabsStore.createTab('/tmp/note.md', '# Local')
+      tabsStore.setModified(tab.id, true)
+      autoSaveStore.knownModifiedTimes['/tmp/note.md'] = 200
+      const disk = mockDisk(100)
+
+      const save = autoSaveStore.saveTab(tab.id)
+      await vi.waitFor(() => expect(autoSaveStore.conflictDialog).not.toBeNull())
+      expect(disk.writes).toBe(0)
+      autoSaveStore.resolveConflict('cancel')
+      await expect(save).resolves.toBe(false)
+    })
+
+    it('never treats its own consecutive saves as an external change', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const tab = tabsStore.createTab('/tmp/note.md', '# One')
+      tabsStore.setModified(tab.id, true)
+      const disk = mockDisk(100)
+
+      await expect(autoSaveStore.saveTab(tab.id)).resolves.toBe(true)
+      await autoSaveStore.checkForExternalChanges()
+      tabsStore.saveEditorState(tab.id, { markdown: '# Two' })
+      tabsStore.setModified(tab.id, true)
+      await expect(autoSaveStore.saveTab(tab.id)).resolves.toBe(true)
+      await autoSaveStore.checkForExternalChanges()
+
+      expect(disk.writes).toBe(2)
+      expect(disk.reads).toBe(0)
+      expect(autoSaveStore.conflictDialog).toBeNull()
+      expect(tabsStore.tabs[0]?.editorState.markdown).toBe('# Two')
+    })
   })
 
   it('does not blindly write a recovered dirty file when disk verification fails', async () => {

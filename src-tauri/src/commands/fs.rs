@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::fs;
 use std::io::Write as IoWrite;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
@@ -34,8 +35,12 @@ pub fn read_file(path: String) -> Result<String, String> {
 /// # Arguments
 /// * `path` - The absolute path of the file to write.
 /// * `content` - The string content to write.
+///
+/// # Returns
+/// The written file's modified time (ms since UNIX epoch), the same unit as
+/// `get_file_modified_time`, for use as the external-change baseline.
 #[tauri::command]
-pub fn write_file(path: String, content: String) -> Result<(), String> {
+pub fn write_file(path: String, content: String) -> Result<u64, String> {
     let file_path = Path::new(&path);
 
     // Ensure parent directory exists
@@ -78,14 +83,70 @@ pub(crate) fn resolve_write_target(path: &Path) -> Result<PathBuf, String> {
 /// file in the same directory, fsync it, then rename it over the target. The
 /// temp name is claimed with `create_new`, so it never collides with another
 /// write's temp file or a real file. It is removed on any failure.
-pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let dir = match path.parent() {
+/// A symlink is written through (the link survives) and the replaced file's
+/// permission bits are kept (best effort). Returns the conflict baseline mtime
+/// (see `baseline_mtime`).
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<u64, String> {
+    let target = resolve_write_target(path)?;
+    let dir = match target.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
     };
 
-    // Short and independent of the target name, so long file names still fit.
-    let (tmp_path, mut tmp_file) = loop {
+    let existing = fs::metadata(&target).ok();
+    let (tmp_path, tmp_file) = create_temp_file(dir, existing.is_some())?;
+
+    let result = (|mut tmp_file: fs::File| -> std::io::Result<SystemTime> {
+        // Set the final mode before any content lands in the temp file. Best
+        // effort: some volumes (SMB/NAS, FUSE) reject chmod, and that must not
+        // fail the save; the temp file then stays 0600.
+        if let Some(existing) = &existing {
+            if let Err(e) = tmp_file.set_permissions(existing.permissions()) {
+                eprintln!(
+                    "Leaf: could not keep permissions of '{}': {}",
+                    target.display(),
+                    e
+                );
+            }
+        }
+        tmp_file.write_all(bytes)?;
+        tmp_file.sync_all()?;
+        let ours = WrittenFile::of(&tmp_file.metadata()?)?;
+        close_and_rename(tmp_file, &ours, &tmp_path, &target)
+    })(tmp_file);
+
+    let modified = result.map_err(|e| {
+        let _ = fs::remove_file(&tmp_path);
+        format!("Failed to write '{}': {}", target.display(), e)
+    })?;
+    millis_since_epoch(modified)
+}
+
+/// Close our temp file, rename it over `target`, and return the conflict baseline
+/// mtime. The writer is closed before the final stat: filesystems that set the
+/// mtime at close (SMB/NFS) would otherwise change it after the baseline was chosen.
+/// `ours` was captured from the open handle, so a replacement is still recognised.
+fn close_and_rename<W>(
+    writer: W,
+    ours: &WrittenFile,
+    tmp_path: &Path,
+    target: &Path,
+) -> std::io::Result<SystemTime> {
+    drop(writer);
+    // Rename is atomic on the same filesystem.
+    fs::rename(tmp_path, target)?;
+    let on_disk = fs::metadata(target)
+        .ok()
+        .and_then(|m| WrittenFile::of(&m).ok());
+    Ok(baseline_mtime(ours, on_disk.as_ref()))
+}
+
+/// Claim a short, hidden, unique temp file in `dir` with `create_new`. The name is
+/// independent of the target name, so long file names still fit. A temp file that
+/// will replace an existing file starts as 0600, so that file's content is never
+/// readable more widely than it already was; a brand-new file gets the default mode.
+fn create_temp_file(dir: &Path, private: bool) -> Result<(PathBuf, fs::File), String> {
+    loop {
         let candidate = dir.join(format!(
             ".leaf-{}-{}.tmp",
             std::process::id(),
@@ -94,9 +155,10 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
         match fs::OpenOptions::new()
             .write(true)
             .create_new(true)
+            .mode(if private { 0o600 } else { 0o666 })
             .open(&candidate)
         {
-            Ok(file) => break (candidate, file),
+            Ok(file) => return Ok((candidate, file)),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => {
                 return Err(format!(
@@ -106,19 +168,44 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
                 ))
             }
         }
-    };
+    }
+}
 
-    let result = (|| -> std::io::Result<()> {
-        tmp_file.write_all(bytes)?;
-        tmp_file.sync_all()?;
-        // Rename is atomic on the same filesystem.
-        fs::rename(&tmp_path, path)
-    })();
+/// Identity and mtime of a file, to recognise the file we wrote after the rename.
+struct WrittenFile {
+    dev: u64,
+    ino: u64,
+    len: u64,
+    modified: SystemTime,
+}
 
-    result.map_err(|e| {
-        let _ = fs::remove_file(&tmp_path);
-        format!("Failed to write '{}': {}", path.display(), e)
-    })
+impl WrittenFile {
+    fn of(meta: &fs::Metadata) -> std::io::Result<Self> {
+        Ok(Self {
+            dev: meta.dev(),
+            ino: meta.ino(),
+            len: meta.len(),
+            modified: meta.modified()?,
+        })
+    }
+}
+
+/// The conflict baseline for a file just renamed into place: the mtime the final
+/// path reports, if it still holds our file (same inode and length), because that is
+/// what later `get_file_modified_time` calls see (SMB/NFS may set it at close).
+/// Otherwise the file was replaced after the rename, so keep our handle's mtime and
+/// let the change surface as a conflict.
+fn baseline_mtime(ours: &WrittenFile, on_disk: Option<&WrittenFile>) -> SystemTime {
+    match on_disk {
+        Some(d) if (d.dev, d.ino, d.len) == (ours.dev, ours.ino, ours.len) => d.modified,
+        _ => ours.modified,
+    }
+}
+
+fn millis_since_epoch(time: SystemTime) -> Result<u64, String> {
+    time.duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .map_err(|e| format!("System time error: {}", e))
 }
 
 /// Tauri command: Returns the last modified time of a file as milliseconds since UNIX epoch.
@@ -138,11 +225,7 @@ pub fn get_file_modified_time(path: String) -> Result<u64, String> {
         .modified()
         .map_err(|e| format!("Failed to get modified time for '{}': {}", path, e))?;
 
-    let duration = modified
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map_err(|e| format!("System time error: {}", e))?;
-
-    Ok(duration.as_millis() as u64)
+    millis_since_epoch(modified)
 }
 
 /// Represents a single node (file or directory) in the file tree.
@@ -216,8 +299,9 @@ pub fn read_directory_shallow(path: String) -> Result<Vec<FileNode>, String> {
 
     let mut nodes: Vec<FileNode> = Vec::new();
 
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+    // Skip entries that cannot be read (including broken symlinks) instead of
+    // failing the whole listing.
+    for entry in entries.flatten() {
         let file_name = entry.file_name().to_string_lossy().to_string();
 
         if file_name.starts_with('.') {
@@ -225,13 +309,10 @@ pub fn read_directory_shallow(path: String) -> Result<Vec<FileNode>, String> {
         }
 
         let entry_path = entry.path();
-        let metadata = entry.metadata().map_err(|e| {
-            format!(
-                "Failed to read metadata for '{}': {}",
-                entry_path.display(),
-                e
-            )
-        })?;
+        // Follow symlinks so linked files and folders are classified by their target.
+        let Ok(metadata) = fs::metadata(&entry_path) else {
+            continue;
+        };
 
         if metadata.is_dir() {
             nodes.push(FileNode {
@@ -463,13 +544,12 @@ pub fn resolve_file_path(path: String, base_dir: Option<String>) -> Result<Resol
         return Err("Path cannot be empty".to_string());
     }
 
-    let expanded = if path.starts_with('~') {
-        let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
-        if path == "~" {
-            home
-        } else {
-            home.join(&path[2..])
-        }
+    let home = || dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string());
+    // Only `~` and `~/...` mean home; `~name` is an ordinary relative name.
+    let expanded = if path == "~" {
+        home()?
+    } else if let Some(rest) = path.strip_prefix("~/") {
+        home()?.join(rest)
     } else {
         let p = PathBuf::from(&path);
         if p.is_absolute() {
@@ -503,7 +583,216 @@ pub fn resolve_file_path(path: String, base_dir: Option<String>) -> Result<Resol
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
+
+    fn s(path: &Path) -> String {
+        path.to_string_lossy().to_string()
+    }
+
+    fn dir_names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn test_write_file_through_symlink_keeps_the_link() {
+        let dir = tempdir().unwrap();
+        let real = dir.path().join("real.md");
+        let link = dir.path().join("link.md");
+        fs::write(&real, "old").unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        write_file(s(&link), "new".into()).unwrap();
+
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read_to_string(&real).unwrap(), "new");
+    }
+
+    #[test]
+    fn test_write_file_returns_the_written_files_modified_time() {
+        let dir = tempdir().unwrap();
+        let file = s(&dir.path().join("note.md"));
+
+        let written: u64 = write_file(file.clone(), "x".into()).unwrap();
+
+        assert_eq!(written, get_file_modified_time(file).unwrap());
+    }
+
+    #[test]
+    fn test_write_file_through_dangling_chained_and_looping_links() {
+        use std::os::unix::fs::symlink;
+        let dir = tempdir().unwrap();
+        let d = dir.path();
+
+        // Dangling: the link survives and its named target is created.
+        symlink("drafts/new.md", d.join("dangling.md")).unwrap();
+        fs::create_dir(d.join("drafts")).unwrap();
+        write_file(s(&d.join("dangling.md")), "first".into()).unwrap();
+        assert!(fs::symlink_metadata(d.join("dangling.md"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            fs::read_to_string(d.join("drafts/new.md")).unwrap(),
+            "first"
+        );
+
+        // Relative chain: both links survive, the final target is written.
+        fs::write(d.join("real.md"), "old").unwrap();
+        symlink("real.md", d.join("rel.md")).unwrap();
+        symlink("rel.md", d.join("chain.md")).unwrap();
+        write_file(s(&d.join("chain.md")), "second".into()).unwrap();
+        assert!(fs::symlink_metadata(d.join("chain.md"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(fs::symlink_metadata(d.join("rel.md"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read_to_string(d.join("real.md")).unwrap(), "second");
+
+        // Loop: a clean error; neither link is replaced.
+        symlink("loop-b.md", d.join("loop-a.md")).unwrap();
+        symlink("loop-a.md", d.join("loop-b.md")).unwrap();
+        assert!(write_file(s(&d.join("loop-a.md")), "x".into()).is_err());
+        assert!(fs::symlink_metadata(d.join("loop-a.md"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(fs::symlink_metadata(d.join("loop-b.md"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[test]
+    fn test_write_file_preserves_permissions() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("secret.md");
+        fs::write(&file, "old").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+
+        write_file(s(&file), "new".into()).unwrap();
+
+        let mode = fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn test_temp_file_for_an_existing_file_starts_private() {
+        let dir = tempdir().unwrap();
+        let (private_path, _f) = create_temp_file(dir.path(), true).unwrap();
+        let mode = fs::metadata(&private_path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "content must never sit in a wider temp file");
+    }
+
+    #[test]
+    fn test_write_file_gives_a_new_file_the_default_mode() {
+        let dir = tempdir().unwrap();
+        let reference = dir.path().join("reference.md");
+        fs::File::create(&reference).unwrap();
+        let file = dir.path().join("new.md");
+
+        write_file(s(&file), "x".into()).unwrap();
+
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&file), mode(&reference));
+    }
+
+    /// Test double for a filesystem that sets the mtime when the writer closes.
+    struct SetsMtimeOnClose(fs::File, SystemTime);
+
+    impl Drop for SetsMtimeOnClose {
+        fn drop(&mut self) {
+            self.0.set_modified(self.1).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_baseline_is_sampled_after_the_writer_closes() {
+        let dir = tempdir().unwrap();
+        let (tmp_path, mut file) = create_temp_file(dir.path(), false).unwrap();
+        file.write_all(b"saved").unwrap();
+        let ours = WrittenFile::of(&file.metadata().unwrap()).unwrap();
+        let closed_at = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(2_000_000_000);
+        let target = dir.path().join("note.md");
+
+        let baseline =
+            close_and_rename(SetsMtimeOnClose(file, closed_at), &ours, &tmp_path, &target).unwrap();
+
+        // What the next get_file_modified_time poll will see.
+        assert_eq!(baseline, fs::metadata(&target).unwrap().modified().unwrap());
+        assert_eq!(baseline, closed_at);
+    }
+
+    fn stamp(ino: u64, len: u64, secs: u64) -> WrittenFile {
+        WrittenFile {
+            dev: 1,
+            ino,
+            len,
+            modified: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs),
+        }
+    }
+
+    #[test]
+    fn test_baseline_prefers_the_final_paths_mtime_only_for_our_own_file() {
+        let at = |secs| SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs);
+        let ours = stamp(7, 4, 100);
+        // SMB/NFS can set the mtime at close: same file, later stat differs.
+        assert_eq!(baseline_mtime(&ours, Some(&stamp(7, 4, 105))), at(105));
+        // Replaced by another file, or rewritten to a new length: keep ours.
+        assert_eq!(baseline_mtime(&ours, Some(&stamp(8, 4, 105))), at(100));
+        assert_eq!(baseline_mtime(&ours, Some(&stamp(7, 9, 105))), at(100));
+        assert_eq!(baseline_mtime(&ours, None), at(100));
+    }
+
+    #[test]
+    fn test_write_file_temp_name_never_touches_neighbours() {
+        let dir = tempdir().unwrap();
+        let bystander = dir.path().join("notes.gdown-tmp");
+        fs::write(&bystander, "keep me").unwrap();
+
+        write_file(s(&dir.path().join("notes.md")), "md".into()).unwrap();
+        write_file(s(&dir.path().join("notes.txt")), "txt".into()).unwrap();
+
+        assert_eq!(fs::read_to_string(&bystander).unwrap(), "keep me");
+        assert_eq!(
+            dir_names(dir.path()),
+            vec!["notes.gdown-tmp", "notes.md", "notes.txt"]
+        );
+    }
+
+    #[test]
+    fn test_write_file_accepts_a_maximum_length_file_name() {
+        let dir = tempdir().unwrap();
+        // 255 bytes is the APFS/ext4 name limit; the temp name must not grow it.
+        let file = dir.path().join(format!("{}.md", "a".repeat(252)));
+
+        write_file(s(&file), "long".into()).unwrap();
+
+        assert_eq!(fs::read_to_string(&file).unwrap(), "long");
+    }
+
+    #[test]
+    fn test_write_file_failure_leaves_no_temp_file() {
+        let dir = tempdir().unwrap();
+        // Renaming a file over a non-empty directory fails after the temp file exists.
+        let target = dir.path().join("folder.md");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("child"), "x").unwrap();
+
+        assert!(write_file(s(&target), "content".into()).is_err());
+        assert_eq!(dir_names(dir.path()), vec!["folder.md"]);
+    }
 
     #[test]
     fn test_resolve_write_target_follows_symlinks_like_a_write_would() {
@@ -605,6 +894,34 @@ mod tests {
         assert!(subdir.is_dir);
         assert!(subdir.children.is_none()); // shallow = no children populated
         assert!(result.iter().all(|node| node.name != "binary.bin"));
+    }
+
+    #[test]
+    fn test_read_directory_shallow_follows_symlinks_and_skips_broken_entries() {
+        use std::os::unix::fs::symlink;
+        let dir = tempdir().unwrap();
+        let elsewhere = tempdir().unwrap();
+        fs::create_dir(elsewhere.path().join("folder")).unwrap();
+        fs::write(elsewhere.path().join("note.md"), "x").unwrap();
+        let root = dir.path();
+        fs::write(root.join("plain.md"), "x").unwrap();
+        symlink(elsewhere.path().join("folder"), root.join("linked-folder")).unwrap();
+        symlink(elsewhere.path().join("note.md"), root.join("linked.md")).unwrap();
+        symlink(root.join("missing.md"), root.join("broken.md")).unwrap();
+
+        let result =
+            read_directory_shallow(s(root)).expect("one broken entry must not fail the listing");
+
+        let listed: Vec<(&str, bool)> =
+            result.iter().map(|n| (n.name.as_str(), n.is_dir)).collect();
+        assert_eq!(
+            listed,
+            vec![
+                ("linked-folder", true),
+                ("linked.md", false),
+                ("plain.md", false)
+            ]
+        );
     }
 
     #[test]
@@ -908,6 +1225,22 @@ mod tests {
         let result = resolve_file_path("~".to_string(), None).unwrap();
         assert!(result.exists);
         assert!(!result.is_file);
+    }
+
+    #[test]
+    fn test_resolve_file_path_tilde_slash_and_tilde_names() {
+        let home = dirs::home_dir().unwrap();
+        let base = tempdir().unwrap();
+        let base_str = Some(s(base.path()));
+
+        let sub = resolve_file_path("~/leaf-nope.md".into(), None).unwrap();
+        assert_eq!(sub.canonical_path, s(&home.join("leaf-nope.md")));
+
+        // `~é` used to panic (byte slice mid-codepoint); `~foo` became $HOME/oo.
+        let accented = resolve_file_path("~é".into(), base_str.clone()).unwrap();
+        assert_eq!(accented.canonical_path, s(&base.path().join("~é")));
+        let named = resolve_file_path("~foo".into(), base_str).unwrap();
+        assert_eq!(named.canonical_path, s(&base.path().join("~foo")));
     }
 
     #[test]
