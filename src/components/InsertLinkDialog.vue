@@ -47,6 +47,7 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import type { Editor } from '@tiptap/core'
+import { applyLink, isPlainTextRange } from '../utils/linkEditing'
 
 const props = defineProps<{
   editor: Editor
@@ -61,28 +62,16 @@ const urlInput = ref<HTMLInputElement | null>(null)
 
 let savedFrom = 0
 let savedTo = 0
-let selectedText = ''
 // False when the selection holds non-text inline content (e.g. an image) or
 // spans blocks: such a selection is only ever linked in place, never replaced.
 const textEditable = ref(true)
-
-function isPlainTextRange(from: number, to: number): boolean {
-  const { doc } = props.editor.state
-  if (!doc.resolve(from).sameParent(doc.resolve(to))) return false
-  let plain = true
-  doc.nodesBetween(from, to, (node) => {
-    if (node.isInline && !node.isText) plain = false
-  })
-  return plain
-}
 
 function handleInsertLink(event: Event) {
   const detail = (event as CustomEvent).detail || {}
   savedFrom = detail.from || 0
   savedTo = detail.to || 0
-  selectedText = detail.text || ''
-  textEditable.value = isPlainTextRange(savedFrom, savedTo)
-  linkText.value = selectedText
+  textEditable.value = isPlainTextRange(props.editor, savedFrom, savedTo)
+  linkText.value = detail.text || ''
   linkUrl.value = ''
   linkTitle.value = ''
   visible.value = true
@@ -99,25 +88,11 @@ function confirm() {
   const href = linkUrl.value.trim()
   if (!href) return
 
-  const attrs = { href, title: linkTitle.value || null, target: '_blank' }
-  const range = { from: savedFrom, to: savedTo }
-  const text = linkText.value || href
-  const chain = props.editor.chain().focus()
-
-  if (savedFrom !== savedTo && (!textEditable.value || !selectedText || text === selectedText)) {
-    // Non-text, multi-block or unchanged selection: link it in place, never replace it.
-    chain.setTextSelection(range).setLink(attrs).run()
-  } else {
-    // Replace only the inline text (insertContentAt can rewrite the parent block,
-    // e.g. turn a heading into a paragraph), then link the new range.
-    chain
-      .command(({ tr, state }) => {
-        tr.insertText(text, savedFrom, savedTo)
-        tr.addMark(savedFrom, savedFrom + text.length, state.schema.marks.link!.create(attrs))
-        return true
-      })
-      .run()
-  }
+  applyLink(props.editor, savedFrom, savedTo, linkText.value || href, {
+    href,
+    title: linkTitle.value || null,
+    target: '_blank',
+  })
 
   visible.value = false
 }

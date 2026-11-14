@@ -48,6 +48,7 @@
             class="link-edit-input"
             type="text"
             placeholder="Link text"
+            :disabled="!editTextEditable"
             @keydown.enter="saveEdit"
             @keydown.esc="cancelEdit"
           />
@@ -66,6 +67,7 @@ import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import type { Editor } from '@tiptap/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { useEditorSettingsStore } from '../stores/editorSettings'
+import { applyLink, isPlainTextRange, type LinkAttrs } from '../utils/linkEditing'
 
 const props = defineProps<{ editor: Editor }>()
 const editorSettings = useEditorSettingsStore()
@@ -76,6 +78,8 @@ const position = ref({ x: 0, y: 0 })
 const editing = ref(false)
 const editUrl = ref('')
 const editText = ref('')
+// False when the link wraps non-text content (e.g. an image): only its URL is editable.
+const editTextEditable = ref(true)
 const copied = ref(false)
 const urlInput = ref<HTMLInputElement | null>(null)
 
@@ -83,6 +87,7 @@ let hideTimer: ReturnType<typeof setTimeout> | null = null
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
 let linkFrom = 0
 let linkTo = 0
+let linkAttrs: Omit<LinkAttrs, 'href'> = {}
 let editorDom: HTMLElement | null = null
 
 const displayUrl = computed(() => {
@@ -151,6 +156,9 @@ function startEdit() {
   const { from, to } = props.editor.state.selection
   linkFrom = from
   linkTo = to
+  const { title = null, target = null } = props.editor.getAttributes('link')
+  linkAttrs = { title, target }
+  editTextEditable.value = isPlainTextRange(props.editor, linkFrom, linkTo)
   editText.value = props.editor.state.doc.textBetween(linkFrom, linkTo, ' ')
   editUrl.value = href.value
   editing.value = true
@@ -158,32 +166,10 @@ function startEdit() {
 }
 
 function saveEdit() {
-  if (!editUrl.value.trim()) return
-  props.editor
-    .chain()
-    .focus()
-    .setTextSelection({ from: linkFrom, to: linkTo })
-    .extendMarkRange('link')
-    .setLink({ href: editUrl.value.trim() })
-    .run()
-
-  const currentText = props.editor.state.doc.textBetween(linkFrom, linkTo, ' ')
-  if (editText.value.trim() && editText.value.trim() !== currentText) {
-    const { from, to } = props.editor.state.selection
-    props.editor
-      .chain()
-      .focus()
-      .insertContentAt({ from, to }, [
-        {
-          type: 'text',
-          text: editText.value.trim(),
-          marks: [{ type: 'link', attrs: { href: editUrl.value.trim() } }],
-        },
-      ])
-      .run()
-  }
-
-  href.value = editUrl.value.trim()
+  const url = editUrl.value.trim()
+  if (!url) return
+  applyLink(props.editor, linkFrom, linkTo, editText.value.trim(), { ...linkAttrs, href: url })
+  href.value = url
   editing.value = false
 }
 
