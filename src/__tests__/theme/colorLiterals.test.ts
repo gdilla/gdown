@@ -86,10 +86,6 @@ const ALLOWLIST: AllowEntry[] = [
     reason: 'Owned by a parallel change; migrate to the block/syntax tokens in a follow-up.',
   },
   {
-    file: '/src/components/HelloWorld.vue',
-    reason: 'Unused Vite scaffold component (not imported anywhere).',
-  },
-  {
     file: '/src/assets/main.css',
     reason: 'Unused Vite scaffold stylesheet (not imported anywhere).',
   },
