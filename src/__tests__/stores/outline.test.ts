@@ -45,69 +45,6 @@ describe('useOutlineStore', () => {
     })
   })
 
-  describe('updateHeadings', () => {
-    it('extracts headings from editor JSON', () => {
-      const store = useOutlineStore()
-
-      const editorJson = {
-        type: 'doc',
-        content: [
-          {
-            type: 'heading',
-            attrs: { level: 1 },
-            content: [{ type: 'text', text: 'Title' }],
-          },
-          {
-            type: 'paragraph',
-            content: [{ type: 'text', text: 'Some body text.' }],
-          },
-          {
-            type: 'heading',
-            attrs: { level: 2 },
-            content: [{ type: 'text', text: 'Subtitle' }],
-          },
-        ],
-      }
-
-      store.updateHeadings(editorJson)
-
-      expect(store.headings).toHaveLength(2)
-      expect(store.headings[0]!.text).toBe('Title')
-      expect(store.headings[0]!.level).toBe(1)
-      expect(store.headings[1]!.text).toBe('Subtitle')
-      expect(store.headings[1]!.level).toBe(2)
-    })
-
-    it('handles null/empty editor JSON', () => {
-      const store = useOutlineStore()
-
-      store.updateHeadings(null)
-      expect(store.headings).toEqual([])
-
-      store.updateHeadings({})
-      expect(store.headings).toEqual([])
-    })
-
-    it('ignores headings with empty text', () => {
-      const store = useOutlineStore()
-
-      const editorJson = {
-        type: 'doc',
-        content: [
-          {
-            type: 'heading',
-            attrs: { level: 1 },
-            content: [{ type: 'text', text: '   ' }],
-          },
-        ],
-      }
-
-      store.updateHeadings(editorJson)
-
-      expect(store.headings).toHaveLength(0)
-    })
-  })
-
   describe('updateFromMarkdown', () => {
     it('extracts headings from markdown text', () => {
       const store = useOutlineStore()
@@ -240,7 +177,14 @@ Some paragraph.
             title: 'Test',
             filePath: null,
             isModified: false,
-            editorState: { doc: null, markdown, scrollTop: 0, selection: { from: 0, to: 0 }, frontmatter: null, frontmatterAttributes: {} },
+            editorState: {
+              doc: null,
+              markdown,
+              scrollTop: 0,
+              selection: { from: 0, to: 0 },
+              frontmatter: null,
+              frontmatterAttributes: {},
+            },
           },
         ],
         activeTabId: 'test-tab',
@@ -333,7 +277,14 @@ Some paragraph.
             title: 'Test',
             filePath: null,
             isModified: false,
-            editorState: { doc: null, markdown: md, scrollTop: 0, selection: { from: 0, to: 0 }, frontmatter: null, frontmatterAttributes: {} },
+            editorState: {
+              doc: null,
+              markdown: md,
+              scrollTop: 0,
+              selection: { from: 0, to: 0 },
+              frontmatter: null,
+              frontmatterAttributes: {},
+            },
           },
         ],
         activeTabId: 'test-tab',
@@ -377,7 +328,8 @@ Some paragraph.
         activeTabId: 'test-tab',
       })
       outlineStore.updateFromMarkdown(before)
-      const capture = () => tabsStore.saveEditorState('test-tab', { markdown: '# Title\n\nLatest.' })
+      const capture = () =>
+        tabsStore.saveEditorState('test-tab', { markdown: '# Title\n\nLatest.' })
       window.addEventListener('gdown:capture-state', capture)
 
       try {

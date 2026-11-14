@@ -29,7 +29,7 @@ export const useOutlineStore = defineStore('outline', () => {
   /** Minimum heading level present (for indentation normalization) */
   const minLevel = computed(() => {
     if (headings.value.length === 0) return 1
-    return Math.min(...headings.value.map(h => h.level))
+    return Math.min(...headings.value.map((h) => h.level))
   })
 
   /** Whether there are any headings */
@@ -45,45 +45,6 @@ export const useOutlineStore = defineStore('outline', () => {
 
   function hideOutline() {
     visible.value = false
-  }
-
-  /**
-   * Extract headings from a ProseMirror/TipTap editor JSON document.
-   * Called whenever the document changes.
-   */
-  function updateHeadings(editorJson: any) {
-    if (!editorJson || !editorJson.content) {
-      headings.value = []
-      return
-    }
-
-    const extracted: OutlineHeading[] = []
-    let pos = 0
-
-    function walkNodes(nodes: any[]) {
-      for (const node of nodes) {
-        if (node.type === 'heading' && node.attrs?.level) {
-          const text = extractTextFromNode(node)
-          if (text.trim()) {
-            extracted.push({
-              id: `heading-${pos}`,
-              level: node.attrs.level,
-              text: text.trim(),
-              pos,
-            })
-          }
-        }
-        // Walk into children for nested structures
-        if (node.content) {
-          walkNodes(node.content)
-        }
-        // Advance pos (approximate — we use the index for ordering)
-        pos++
-      }
-    }
-
-    walkNodes(editorJson.content)
-    headings.value = extracted
   }
 
   /**
@@ -269,7 +230,6 @@ export const useOutlineStore = defineStore('outline', () => {
     toggleOutline,
     showOutline,
     hideOutline,
-    updateHeadings,
     updateFromEditor,
     updateFromMarkdown,
     setActiveHeading,
@@ -279,16 +239,3 @@ export const useOutlineStore = defineStore('outline', () => {
     copyWholeDocument,
   }
 })
-
-/**
- * Extract plain text from a ProseMirror JSON node recursively.
- */
-function extractTextFromNode(node: any): string {
-  if (node.type === 'text') {
-    return node.text || ''
-  }
-  if (node.content) {
-    return node.content.map((child: any) => extractTextFromNode(child)).join('')
-  }
-  return ''
-}

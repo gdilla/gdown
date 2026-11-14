@@ -6,26 +6,6 @@
 /** Supported export formats (matches Rust ExportFormat enum). */
 export type ExportFormat = 'pdf' | 'html' | 'word' | 'latex' | 'epub' | 'rtf'
 
-/** Export format metadata returned by get_export_formats. */
-export interface ExportFormatInfo {
-  id: ExportFormat
-  label: string
-  extension: string
-}
-
-/** Pandoc installation info returned by check_pandoc. */
-export interface PandocInfo {
-  path: string
-  version: string
-}
-
-/** Export operation result returned by export_document. */
-export interface ExportResult {
-  success: boolean
-  output_path: string
-  message: string
-}
-
 /**
  * Per-format export configuration with Pandoc argument templates.
  * Matches the Rust ExportConfig struct.
