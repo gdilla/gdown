@@ -148,7 +148,10 @@ export const useExportStore = defineStore('export', () => {
 
   const isPandocAvailable = computed(() => pandocInfo.value !== null)
 
-  const isExporting = computed(() => status.value === 'exporting')
+  // Separate from `status`, which openDialog/reset clear: export_document runs
+  // off the main thread, so this is what keeps one export in flight at a time.
+  const exportInFlight = ref(false)
+  const isExporting = computed(() => exportInFlight.value)
 
   const canExport = computed(() => {
     const tabsStore = useTabsStore()
@@ -292,8 +295,16 @@ export const useExportStore = defineStore('export', () => {
    * Execute the export operation.
    */
   async function performExport(): Promise<boolean> {
-    if (isExporting.value) return false
+    if (exportInFlight.value) return false
+    exportInFlight.value = true
+    try {
+      return await runExport()
+    } finally {
+      exportInFlight.value = false
+    }
+  }
 
+  async function runExport(): Promise<boolean> {
     flushLiveEditorState()
     const tabsStore = useTabsStore()
     const activeTab = tabsStore.activeTab

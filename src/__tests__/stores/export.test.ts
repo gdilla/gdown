@@ -143,4 +143,42 @@ describe('useExportStore configuration', () => {
       config: expectedConfig,
     })
   })
+
+  it('keeps one export in flight even when the dialog is reopened mid-export', async () => {
+    let finishExport!: (value: unknown) => void
+    let exportCalls = 0
+    mockedGetExportConfig.mockResolvedValue({ extra_args: [] } as unknown as ExportConfig)
+    mockedInvoke.mockImplementation(async (command) => {
+      if (command === 'check_pandoc') {
+        return { path: '/usr/bin/pandoc', version: '3.7' } as never
+      }
+      if (command === 'export_document') {
+        exportCalls += 1
+        return new Promise((resolve) => {
+          finishExport = resolve
+        }) as never
+      }
+      return null as never
+    })
+
+    useTabsStore().createTab('/tmp/notes.md', '# Hello')
+    const store = useExportStore()
+    store.formats = [{ id: 'html', label: 'HTML', extension: 'html' }]
+    store.pandocInfo = { path: '/usr/bin/pandoc', version: '3.7' }
+    store.selectedFormatId = 'html'
+    store.customOutputPath = '/tmp/notes.html'
+
+    const first = store.performExport()
+    await vi.waitFor(() => expect(exportCalls).toBe(1))
+
+    // Cmd+Shift+E while Pandoc is still running resets the dialog state.
+    await store.openDialog()
+    expect(store.isExporting).toBe(true)
+    await expect(store.performExport()).resolves.toBe(false)
+    expect(exportCalls).toBe(1)
+
+    finishExport({ success: true, output_path: '/tmp/notes.html', message: 'Exported' })
+    await expect(first).resolves.toBe(true)
+    expect(store.isExporting).toBe(false)
+  })
 })
