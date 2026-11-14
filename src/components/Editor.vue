@@ -599,7 +599,12 @@ async function handleInsertImage() {
       ),
     )
     .join('/')
-  const alt = (selected.split('/').pop() ?? '').replace(/\.[^/.]+$/, '')
+  // A filename may contain line breaks (valid on macOS); a blank line inside alt
+  // text would end the paragraph and break the image syntax on reload.
+  const alt = (selected.split('/').pop() ?? '')
+    .replace(/\.[^/.]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
   editor.value
     .chain()
     .focus()

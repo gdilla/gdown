@@ -158,6 +158,15 @@ describe('Editor insert image', () => {
     expect(image?.src).toBe(asset('/docs/notes/scan].png'))
   })
 
+  it('collapses line breaks in a filename-derived alt text so the image reloads', async () => {
+    const tabId = await mountEditorFor('/docs/notes/doc.md')
+    const { markdown } = await insert(tabId, '/docs/notes/line\n\nbreak.png')
+
+    const image = await reload(markdown!, '/docs/notes/reloaded.md')
+    expect(image?.alt).toBe('line break')
+    expect(image?.src).toBe(asset('/docs/notes/line\n\nbreak.png'))
+  })
+
   it('keeps a literal %20 in the document folder (only the markdown path is decoded)', async () => {
     const tabId = await mountEditorFor('/docs/a%20b/doc.md')
     const { displaySrc, markdown } = await insert(tabId, '/docs/a%20b/my pic.png')
