@@ -7,7 +7,7 @@
         <div v-if="tabsStore.activeTab" class="editor-content">
           <ImageViewer v-if="tabsStore.activeTab.isImage" />
           <Editor v-else-if="editorModeStore.mode === 'wysiwyg'" ref="editorRef" />
-          <SourceEditor v-else />
+          <SourceEditor v-else ref="sourceEditorRef" />
         </div>
         <div v-else class="no-tab-placeholder">
           <div class="empty-state">
@@ -117,6 +117,12 @@ const editorSettings = useEditorSettingsStore()
 const exportStore = useExportStore()
 const publishStore = usePublishStore()
 const editorRef = ref<InstanceType<typeof Editor> | null>(null)
+// Structural type: stays valid if SourceEditor is loaded asynchronously, and
+// is null until it resolves.
+const sourceEditorRef = ref<{
+  openFind: () => void
+  navigateToHeading: (pos: number) => void
+} | null>(null)
 
 interface ClosePrompt {
   tab: Tab
@@ -210,8 +216,11 @@ async function handleExitRequested(): Promise<void> {
 
 /** Handle outline heading navigation */
 function handleOutlineNavigate(heading: OutlineHeading) {
-  if (editorModeStore.mode === 'wysiwyg' && editorRef.value) {
-    editorRef.value.navigateToHeading(heading.pos)
+  // `pos` is a ProseMirror position in WYSIWYG and a character offset in source.
+  if (editorModeStore.mode === 'wysiwyg') {
+    editorRef.value?.navigateToHeading(heading.pos)
+  } else {
+    sourceEditorRef.value?.navigateToHeading(heading.pos)
   }
 }
 
@@ -395,17 +404,13 @@ function handleKeydown(e: KeyboardEvent) {
     return
   }
 
-  // Cmd+F: Find (Typora shortcut)
-  if (e.metaKey && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+  // Cmd+F: Find / Cmd+H: Find and Replace (Typora shortcuts). Source mode
+  // uses CodeMirror's own panel, which always includes the replace field.
+  const isFind = e.key === 'f' || e.key === 'F'
+  if (e.metaKey && !e.shiftKey && (isFind || e.key === 'h' || e.key === 'H')) {
     e.preventDefault()
-    findReplaceStore.open(false)
-    return
-  }
-
-  // Cmd+H: Find and Replace (Typora shortcut)
-  if (e.metaKey && !e.shiftKey && (e.key === 'h' || e.key === 'H')) {
-    e.preventDefault()
-    findReplaceStore.open(true)
+    if (editorModeStore.mode === 'source') sourceEditorRef.value?.openFind()
+    else findReplaceStore.open(!isFind)
     return
   }
 }
