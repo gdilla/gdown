@@ -55,8 +55,11 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// file in the same directory, fsync it, then rename it over the target. The
 /// temp name is claimed with `create_new`, so overlapping writes (commands run
 /// off the main thread) never share a temp file. It is removed on any failure.
+/// A symlink is written through (the link survives) and the replaced file's
+/// permission bits are kept.
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let dir = match path.parent() {
+    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let dir = match target.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
     };
@@ -87,14 +90,17 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
     let result = (|| -> std::io::Result<()> {
         tmp_file.write_all(bytes)?;
+        if let Ok(existing) = fs::metadata(&target) {
+            tmp_file.set_permissions(existing.permissions())?;
+        }
         tmp_file.sync_all()?;
         // Rename is atomic on the same filesystem.
-        fs::rename(&tmp_path, path)
+        fs::rename(&tmp_path, &target)
     })();
 
     result.map_err(|e| {
         let _ = fs::remove_file(&tmp_path);
-        format!("Failed to write '{}': {}", path.display(), e)
+        format!("Failed to write '{}': {}", target.display(), e)
     })
 }
 
@@ -480,7 +486,79 @@ pub fn resolve_file_path(path: String, base_dir: Option<String>) -> Result<Resol
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
+
+    fn s(path: &Path) -> String {
+        path.to_string_lossy().to_string()
+    }
+
+    fn dir_names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn test_write_file_through_symlink_keeps_the_link() {
+        let dir = tempdir().unwrap();
+        let real = dir.path().join("real.md");
+        let link = dir.path().join("link.md");
+        fs::write(&real, "old").unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        write_file(s(&link), "new".into()).unwrap();
+
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read_to_string(&real).unwrap(), "new");
+    }
+
+    #[test]
+    fn test_write_file_preserves_permissions() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("secret.md");
+        fs::write(&file, "old").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+
+        write_file(s(&file), "new".into()).unwrap();
+
+        let mode = fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn test_write_file_temp_name_never_touches_neighbours() {
+        let dir = tempdir().unwrap();
+        let bystander = dir.path().join("notes.gdown-tmp");
+        fs::write(&bystander, "keep me").unwrap();
+
+        write_file(s(&dir.path().join("notes.md")), "md".into()).unwrap();
+        write_file(s(&dir.path().join("notes.txt")), "txt".into()).unwrap();
+
+        assert_eq!(fs::read_to_string(&bystander).unwrap(), "keep me");
+        assert_eq!(
+            dir_names(dir.path()),
+            vec!["notes.gdown-tmp", "notes.md", "notes.txt"]
+        );
+    }
+
+    #[test]
+    fn test_write_file_failure_leaves_no_temp_file() {
+        let dir = tempdir().unwrap();
+        // Renaming a file over a non-empty directory fails after the temp file exists.
+        let target = dir.path().join("folder.md");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("child"), "x").unwrap();
+
+        assert!(write_file(s(&target), "content".into()).is_err());
+        assert_eq!(dir_names(dir.path()), vec!["folder.md"]);
+    }
 
     #[test]
     fn test_concurrent_writes_sharing_a_stem_keep_their_own_bytes() {
