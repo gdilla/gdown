@@ -158,6 +158,27 @@ Some paragraph.
 
       expect(store.headings).toHaveLength(0)
     })
+
+    it('ignores # lines inside fenced code blocks', () => {
+      const store = useOutlineStore()
+
+      store.updateFromMarkdown(
+        '# Real\n\n```bash\n# comment\n```\n\n~~~~\n## tilde\n~~~\n## still code\n~~~~\n\n## After',
+      )
+
+      expect(store.headings.map((h) => h.text)).toEqual(['Real', 'After'])
+    })
+
+    it('skips front matter and reports offsets in the full document', () => {
+      const store = useOutlineStore()
+      const doc = '---\ntitle: x\n# yaml comment\n---\n# Body\n\n## Next'
+
+      store.updateFromMarkdown(doc)
+
+      expect(store.headings.map((h) => h.text)).toEqual(['Body', 'Next'])
+      expect(store.headings[0]!.pos).toBe(doc.indexOf('# Body'))
+      expect(store.headings[1]!.pos).toBe(doc.indexOf('## Next'))
+    })
   })
 
   describe('setActiveHeading', () => {
@@ -311,6 +332,21 @@ Some paragraph.
 
       expect(store.getSectionContent(-1)).toBeNull()
       expect(store.getSectionContent(99)).toBeNull()
+    })
+
+    it('does not treat # lines inside fenced code as section boundaries', () => {
+      const md = '# A\n\n```bash\n# comment\n```\n\n# B\n\nb text'
+      const store = setupWithMarkdown(md)
+      // Headings as the WYSIWYG editor reports them: only the real ones.
+      store.$patch({
+        headings: [
+          { id: 'heading-0', level: 1, text: 'A', pos: 0 },
+          { id: 'heading-9', level: 1, text: 'B', pos: 9 },
+        ],
+      })
+
+      expect(store.getSectionContent(0)!.markdown).toBe('# A\n\n```bash\n# comment\n```')
+      expect(store.getSectionContent(1)!.markdown).toBe('# B\n\nb text')
     })
 
     it('returns null when no active tab markdown', () => {

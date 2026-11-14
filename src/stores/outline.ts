@@ -4,6 +4,7 @@ import { useTabsStore } from './tabs'
 import { markdownToHtml } from '../utils/markdownConverter'
 import { copyAsRichText, copyAsPlainText, unescapeMarkdown } from '../utils/clipboardUtils'
 import { flushLiveEditorState } from '../utils/flushEditorState'
+import { parseFrontMatter } from '../utils/frontmatter'
 
 export interface OutlineHeading {
   /** Unique identifier (based on position in doc) */
@@ -12,7 +13,7 @@ export interface OutlineHeading {
   level: number
   /** Plain text of the heading */
   text: string
-  /** ProseMirror node position (for scrolling) */
+  /** WYSIWYG: ProseMirror position. Source mode: character offset in the CodeMirror doc. */
   pos: number
 }
 
@@ -117,37 +118,18 @@ export const useOutlineStore = defineStore('outline', () => {
   }
 
   /**
-   * Update headings from raw markdown text (for source mode).
+   * Update headings from the source editor's full document (front matter +
+   * body). `pos` is a character offset into that document.
    */
   function updateFromMarkdown(markdown: string) {
-    if (!markdown) {
-      headings.value = []
-      return
-    }
-
-    const extracted: OutlineHeading[] = []
-    const lines = markdown.split('\n')
-    let charPos = 0
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]!
-      const match = line.match(/^(#{1,6})\s+(.+)$/)
-      if (match) {
-        const level = match[1]!.length
-        const text = match[2]!.replace(/\s*#+\s*$/, '').trim() // Remove trailing hashes
-        if (text) {
-          extracted.push({
-            id: `heading-${charPos}`,
-            level,
-            text,
-            pos: charPos,
-          })
-        }
-      }
-      charPos += line!.length + 1 // +1 for newline
-    }
-
-    headings.value = extracted
+    const { body } = parseFrontMatter(markdown)
+    const bodyOffset = markdown.length - body.length
+    headings.value = scanAtxHeadings(body).map(({ offset, level, text }) => ({
+      id: `heading-${bodyOffset + offset}`,
+      level,
+      text,
+      pos: bodyOffset + offset,
+    }))
   }
 
   /**
@@ -184,29 +166,20 @@ export const useOutlineStore = defineStore('outline', () => {
     }
 
     const lines = markdown.split('\n')
-    const headingRegex = /^(#{1,6})\s+/
-
-    // Build an array of { lineIndex, level } for all heading lines
-    const headingLines: { lineIndex: number; level: number }[] = []
-    for (let i = 0; i < lines.length; i++) {
-      const match = lines[i]!.match(headingRegex)
-      if (match) {
-        headingLines.push({ lineIndex: i, level: match[1]!.length })
-      }
-    }
+    const headingLines = scanAtxHeadings(markdown)
 
     if (headingIndex >= headingLines.length) {
       return null
     }
 
     const target = headingLines[headingIndex]!
-    const startLine = target.lineIndex
+    const startLine = target.line
 
     // Find the end: next heading with level <= target level
     let endLine = lines.length
     for (let i = headingIndex + 1; i < headingLines.length; i++) {
       if (headingLines[i]!.level <= target.level) {
-        endLine = headingLines[i]!.lineIndex
+        endLine = headingLines[i]!.line
         break
       }
     }
@@ -291,4 +264,42 @@ function extractTextFromNode(node: any): string {
     return node.content.map((child: any) => extractTextFromNode(child)).join('')
   }
   return ''
+}
+
+const ATX_HEADING = /^(#{1,6})\s+(.+)$/
+const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
+
+/**
+ * Find non-empty ATX headings in markdown, skipping fenced code blocks.
+ * `line` is the 0-based line index; `offset` the character offset of the line.
+ */
+function scanAtxHeadings(
+  markdown: string,
+): { line: number; offset: number; level: number; text: string }[] {
+  const found: { line: number; offset: number; level: number; text: string }[] = []
+  const lines = markdown.split('\n')
+  let fence: string | null = null
+  let offset = 0
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    const fenceMatch = line.match(FENCE)
+    const marker = fenceMatch?.[1]
+    const info = fenceMatch?.[2] ?? ''
+    if (fence) {
+      // A closing fence uses the same character, is at least as long, and has no info string.
+      if (marker && marker[0] === fence[0] && marker.length >= fence.length && !info.trim()) {
+        fence = null
+      }
+    } else if (marker && !(marker[0] === '`' && info.includes('`'))) {
+      fence = marker
+    } else {
+      const match = line.match(ATX_HEADING)
+      if (match) {
+        const text = match[2]!.replace(/\s*#+\s*$/, '').trim() // Remove trailing hashes
+        if (text) found.push({ line: i, offset, level: match[1]!.length, text })
+      }
+    }
+    offset += line.length + 1 // +1 for newline
+  }
+  return found
 }
