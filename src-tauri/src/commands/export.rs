@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Mutex;
 
 /// Supported export formats with their Pandoc output format names and typical file extensions.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -624,6 +626,37 @@ pub fn get_export_config(format: ExportFormat) -> ExportConfig {
     ExportConfig::default_for(&format)
 }
 
+/// Destinations with an export in progress. export_document runs off the main
+/// thread, so two exports to one file would otherwise run Pandoc concurrently.
+// ponytail: keyed by the literal path; aliases via symlinks are not detected.
+static EXPORTS_IN_FLIGHT: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
+
+/// Claim on one export destination, released when dropped.
+struct ExportDestination(PathBuf);
+
+impl ExportDestination {
+    fn claim(output_path: &str) -> Result<Self, String> {
+        let path = PathBuf::from(output_path);
+        let mut in_flight = EXPORTS_IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+        if !in_flight.insert(path.clone()) {
+            return Err(format!(
+                "'{}' is already being exported; wait for that export to finish.",
+                output_path
+            ));
+        }
+        Ok(Self(path))
+    }
+}
+
+impl Drop for ExportDestination {
+    fn drop(&mut self) {
+        EXPORTS_IN_FLIGHT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
+    }
+}
+
 /// Tauri command: Export markdown content to a specified format using Pandoc.
 ///
 /// # Arguments
@@ -642,6 +675,8 @@ pub fn export_document(
     resource_path: Option<String>,
     config: Option<ExportConfig>,
 ) -> Result<ExportResult, String> {
+    let _destination = ExportDestination::claim(&output_path)?;
+
     // Locate Pandoc
     let pandoc_path = find_pandoc_path().ok_or_else(|| {
         "Pandoc is not installed. Please install Pandoc from https://pandoc.org/installing.html"
@@ -1020,6 +1055,40 @@ mod tests {
     /// Helper: return pandoc path or skip test gracefully.
     fn pandoc_or_skip() -> Option<String> {
         find_pandoc_path()
+    }
+
+    #[test]
+    fn test_overlapping_exports_to_one_destination_run_one_at_a_time() {
+        if pandoc_or_skip().is_none() {
+            eprintln!("SKIP: pandoc not found");
+            return;
+        }
+        // export_document runs off the main thread, so a second export to the
+        // same file must not start while the first Pandoc is still writing it.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let output = dir.path().join("same.html").to_string_lossy().to_string();
+        let markdown = "# Heading\n\nSome *text* with `code`.\n\n".repeat(20_000);
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let (output, markdown, barrier) =
+                    (output.clone(), markdown.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    export_document(markdown, output, ExportFormat::Html, None, None, None)
+                })
+            })
+            .collect();
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        assert_eq!(
+            results.iter().filter(|r| r.is_ok()).count(),
+            1,
+            "{:?}",
+            results.iter().map(|r| r.as_ref().err()).collect::<Vec<_>>()
+        );
+        let err = results.into_iter().find_map(|r| r.err()).unwrap();
+        assert!(err.contains("already being exported"), "{}", err);
     }
 
     /// Sample markdown with various elements for testing exports.
