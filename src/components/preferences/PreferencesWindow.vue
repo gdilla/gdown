@@ -261,8 +261,8 @@ onUnmounted(() => {
   height: 24px;
   border-radius: 50%;
   border: none;
-  background: rgba(0, 0, 0, 0.06);
-  color: #666;
+  background: rgba(var(--ink-rgb), 0.06);
+  color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -273,7 +273,7 @@ onUnmounted(() => {
 
 .prefs-close-btn:hover {
   background: #ff5f57;
-  color: #fff;
+  color: var(--accent-text);
 }
 
 /* ── Toolbar (macOS System Preferences style tab bar) ── */
@@ -309,11 +309,11 @@ onUnmounted(() => {
 }
 
 .prefs-tab-btn:hover {
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(var(--ink-rgb), 0.06);
 }
 
 .prefs-tab-btn.active {
-  background: rgba(0, 122, 255, 0.12);
+  background: rgba(var(--control-accent-rgb), 0.12);
 }
 
 .prefs-tab-icon {
@@ -395,18 +395,6 @@ onUnmounted(() => {
     opacity: 0;
   }
 }
-
-/* ── Dark theme overrides ── */
-:root[data-theme='dark'] .prefs-window,
-.dark .prefs-window {
-  --prefs-bg: #2d2d2d;
-  --prefs-toolbar-bg: #383838;
-  --prefs-border: #4a4a4a;
-  --prefs-icon-color: #aaa;
-  --prefs-icon-active-color: #58a6ff;
-  --prefs-tab-text: #aaa;
-  --prefs-tab-text-active: #58a6ff;
-}
 </style>
 
 <!-- Global styles for pane form elements (used by all pane components) -->
@@ -473,8 +461,8 @@ onUnmounted(() => {
 }
 
 .pref-select:focus {
-  border-color: #007aff;
-  box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.2);
+  border-color: var(--control-accent);
+  box-shadow: 0 0 0 2px rgba(var(--control-accent-rgb), 0.2);
 }
 
 .pref-input {
@@ -490,8 +478,8 @@ onUnmounted(() => {
 }
 
 .pref-input:focus {
-  border-color: #007aff;
-  box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.2);
+  border-color: var(--control-accent);
+  box-shadow: 0 0 0 2px rgba(var(--control-accent-rgb), 0.2);
 }
 
 .pref-number {
@@ -508,8 +496,8 @@ onUnmounted(() => {
 }
 
 .pref-number:focus {
-  border-color: #007aff;
-  box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.2);
+  border-color: var(--control-accent);
+  box-shadow: 0 0 0 2px rgba(var(--control-accent-rgb), 0.2);
 }
 
 .pref-checkbox-label {
@@ -525,7 +513,7 @@ onUnmounted(() => {
 .pref-checkbox {
   width: 16px;
   height: 16px;
-  accent-color: #007aff;
+  accent-color: var(--control-accent);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -538,7 +526,7 @@ onUnmounted(() => {
 }
 
 .pref-link {
-  color: #007aff;
+  color: var(--control-accent);
   text-decoration: none;
 }
 
@@ -554,13 +542,13 @@ onUnmounted(() => {
 }
 
 .pref-status-ok {
-  background: rgba(52, 199, 89, 0.15);
-  color: #28a745;
+  background: rgba(var(--system-green-rgb), 0.15);
+  color: var(--success-text);
 }
 
 .pref-status-error {
-  background: rgba(255, 59, 48, 0.12);
-  color: #dc3545;
+  background: rgba(var(--system-red-rgb), 0.12);
+  color: var(--danger-text);
 }
 
 /* ── Path row (input + browse button) ── */
@@ -579,7 +567,7 @@ onUnmounted(() => {
 .pref-path-display {
   font-family: 'SF Mono', Menlo, Monaco, monospace;
   font-size: 11px;
-  color: #999;
+  color: var(--text-faint);
   display: block;
   margin-top: 2px;
   word-break: break-all;
@@ -599,7 +587,7 @@ onUnmounted(() => {
 }
 
 .pref-btn:hover {
-  border-color: #007aff;
+  border-color: var(--control-accent);
 }
 
 .pref-btn-browse {
@@ -607,19 +595,19 @@ onUnmounted(() => {
 }
 
 .pref-btn-browse:hover {
-  background: rgba(0, 122, 255, 0.06);
-  border-color: #007aff;
+  background: rgba(var(--control-accent-rgb), 0.06);
+  border-color: var(--control-accent);
 }
 
 .pref-btn-clear {
   background: transparent;
-  color: #999;
+  color: var(--text-faint);
   border-color: transparent;
   padding: 5px 8px;
 }
 
 .pref-btn-clear:hover {
-  color: #dc3545;
+  color: var(--danger-text);
 }
 
 .pref-btn-secondary {
@@ -627,8 +615,8 @@ onUnmounted(() => {
 }
 
 .pref-btn-secondary:hover {
-  background: rgba(0, 122, 255, 0.06);
-  border-color: #007aff;
+  background: rgba(var(--control-accent-rgb), 0.06);
+  border-color: var(--control-accent);
 }
 
 .pref-group-actions {
@@ -644,22 +632,8 @@ onUnmounted(() => {
 .pref-hint code {
   font-family: 'SF Mono', Menlo, Monaco, monospace;
   font-size: 11px;
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(var(--ink-rgb), 0.06);
   padding: 1px 4px;
   border-radius: 3px;
-}
-
-/* ── Dark theme for pane elements ── */
-:root[data-theme='dark'] .pref-group,
-.dark .pref-group {
-  --pref-group-bg: #383838;
-  --pref-group-border: #4a4a4a;
-  --pref-group-title-color: #e0e0e0;
-  --pref-row-border: #4a4a4a;
-  --pref-label-color: #ccc;
-  --pref-input-border: #555;
-  --pref-input-bg: #2d2d2d;
-  --pref-input-color: #e0e0e0;
-  --pref-hint-color: #888;
 }
 </style>

@@ -162,7 +162,7 @@ function adjustFontSize(delta: number) {
 }
 
 .theme-option.active {
-  border-color: #007aff;
+  border-color: var(--control-accent);
 }
 
 .theme-preview {
@@ -171,7 +171,7 @@ function adjustFontSize(delta: number) {
   border-radius: 6px;
   display: flex;
   overflow: hidden;
-  border: 1px solid var(--pref-input-border, #ddd);
+  border: 1px solid var(--input-border);
 }
 
 .preview-sidebar {
@@ -309,7 +309,7 @@ function adjustFontSize(delta: number) {
 }
 
 .stepper-btn:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.04);
+  background: rgba(var(--ink-rgb), 0.04);
 }
 
 .stepper-btn:disabled {
@@ -346,7 +346,7 @@ function adjustFontSize(delta: number) {
   -webkit-appearance: none;
   width: 14px;
   height: 14px;
-  background: #007aff;
+  background: var(--control-accent);
   border-radius: 50%;
   cursor: pointer;
 }
@@ -362,7 +362,7 @@ function adjustFontSize(delta: number) {
 /* Font preview */
 .font-preview {
   padding: 14px;
-  border: 1px solid var(--pref-input-border, #ddd);
+  border: 1px solid var(--input-border);
   border-radius: 8px;
   background: var(--pref-input-bg, #fff);
   color: var(--pref-label-color, #444);
@@ -371,19 +371,9 @@ function adjustFontSize(delta: number) {
 
 .font-preview code {
   font-family: 'SF Mono', Menlo, Monaco, monospace;
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(var(--ink-rgb), 0.06);
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 0.9em;
-}
-
-:root[data-theme='dark'] .font-preview code,
-.dark .font-preview code {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-:root[data-theme='dark'] .stepper-btn:hover:not(:disabled),
-.dark .stepper-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
 }
 </style>

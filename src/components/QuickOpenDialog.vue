@@ -147,7 +147,7 @@ onUnmounted(() => {
 .quick-open-field input {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid var(--border-color, #ddd);
+  border: 1px solid var(--input-border);
   border-radius: 4px;
   font-size: 14px;
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -159,7 +159,7 @@ onUnmounted(() => {
 }
 
 .quick-open-field input:focus {
-  border-color: var(--accent-color, #4183c4);
+  border-color: var(--focus-outline);
 }
 
 .quick-open-error {

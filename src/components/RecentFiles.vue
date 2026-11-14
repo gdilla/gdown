@@ -95,7 +95,9 @@ function parentDir(path: string): string {
           >
             <div class="recent-item-icon file-icon">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.414A2 2 0 0 0 13.414 3L11 .586A2 2 0 0 0 9.586 0H4zm5.5 1.5v2A1.5 1.5 0 0 0 11 5h2v9a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 3 14V2a.5.5 0 0 1 .5-.5h6z"/>
+                <path
+                  d="M4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.414A2 2 0 0 0 13.414 3L11 .586A2 2 0 0 0 9.586 0H4zm5.5 1.5v2A1.5 1.5 0 0 0 11 5h2v9a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 3 14V2a.5.5 0 0 1 .5-.5h6z"
+                />
               </svg>
             </div>
             <div class="recent-item-info">
@@ -109,7 +111,9 @@ function parentDir(path: string): string {
               @click="removeEntry(entry, $event)"
             >
               <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                <path
+                  d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"
+                />
               </svg>
             </button>
           </li>
@@ -131,7 +135,9 @@ function parentDir(path: string): string {
           >
             <div class="recent-item-icon folder-icon">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M.54 3.87.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3H13.5a2 2 0 0 1 2 2v.092l-1-.341V5a1 1 0 0 0-1-1H9.828a3 3 0 0 1-2.12-.879l-.83-.828A1 1 0 0 0 6.173 2H2.5a1 1 0 0 0-1 1v.87L.54 3.87zM14.956 5.8l.644.22a.5.5 0 0 1 .309.635l-2 7a.5.5 0 0 1-.479.345H2.57a.5.5 0 0 1-.48-.345l-2-7a.5.5 0 0 1 .31-.635l.643-.22 1.489 5.21a.5.5 0 0 0 .48.345h9.977a.5.5 0 0 0 .48-.345l1.488-5.21z"/>
+                <path
+                  d="M.54 3.87.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3H13.5a2 2 0 0 1 2 2v.092l-1-.341V5a1 1 0 0 0-1-1H9.828a3 3 0 0 1-2.12-.879l-.83-.828A1 1 0 0 0 6.173 2H2.5a1 1 0 0 0-1 1v.87L.54 3.87zM14.956 5.8l.644.22a.5.5 0 0 1 .309.635l-2 7a.5.5 0 0 1-.479.345H2.57a.5.5 0 0 1-.48-.345l-2-7a.5.5 0 0 1 .31-.635l.643-.22 1.489 5.21a.5.5 0 0 0 .48.345h9.977a.5.5 0 0 0 .48-.345l1.488-5.21z"
+                />
               </svg>
             </div>
             <div class="recent-item-info">
@@ -145,7 +151,9 @@ function parentDir(path: string): string {
               @click="removeEntry(entry, $event)"
             >
               <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                <path
+                  d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"
+                />
               </svg>
             </button>
           </li>
@@ -154,9 +162,7 @@ function parentDir(path: string): string {
 
       <!-- Clear all button -->
       <div class="recent-footer">
-        <button class="clear-all-btn" @click="clearAllRecent">
-          Clear Recent History
-        </button>
+        <button class="clear-all-btn" @click="clearAllRecent">Clear Recent History</button>
       </div>
     </template>
   </div>
@@ -183,7 +189,7 @@ function parentDir(path: string): string {
 }
 
 .recent-empty-text {
-  color: #999;
+  color: var(--text-faint);
   font-size: 13px;
   margin: 0;
 }
@@ -204,7 +210,7 @@ function parentDir(path: string): string {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #888;
+  color: var(--text-muted);
   margin: 0;
 }
 
@@ -227,11 +233,11 @@ function parentDir(path: string): string {
 }
 
 .recent-item:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: rgba(var(--ink-rgb), 0.05);
 }
 
 .recent-item:active {
-  background-color: rgba(0, 0, 0, 0.08);
+  background-color: rgba(var(--ink-rgb), 0.08);
 }
 
 .recent-item-icon {
@@ -265,7 +271,7 @@ function parentDir(path: string): string {
 .recent-item-name {
   font-size: 13px;
   font-weight: 500;
-  color: #333;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -273,7 +279,7 @@ function parentDir(path: string): string {
 
 .recent-item-path {
   font-size: 11px;
-  color: #999;
+  color: var(--text-faint);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -282,7 +288,7 @@ function parentDir(path: string): string {
 .recent-item-time {
   flex-shrink: 0;
   font-size: 11px;
-  color: #aaa;
+  color: var(--text-placeholder);
   white-space: nowrap;
 }
 
@@ -297,9 +303,11 @@ function parentDir(path: string): string {
   background: none;
   border-radius: 4px;
   cursor: pointer;
-  color: #999;
+  color: var(--text-faint);
   padding: 0;
-  transition: background-color 0.1s ease, color 0.1s ease;
+  transition:
+    background-color 0.1s ease,
+    color 0.1s ease;
 }
 
 .recent-item:hover .recent-item-remove {
@@ -311,79 +319,32 @@ function parentDir(path: string): string {
 }
 
 .recent-item-remove:hover {
-  background-color: rgba(0, 0, 0, 0.1);
-  color: #d32f2f;
+  background-color: rgba(var(--ink-rgb), 0.1);
+  color: rgb(var(--error-rgb));
 }
 
 .recent-footer {
   display: flex;
   justify-content: center;
   padding: 12px 12px 4px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--border-faint);
   margin-top: 4px;
 }
 
 .clear-all-btn {
   padding: 5px 14px;
-  border: 1px solid #d0d0d0;
+  border: 1px solid var(--button-border);
   border-radius: 5px;
-  background: #f8f8f8;
-  color: #777;
+  background: var(--bg-secondary);
+  color: var(--tab-text-color);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .clear-all-btn:hover {
-  background: #eee;
-  color: #555;
-  border-color: #bbb;
-}
-
-/* Dark theme support via CSS variables */
-@media (prefers-color-scheme: dark) {
-  .recent-section-title {
-    color: #aaa;
-  }
-
-  .recent-item:hover {
-    background-color: rgba(255, 255, 255, 0.06);
-  }
-
-  .recent-item:active {
-    background-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .recent-item-name {
-    color: #ddd;
-  }
-
-  .recent-item-path {
-    color: #777;
-  }
-
-  .recent-item-time {
-    color: #666;
-  }
-
-  .recent-item-remove:hover {
-    background-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .recent-footer {
-    border-top-color: #333;
-  }
-
-  .clear-all-btn {
-    background: #2a2a2a;
-    border-color: #444;
-    color: #999;
-  }
-
-  .clear-all-btn:hover {
-    background: #333;
-    color: #ccc;
-    border-color: #555;
-  }
+  background: var(--surface-muted);
+  color: var(--text-emphasis);
+  border-color: var(--button-hover-border);
 }
 </style>

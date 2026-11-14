@@ -1,25 +1,15 @@
 <template>
   <Teleport to="body">
     <Transition name="conflict-banner">
-      <div
-        v-if="autoSaveStore.conflictDialog"
-        class="conflict-banner"
-        role="alert"
-      >
+      <div v-if="autoSaveStore.conflictDialog" class="conflict-banner" role="alert">
         <span class="conflict-banner-icon">↻</span>
         <span class="conflict-banner-text">
           <strong>{{ fileName }}</strong> was modified externally.
         </span>
         <div class="conflict-banner-actions">
-          <button class="conflict-btn-primary" @click="handleReload">
-            Reload from disk
-          </button>
-          <button class="conflict-btn-secondary" @click="handleOverwrite">
-            Keep mine
-          </button>
-          <button class="conflict-btn-dismiss" @click="handleCancel" title="Dismiss">
-            ✕
-          </button>
+          <button class="conflict-btn-primary" @click="handleReload">Reload from disk</button>
+          <button class="conflict-btn-secondary" @click="handleOverwrite">Keep mine</button>
+          <button class="conflict-btn-dismiss" title="Dismiss" @click="handleCancel">✕</button>
         </div>
       </div>
     </Transition>
@@ -103,7 +93,7 @@ function handleCancel() {
   cursor: pointer;
   border: none;
   background: var(--tab-active-indicator, #4a9eff);
-  color: #fff;
+  color: var(--accent-text);
   transition: opacity 0.15s;
 }
 
@@ -124,7 +114,7 @@ function handleCancel() {
 }
 
 .conflict-btn-secondary:hover {
-  background: var(--tab-hover-bg, rgba(0,0,0,0.05));
+  background: var(--tab-hover-bg, rgba(0, 0, 0, 0.05));
 }
 
 .conflict-btn-dismiss {
@@ -146,7 +136,9 @@ function handleCancel() {
 /* Slide-down animation */
 .conflict-banner-enter-active,
 .conflict-banner-leave-active {
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
 }
 
 .conflict-banner-enter-from,

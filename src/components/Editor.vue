@@ -832,7 +832,7 @@ onBeforeUnmount(() => {
 
 /* Links - Typora-like styling */
 .gdown-editor a.gdown-link {
-  color: #4183c4;
+  color: var(--link-color);
   text-decoration: none;
   border-bottom: 1px solid transparent;
   transition: border-color 0.2s;
@@ -840,7 +840,7 @@ onBeforeUnmount(() => {
 }
 
 .gdown-editor a.gdown-link:hover {
-  border-bottom-color: #4183c4;
+  border-bottom-color: var(--link-color);
   cursor: pointer;
 }
 
@@ -863,7 +863,7 @@ onBeforeUnmount(() => {
 
 /* Selected image */
 .gdown-editor img.ProseMirror-selectednode {
-  outline: 2px solid #4183c4;
+  outline: 2px solid var(--focus-outline);
   outline-offset: 2px;
 }
 
@@ -872,8 +872,8 @@ onBeforeUnmount(() => {
 .gdown-editor img:not([src]) {
   min-height: 60px;
   min-width: 200px;
-  background: #f0f0f0;
-  border: 2px dashed #ccc;
+  background: var(--surface-muted);
+  border: 2px dashed var(--border-strong);
   border-radius: 4px;
 }
 
@@ -884,12 +884,12 @@ onBeforeUnmount(() => {
 
 /* Code */
 .gdown-editor code {
-  background: #f5f5f5;
+  background: var(--code-inline-bg);
   padding: 2px 6px;
   border-radius: 3px;
   font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, monospace;
   font-size: 0.9em;
-  color: #e96900;
+  color: var(--code-inline-text);
 }
 
 /* === CODE BLOCKS with syntax highlighting (GitHub-like theme) === */
@@ -897,14 +897,14 @@ onBeforeUnmount(() => {
 /* Lowlight / highlight.js syntax highlighting tokens */
 .gdown-editor .hljs-comment,
 .gdown-editor .hljs-quote {
-  color: #6a737d;
+  color: var(--syntax-comment);
   font-style: italic;
 }
 
 .gdown-editor .hljs-keyword,
 .gdown-editor .hljs-selector-tag,
 .gdown-editor .hljs-addition {
-  color: #d73a49;
+  color: var(--syntax-keyword);
 }
 
 .gdown-editor .hljs-string,
@@ -912,11 +912,11 @@ onBeforeUnmount(() => {
 .gdown-editor .hljs-literal,
 .gdown-editor .hljs-doctag,
 .gdown-editor .hljs-regexp {
-  color: #032f62;
+  color: var(--syntax-string);
 }
 
 .gdown-editor .hljs-number {
-  color: #005cc5;
+  color: var(--syntax-constant);
 }
 
 .gdown-editor .hljs-title,
@@ -924,20 +924,20 @@ onBeforeUnmount(() => {
 .gdown-editor .hljs-name,
 .gdown-editor .hljs-selector-id,
 .gdown-editor .hljs-selector-class {
-  color: #6f42c1;
+  color: var(--syntax-function);
 }
 
 .gdown-editor .hljs-variable,
 .gdown-editor .hljs-template-variable,
 .gdown-editor .hljs-attr {
-  color: #005cc5;
+  color: var(--syntax-constant);
 }
 
 .gdown-editor .hljs-type,
 .gdown-editor .hljs-built_in,
 .gdown-editor .hljs-builtin-name,
 .gdown-editor .hljs-params {
-  color: #e36209;
+  color: var(--syntax-builtin);
 }
 
 .gdown-editor .hljs-symbol,
@@ -945,7 +945,7 @@ onBeforeUnmount(() => {
 .gdown-editor .hljs-link,
 .gdown-editor .hljs-meta,
 .gdown-editor .hljs-deletion {
-  color: #22863a;
+  color: var(--syntax-tag);
 }
 
 .gdown-editor .hljs-emphasis {
@@ -957,31 +957,31 @@ onBeforeUnmount(() => {
 }
 
 .gdown-editor .hljs-function {
-  color: #6f42c1;
+  color: var(--syntax-function);
 }
 
 .gdown-editor .hljs-tag {
-  color: #22863a;
+  color: var(--syntax-tag);
 }
 
 .gdown-editor .hljs-subst {
-  color: #24292e;
+  color: var(--syntax-text);
 }
 
 .gdown-editor .hljs-formula {
-  color: #005cc5;
+  color: var(--syntax-constant);
 }
 
 .gdown-editor .hljs-operator {
-  color: #d73a49;
+  color: var(--syntax-keyword);
 }
 
 .gdown-editor .hljs-property {
-  color: #005cc5;
+  color: var(--syntax-constant);
 }
 
 .gdown-editor .hljs-punctuation {
-  color: #24292e;
+  color: var(--syntax-text);
 }
 
 /* === LISTS — Typora-like styling === */
@@ -1037,7 +1037,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   width: 16px;
   height: 16px;
-  accent-color: #4183c4;
+  accent-color: var(--link-color);
   border-radius: 3px;
 }
 
@@ -1049,7 +1049,7 @@ onBeforeUnmount(() => {
 /* Checked task item — strikethrough + dim text like Typora */
 .gdown-editor ul[data-type='taskList'] li[data-checked='true'] > div {
   text-decoration: line-through;
-  color: #999;
+  color: var(--text-faint);
 }
 
 /* Nested task lists */
@@ -1058,9 +1058,9 @@ onBeforeUnmount(() => {
 }
 /* === BLOCKQUOTES (Typora-like) === */
 .gdown-editor blockquote {
-  border-left: 4px solid #dfe2e5;
+  border-left: 4px solid var(--blockquote-border);
   padding: 0 16px;
-  color: #6a737d;
+  color: var(--blockquote-text);
   margin: 1em 0;
 }
 
@@ -1069,20 +1069,20 @@ onBeforeUnmount(() => {
 }
 
 .gdown-editor blockquote blockquote {
-  border-left-color: #ccc;
+  border-left-color: var(--border-strong);
 }
 
 /* === HORIZONTAL RULE (Typora-like) === */
 .gdown-editor hr {
   border: none;
   height: 2px;
-  background-color: #e7e7e7;
+  background-color: var(--border-subtle);
   margin: 24px 0;
   overflow: hidden;
 }
 
 .gdown-editor hr.ProseMirror-selectednode {
-  outline: 2px solid #4183c4;
+  outline: 2px solid var(--focus-outline);
   outline-offset: 2px;
 }
 
@@ -1099,7 +1099,7 @@ onBeforeUnmount(() => {
 .gdown-editor p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
-  color: #aaa;
+  color: var(--text-placeholder);
   pointer-events: none;
   height: 0;
 }
@@ -1144,8 +1144,8 @@ onBeforeUnmount(() => {
   cursor: pointer;
   padding: 4px 10px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.06);
-  color: #888;
+  background: rgba(var(--ink-rgb), 0.06);
+  color: var(--text-muted);
   font-size: 12px;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   user-select: none;
@@ -1158,8 +1158,8 @@ onBeforeUnmount(() => {
 }
 
 .editor-mode-indicator:hover {
-  background: rgba(0, 0, 0, 0.12);
-  color: #555;
+  background: rgba(var(--ink-rgb), 0.12);
+  color: var(--text-emphasis);
 }
 
 .mode-icon {
@@ -1224,14 +1224,14 @@ onBeforeUnmount(() => {
    ============================================================ */
 
 .gdown-editor .search-highlight {
-  background-color: rgba(255, 223, 93, 0.5);
+  background-color: var(--search-match-bg);
   border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(255, 193, 7, 0.3);
+  box-shadow: 0 0 0 1px var(--search-match-ring);
 }
 
 .gdown-editor .search-highlight.search-highlight-current {
-  background-color: rgba(255, 152, 0, 0.6);
-  box-shadow: 0 0 0 1px rgba(255, 152, 0, 0.5);
+  background-color: var(--search-current-bg);
+  box-shadow: 0 0 0 1px var(--search-current-ring);
 }
 
 /* === TABLES (GFM-style) === */

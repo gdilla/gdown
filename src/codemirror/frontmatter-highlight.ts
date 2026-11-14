@@ -180,28 +180,28 @@ export const frontmatterHighlightPlugin = ViewPlugin.fromClass(
  */
 export const frontmatterHighlightTheme = EditorView.theme({
   '.cm-frontmatter-delimiter': {
-    color: '#6a737d',
+    color: 'var(--syntax-comment)',
     fontWeight: 'bold',
   },
   '.cm-frontmatter-key': {
-    color: '#d73a49',
+    color: 'var(--syntax-keyword)',
     fontWeight: '500',
   },
   '.cm-frontmatter-value': {
-    color: '#032f62',
+    color: 'var(--syntax-string)',
   },
   '.cm-frontmatter-string': {
-    color: '#22863a',
+    color: 'var(--syntax-tag)',
   },
   '.cm-frontmatter-number': {
-    color: '#005cc5',
+    color: 'var(--syntax-constant)',
   },
   '.cm-frontmatter-bool': {
-    color: '#e36209',
+    color: 'var(--syntax-builtin)',
     fontWeight: '500',
   },
   '.cm-frontmatter-comment': {
-    color: '#6a737d',
+    color: 'var(--syntax-comment)',
     fontStyle: 'italic',
   },
 })

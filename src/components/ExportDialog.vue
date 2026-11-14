@@ -371,7 +371,7 @@ async function copyToClipboard(text: string) {
   background: none;
   border: none;
   font-size: 22px;
-  color: #999;
+  color: var(--text-faint);
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 4px;
@@ -380,8 +380,8 @@ async function copyToClipboard(text: string) {
 }
 
 .export-close-btn:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: #333;
+  background: rgba(var(--ink-rgb), 0.06);
+  color: var(--text-primary);
 }
 
 .export-close-btn:disabled {
@@ -391,8 +391,8 @@ async function copyToClipboard(text: string) {
 
 /* Pandoc Missing Prompt */
 .pandoc-missing {
-  background: #fffbf0;
-  border: 1px solid #f0d78e;
+  background: var(--warning-panel-bg);
+  border: 1px solid var(--warning-panel-border);
   border-radius: 10px;
   padding: 18px;
   margin-bottom: 20px;
@@ -415,25 +415,25 @@ async function copyToClipboard(text: string) {
   display: block;
   font-size: 15px;
   font-weight: 600;
-  color: #7a5d00;
+  color: var(--warning-panel-title);
   margin-bottom: 4px;
 }
 
 .pandoc-missing-subtitle {
   font-size: 12px;
-  color: #8a7230;
+  color: var(--warning-panel-text);
   margin: 0;
   line-height: 1.5;
 }
 
 .inline-link {
-  color: #0d6efd;
+  color: var(--warning-panel-link);
   text-decoration: underline;
   cursor: pointer;
 }
 
 .inline-link:hover {
-  color: #0a58ca;
+  color: var(--warning-panel-link-hover);
 }
 
 /* Install Methods */
@@ -444,13 +444,13 @@ async function copyToClipboard(text: string) {
 .install-methods-label {
   font-size: 12px;
   font-weight: 600;
-  color: #7a5d00;
+  color: var(--warning-panel-title);
   margin: 0 0 10px 0;
 }
 
 .install-method {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid #e8dbb8;
+  background: var(--warning-panel-item-bg);
+  border: 1px solid var(--warning-panel-item-border);
   border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 8px;
@@ -475,13 +475,13 @@ async function copyToClipboard(text: string) {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.3px;
-  background: #e8e8e8;
-  color: #666;
+  background: var(--button-hover-bg);
+  color: var(--text-secondary);
 }
 
 .method-badge.recommended {
-  background: #d4edda;
-  color: #155724;
+  background: var(--notice-success-bg);
+  color: var(--notice-success-text);
 }
 
 .method-name {
@@ -492,7 +492,7 @@ async function copyToClipboard(text: string) {
 
 .method-description {
   font-size: 12px;
-  color: #666;
+  color: var(--text-secondary);
   margin: 0;
   line-height: 1.4;
 }
@@ -551,13 +551,13 @@ async function copyToClipboard(text: string) {
 }
 
 .retry-btn {
-  background: #4a9eff;
-  color: #fff;
-  border-color: #3d8ee6;
+  background: var(--accent-color);
+  color: var(--accent-text);
+  border-color: var(--accent-hover);
 }
 
 .retry-btn:hover:not(:disabled) {
-  background: #3d8ee6;
+  background: var(--accent-hover);
 }
 
 .retry-btn:disabled {
@@ -566,14 +566,14 @@ async function copyToClipboard(text: string) {
 }
 
 .help-btn {
-  background: #f5f5f5;
-  border-color: #d0d0d0;
+  background: var(--button-bg);
+  border-color: var(--button-border);
   color: var(--text-primary, #333);
 }
 
 .help-btn:hover {
-  background: #e8e8e8;
-  border-color: #bbb;
+  background: var(--button-hover-bg);
+  border-color: var(--button-hover-border);
 }
 
 .spinner.small {
@@ -584,16 +584,16 @@ async function copyToClipboard(text: string) {
 
 .pandoc-error-detail {
   font-size: 11px;
-  color: #a07830;
+  color: var(--warning-panel-detail);
   margin: 0;
   padding: 8px 10px;
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(var(--ink-rgb), 0.03);
   border-radius: 4px;
   word-break: break-word;
 }
 
 .pandoc-error-detail strong {
-  color: #8a6a20;
+  color: var(--warning-panel-detail-strong);
 }
 
 /* Pandoc Badge */
@@ -604,8 +604,8 @@ async function copyToClipboard(text: string) {
 .pandoc-badge {
   display: inline-block;
   padding: 2px 10px;
-  background: #e8f5e9;
-  color: #2e7d32;
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
   border-radius: 12px;
   font-size: 11px;
   font-weight: 500;
@@ -620,7 +620,7 @@ async function copyToClipboard(text: string) {
   display: block;
   font-size: 12px;
   font-weight: 600;
-  color: #888;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 8px;
@@ -639,7 +639,7 @@ async function copyToClipboard(text: string) {
   align-items: center;
   gap: 2px;
   padding: 12px 8px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--bg-primary, #ffffff);
   cursor: pointer;
@@ -647,14 +647,14 @@ async function copyToClipboard(text: string) {
 }
 
 .format-option:hover:not(:disabled) {
-  border-color: #bbb;
-  background: #f9f9f9;
+  border-color: var(--button-hover-border);
+  background: var(--bg-secondary);
 }
 
 .format-option.selected {
-  border-color: #4a9eff;
-  background: rgba(74, 158, 255, 0.06);
-  box-shadow: 0 0 0 1px #4a9eff;
+  border-color: var(--accent-color);
+  background: rgba(var(--accent-rgb), 0.06);
+  box-shadow: 0 0 0 1px var(--accent-color);
 }
 
 .format-option:disabled {
@@ -674,7 +674,7 @@ async function copyToClipboard(text: string) {
 
 .format-ext {
   font-size: 10px;
-  color: #999;
+  color: var(--text-faint);
 }
 
 /* Output Path */
@@ -686,7 +686,7 @@ async function copyToClipboard(text: string) {
 .output-path-input {
   flex: 1;
   padding: 8px 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   font-size: 12px;
   color: var(--text-primary, #333);
@@ -699,14 +699,14 @@ async function copyToClipboard(text: string) {
 
 .output-path-input::placeholder {
   direction: ltr;
-  color: #aaa;
+  color: var(--text-placeholder);
 }
 
 .browse-btn {
   padding: 8px 14px;
-  border: 1px solid #d0d0d0;
+  border: 1px solid var(--button-border);
   border-radius: 6px;
-  background: #f5f5f5;
+  background: var(--button-bg);
   color: var(--text-primary, #333);
   font-size: 12px;
   cursor: pointer;
@@ -715,8 +715,8 @@ async function copyToClipboard(text: string) {
 }
 
 .browse-btn:hover:not(:disabled) {
-  background: #e8e8e8;
-  border-color: #bbb;
+  background: var(--button-hover-bg);
+  border-color: var(--button-hover-border);
 }
 
 .browse-btn:disabled {
@@ -743,7 +743,7 @@ async function copyToClipboard(text: string) {
 .option-checkbox input[type='checkbox'] {
   width: 16px;
   height: 16px;
-  accent-color: #4a9eff;
+  accent-color: var(--accent-color);
 }
 
 .option-checkbox input:disabled {
@@ -757,20 +757,20 @@ async function copyToClipboard(text: string) {
 
 .advanced-summary {
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
   cursor: pointer;
   padding: 6px 0;
   user-select: none;
 }
 
 .advanced-summary:hover {
-  color: #555;
+  color: var(--text-emphasis);
 }
 
 .extra-flags-input {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   font-size: 12px;
   color: var(--text-primary, #333);
@@ -784,7 +784,7 @@ async function copyToClipboard(text: string) {
 
 .help-text {
   font-size: 11px;
-  color: #aaa;
+  color: var(--text-placeholder);
   margin-top: 4px;
 }
 
@@ -798,18 +798,18 @@ async function copyToClipboard(text: string) {
 
 .export-status.checking,
 .export-status.exporting {
-  background: #e3f2fd;
-  color: #1565c0;
+  background: var(--status-info-bg);
+  color: var(--status-info-text);
 }
 
 .export-status.success {
-  background: #e8f5e9;
-  color: #2e7d32;
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
 }
 
 .export-status.error {
-  background: #fce4ec;
-  color: #c62828;
+  background: var(--status-danger-bg);
+  color: var(--status-danger-text);
 }
 
 .status-content {
@@ -824,11 +824,11 @@ async function copyToClipboard(text: string) {
 }
 
 .success-icon {
-  color: #2e7d32;
+  color: var(--status-success-text);
 }
 
 .error-icon {
-  color: #c62828;
+  color: var(--status-danger-text);
 }
 
 .error-message {
@@ -874,23 +874,23 @@ async function copyToClipboard(text: string) {
 }
 
 .export-btn.secondary {
-  background: #f5f5f5;
-  border-color: #d0d0d0;
+  background: var(--button-bg);
+  border-color: var(--button-border);
   color: var(--text-primary, #333);
 }
 
 .export-btn.secondary:hover:not(:disabled) {
-  background: #e8e8e8;
+  background: var(--button-hover-bg);
 }
 
 .export-btn.primary {
-  background: #4a9eff;
-  color: #fff;
-  border-color: #3d8ee6;
+  background: var(--accent-color);
+  color: var(--accent-text);
+  border-color: var(--accent-hover);
 }
 
 .export-btn.primary:hover:not(:disabled) {
-  background: #3d8ee6;
+  background: var(--accent-hover);
 }
 
 .export-btn:disabled {

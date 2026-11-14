@@ -728,7 +728,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #999;
+  color: var(--text-faint);
   font-size: 14px;
 }
 
@@ -739,30 +739,30 @@ onUnmounted(() => {
 .empty-state-title {
   font-size: 28px;
   font-weight: 300;
-  color: #666;
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 
 .empty-state-subtitle {
   font-size: 14px;
-  color: #999;
+  color: var(--text-faint);
   margin-bottom: 20px;
 }
 
 .empty-state-button {
   padding: 8px 20px;
-  border: 1px solid #d0d0d0;
+  border: 1px solid var(--button-border);
   border-radius: 6px;
-  background: #f5f5f5;
-  color: #333;
+  background: var(--button-bg);
+  color: var(--text-primary);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .empty-state-button:hover {
-  background: #e8e8e8;
-  border-color: #bbb;
+  background: var(--button-hover-bg);
+  border-color: var(--button-hover-border);
 }
 
 .empty-state-actions {
@@ -774,7 +774,7 @@ onUnmounted(() => {
 
 .empty-state-recent {
   margin-top: 8px;
-  border-top: 1px solid #e8e8e8;
+  border-top: 1px solid var(--border-subtle);
   padding-top: 8px;
 }
 

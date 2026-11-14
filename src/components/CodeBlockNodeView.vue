@@ -13,20 +13,11 @@
         @click.stop
       >
         <option value="">Plain Text</option>
-        <option
-          v-for="lang in languages"
-          :key="lang"
-          :value="lang"
-        >
+        <option v-for="lang in languages" :key="lang" :value="lang">
           {{ languageDisplayName(lang) }}
         </option>
       </select>
-      <button
-        class="copy-button"
-        title="Copy code"
-        @click.stop="copyCode"
-        @mousedown.stop
-      >
+      <button class="copy-button" title="Copy code" @click.stop="copyCode" @mousedown.stop>
         {{ copyLabel }}
       </button>
     </div>
@@ -35,89 +26,88 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { NodeViewWrapper, NodeViewContent, nodeViewProps } from "@tiptap/vue-3";
-import { getSupportedLanguages } from "../extensions/GdownCodeBlock";
+import { computed, ref } from 'vue'
+import { NodeViewWrapper, NodeViewContent, nodeViewProps } from '@tiptap/vue-3'
+import { getSupportedLanguages } from '../extensions/GdownCodeBlock'
 
-const props = defineProps(nodeViewProps);
+const props = defineProps(nodeViewProps)
 
-const languages = computed(() => getSupportedLanguages().sort());
-const copyLabel = ref("Copy");
+const languages = computed(() => getSupportedLanguages().sort())
+const copyLabel = ref('Copy')
 
-const language = computed(() => props.node.attrs.language || "");
+const language = computed(() => props.node.attrs.language || '')
 
 function onLanguageChange(event: Event) {
-  const target = event.target as HTMLSelectElement;
-  const lang = target.value || null;
-  props.updateAttributes({ language: lang });
+  const target = event.target as HTMLSelectElement
+  const lang = target.value || null
+  props.updateAttributes({ language: lang })
 }
 
 function copyCode() {
-  const text = props.node.textContent;
+  const text = props.node.textContent
   navigator.clipboard.writeText(text).then(() => {
-    copyLabel.value = "Copied!";
+    copyLabel.value = 'Copied!'
     setTimeout(() => {
-      copyLabel.value = "Copy";
-    }, 2000);
-  });
+      copyLabel.value = 'Copy'
+    }, 2000)
+  })
 }
 
 /** Map language identifiers to display-friendly names */
 function languageDisplayName(lang: string): string {
   const names: Record<string, string> = {
-    arduino: "Arduino",
-    bash: "Bash",
-    c: "C",
-    cpp: "C++",
-    csharp: "C#",
-    css: "CSS",
-    diff: "Diff",
-    go: "Go",
-    graphql: "GraphQL",
-    ini: "INI",
-    java: "Java",
-    javascript: "JavaScript",
-    json: "JSON",
-    kotlin: "Kotlin",
-    less: "Less",
-    lua: "Lua",
-    makefile: "Makefile",
-    markdown: "Markdown",
-    objectivec: "Objective-C",
-    perl: "Perl",
-    php: "PHP",
-    "php-template": "PHP Template",
-    plaintext: "Plain Text",
-    python: "Python",
-    "python-repl": "Python REPL",
-    r: "R",
-    ruby: "Ruby",
-    rust: "Rust",
-    scss: "SCSS",
-    shell: "Shell",
-    sql: "SQL",
-    swift: "Swift",
-    typescript: "TypeScript",
-    vbnet: "VB.NET",
-    wasm: "WebAssembly",
-    xml: "XML/HTML",
-    yaml: "YAML",
-  };
-  return names[lang] || lang.charAt(0).toUpperCase() + lang.slice(1);
+    arduino: 'Arduino',
+    bash: 'Bash',
+    c: 'C',
+    cpp: 'C++',
+    csharp: 'C#',
+    css: 'CSS',
+    diff: 'Diff',
+    go: 'Go',
+    graphql: 'GraphQL',
+    ini: 'INI',
+    java: 'Java',
+    javascript: 'JavaScript',
+    json: 'JSON',
+    kotlin: 'Kotlin',
+    less: 'Less',
+    lua: 'Lua',
+    makefile: 'Makefile',
+    markdown: 'Markdown',
+    objectivec: 'Objective-C',
+    perl: 'Perl',
+    php: 'PHP',
+    'php-template': 'PHP Template',
+    plaintext: 'Plain Text',
+    python: 'Python',
+    'python-repl': 'Python REPL',
+    r: 'R',
+    ruby: 'Ruby',
+    rust: 'Rust',
+    scss: 'SCSS',
+    shell: 'Shell',
+    sql: 'SQL',
+    swift: 'Swift',
+    typescript: 'TypeScript',
+    vbnet: 'VB.NET',
+    wasm: 'WebAssembly',
+    xml: 'XML/HTML',
+    yaml: 'YAML',
+  }
+  return names[lang] || lang.charAt(0).toUpperCase() + lang.slice(1)
 }
 </script>
 
 <style scoped>
 .gdown-code-block {
   position: relative;
-  background: #f6f8fa;
+  background: var(--code-block-bg);
   border-radius: 6px;
   padding: 16px;
   padding-top: 36px;
   overflow-x: auto;
   margin: 1em 0;
-  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, 'Liberation Mono', monospace;
   font-size: 13.6px;
   line-height: 1.55;
   tab-size: 2;
@@ -144,9 +134,8 @@ function languageDisplayName(lang: string): string {
   border-radius: 4px;
   padding: 2px 20px 2px 6px;
   font-size: 11px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
-    sans-serif;
-  color: #8b949e;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+  color: var(--code-block-control);
   cursor: pointer;
   outline: none;
   /* Custom dropdown arrow */
@@ -159,13 +148,13 @@ function languageDisplayName(lang: string): string {
 }
 
 .language-select:hover {
-  border-color: #d0d7de;
-  background-color: rgba(0, 0, 0, 0.04);
+  border-color: var(--code-block-control-border);
+  background-color: rgba(var(--ink-rgb), 0.04);
 }
 
 .language-select:focus {
-  border-color: #4a9eff;
-  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.2);
 }
 
 .copy-button {
@@ -176,9 +165,8 @@ function languageDisplayName(lang: string): string {
   border-radius: 4px;
   padding: 2px 8px;
   font-size: 11px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
-    sans-serif;
-  color: #8b949e;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+  color: var(--code-block-control);
   cursor: pointer;
   outline: none;
   opacity: 0;
@@ -190,9 +178,9 @@ function languageDisplayName(lang: string): string {
 }
 
 .copy-button:hover {
-  border-color: #d0d7de;
-  background-color: rgba(0, 0, 0, 0.04);
-  color: #57606a;
+  border-color: var(--code-block-control-border);
+  background-color: rgba(var(--ink-rgb), 0.04);
+  color: var(--code-block-control-hover);
 }
 
 /* Code content inside NodeView */

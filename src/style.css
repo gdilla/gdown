@@ -34,6 +34,143 @@
   --sidebar-markdown-color: #519aba;
   --sidebar-error-color: #d32f2f;
 
+  /* Aliases: resolve per theme through the token they point at */
+  --accent-color: var(--tab-active-indicator);
+  --control-accent: var(--sidebar-selected-color);
+  --dialog-bg: var(--bg-primary);
+  --dialog-button-bg: var(--button-bg);
+  /* Theme-invariant: text on accent fills */
+  --accent-text: #fff;
+
+  /* Neutral ink (rgb triplet for tints: rgba(var(--ink-rgb), a)) and text ramp */
+  --ink-rgb: 0, 0, 0;
+  --text-secondary: #666;
+  --text-emphasis: #555;
+  --text-muted: #888;
+  --text-faint: #999;
+  --text-placeholder: #aaa;
+
+  /* Surfaces, borders, buttons */
+  --bg-secondary: #fafafa;
+  --surface-hover: #f5f5f5;
+  --surface-muted: #f0f0f0;
+  --border-color: #e0e0e0;
+  --border-subtle: #e8e8e8;
+  --border-faint: #f0f0f0;
+  --border-strong: #ccc;
+  --input-border: #ddd;
+  --button-bg: #f5f5f5;
+  --button-hover-bg: #e8e8e8;
+  --button-border: #d0d0d0;
+  --button-hover-border: #bbb;
+  --dialog-border: #d0d0d0;
+  --dialog-button-border: #c8c8c8;
+
+  /* Accents (--accent-color aliases --tab-active-indicator; --control-accent aliases --sidebar-selected-color) */
+  --accent-rgb: 74, 158, 255;
+  --accent-hover: #3d8ee6;
+  --control-accent-rgb: 0, 122, 255;
+  --link-color: #4183c4;
+  --focus-outline: #4183c4;
+  --focus-outline-rgb: 65, 131, 196;
+  --focus-surface: #f0f7ff;
+
+  /* Status colours */
+  --error-rgb: 211, 47, 47;
+  --success-color: #4caf50;
+  --success-text: #28a745;
+  --danger-text: #dc3545;
+  --system-green-rgb: 52, 199, 89;
+  --system-red-rgb: 255, 59, 48;
+  --save-ok-text: #86a386;
+  --save-ok-icon: #5a9a5a;
+  --save-error-text: #d94f4f;
+  --save-error-icon: #c33;
+  --notice-success-bg: #d4edda;
+  --notice-success-text: #155724;
+  --notice-success-border: #c3e6cb;
+  --notice-danger-bg: #f8d7da;
+  --notice-danger-text: #721c24;
+  --notice-danger-border: #f5c6cb;
+  --notice-warning-bg: #fff3cd;
+  --notice-warning-text: #856404;
+  --notice-warning-border: #ffeeba;
+  --status-success-bg: #e8f5e9;
+  --status-success-text: #2e7d32;
+  --status-danger-bg: #fce4ec;
+  --status-danger-text: #c62828;
+  --status-info-bg: #e3f2fd;
+  --status-info-text: #1565c0;
+  --warning-panel-bg: #fffbf0;
+  --warning-panel-border: #f0d78e;
+  --warning-panel-title: #7a5d00;
+  --warning-panel-text: #8a7230;
+  --warning-panel-detail: #a07830;
+  --warning-panel-detail-strong: #8a6a20;
+  --warning-panel-item-bg: rgba(255, 255, 255, 0.7);
+  --warning-panel-item-border: #e8dbb8;
+  --warning-panel-link: #0d6efd;
+  --warning-panel-link-hover: #0a58ca;
+  --math-error-text: #e53e3e;
+  --math-error-bg: #fff5f5;
+  --math-preview-error-text: #c0392b;
+
+  /* Code and syntax highlighting (light = GitHub light palette) */
+  --code-inline-bg: #f5f5f5;
+  --code-inline-text: #e96900;
+  --code-block-bg: #f6f8fa;
+  --code-block-control: #8b949e;
+  --code-block-control-hover: #57606a;
+  --code-block-control-border: #d0d7de;
+  --syntax-text: #24292e;
+  --syntax-comment: #6a737d;
+  --syntax-keyword: #d73a49;
+  --syntax-string: #032f62;
+  --syntax-constant: #005cc5;
+  --syntax-function: #6f42c1;
+  --syntax-builtin: #e36209;
+  --syntax-tag: #22863a;
+  --syntax-punctuation: #959da5;
+  --syntax-error: #cb2431;
+  --math-source-delimiter: #b5bd68;
+  --math-source-inline: #81a2be;
+  --math-source-block: #8abeb7;
+
+  /* Editor content */
+  --blockquote-border: #dfe2e5;
+  --blockquote-text: #6a737d;
+  --mark-bg: #fff3a3;
+  --search-match-bg: rgba(255, 223, 93, 0.5);
+  --search-match-ring: rgba(255, 193, 7, 0.3);
+  --search-current-bg: rgba(255, 152, 0, 0.6);
+  --search-current-ring: rgba(255, 152, 0, 0.5);
+
+  /* Embedded blocks (front matter) */
+  --block-bg: #fafbfc;
+  --block-header-bg: #f1f3f5;
+  --block-border: #e1e4e8;
+  --block-border-hover: #c8ccd0;
+  --block-btn-border: #d1d5da;
+  --block-text-muted: #586069;
+
+  /* Preferences window (values previously scoped under .dark in PreferencesWindow.vue) */
+  --prefs-bg: #f6f6f6;
+  --prefs-toolbar-bg: #ececec;
+  --prefs-border: #d4d4d4;
+  --prefs-icon-color: #555;
+  --prefs-icon-active-color: #007aff;
+  --prefs-tab-text: #555;
+  --prefs-tab-text-active: #007aff;
+  --pref-group-bg: #fff;
+  --pref-group-border: #e0e0e0;
+  --pref-group-title-color: #333;
+  --pref-row-border: #f0f0f0;
+  --pref-label-color: #444;
+  --pref-input-border: #ccc;
+  --pref-input-bg: #fff;
+  --pref-input-color: #333;
+  --pref-hint-color: #888;
+
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
   font-size: 14px;
   line-height: 1.5;
@@ -76,10 +213,10 @@ html, body, #app {
 }
 
 .math-render-error {
-  color: #d32f2f;
+  color: rgb(var(--error-rgb));
   font-family: 'SF Mono', Menlo, Monaco, monospace;
   font-size: 0.9em;
-  background: rgba(211, 47, 47, 0.08);
+  background: rgba(var(--error-rgb), 0.08);
   border-radius: 3px;
   padding: 0 4px;
 }
@@ -123,6 +260,136 @@ html, body, #app {
   --sidebar-file-color: #777;
   --sidebar-markdown-color: #519aba;
   --sidebar-error-color: #f44336;
+  --tab-focus-ring: rgba(74, 158, 255, 0.5);
+
+  /* Neutral ink (rgb triplet for tints: rgba(var(--ink-rgb), a)) and text ramp */
+  --ink-rgb: 255, 255, 255;
+  --text-secondary: #a0a0a0;
+  --text-emphasis: #c8c8c8;
+  --text-muted: #8a8a8a;
+  --text-faint: #7a7a7a;
+  --text-placeholder: #6a6a6a;
+
+  /* Surfaces, borders, buttons */
+  --bg-secondary: #252525;
+  --surface-hover: #2a2a2a;
+  --surface-muted: #2d2d2d;
+  --border-color: #3a3a3a;
+  --border-subtle: #333;
+  --border-faint: #2d2d2d;
+  --border-strong: #555;
+  --input-border: #4a4a4a;
+  --button-bg: #2d2d2d;
+  --button-hover-bg: #383838;
+  --button-border: #4a4a4a;
+  --button-hover-border: #5a5a5a;
+  --dialog-border: #4a4a4a;
+  --dialog-button-border: #555;
+
+  /* Accents (--accent-color aliases --tab-active-indicator; --control-accent aliases --sidebar-selected-color) */
+  --accent-rgb: 74, 158, 255;
+  --accent-hover: #3d8ee6;
+  --control-accent-rgb: 74, 158, 255;
+  --link-color: #6cb6ff;
+  --focus-outline: #4a9eff;
+  --focus-outline-rgb: 74, 158, 255;
+  --focus-surface: #1d2a3a;
+
+  /* Status colours */
+  --error-rgb: 244, 67, 54;
+  --success-color: #4caf50;
+  --success-text: #3fb950;
+  --danger-text: #f85149;
+  --system-green-rgb: 48, 209, 88;
+  --system-red-rgb: 255, 69, 58;
+  --save-ok-text: #86a386;
+  --save-ok-icon: #6ab06a;
+  --save-error-text: #f07070;
+  --save-error-icon: #e05555;
+  --notice-success-bg: #1e3a2a;
+  --notice-success-text: #8fd4a0;
+  --notice-success-border: #2d5a3a;
+  --notice-danger-bg: #3a1e1e;
+  --notice-danger-text: #d48f8f;
+  --notice-danger-border: #5a2d2d;
+  --notice-warning-bg: #3a3a1e;
+  --notice-warning-text: #d4c48f;
+  --notice-warning-border: #5a5a2d;
+  --status-success-bg: #1e3a2a;
+  --status-success-text: #81c784;
+  --status-danger-bg: #3a1e24;
+  --status-danger-text: #ef9a9a;
+  --status-info-bg: #1d2a3a;
+  --status-info-text: #90caf9;
+  --warning-panel-bg: #2e2a1e;
+  --warning-panel-border: #5a5a2d;
+  --warning-panel-title: #e0c870;
+  --warning-panel-text: #c8b47a;
+  --warning-panel-detail: #c8a060;
+  --warning-panel-detail-strong: #d8b070;
+  --warning-panel-item-bg: rgba(0, 0, 0, 0.2);
+  --warning-panel-item-border: #4a4630;
+  --warning-panel-link: #6cb6ff;
+  --warning-panel-link-hover: #9ccdff;
+  --math-error-text: #f47070;
+  --math-error-bg: #3a1e1e;
+  --math-preview-error-text: #f47070;
+
+  /* Code and syntax highlighting (light = GitHub light palette) */
+  --code-inline-bg: #2d2d2d;
+  --code-inline-text: #f29d50;
+  --code-block-bg: #252525;
+  --code-block-control: #8b949e;
+  --code-block-control-hover: #c9d1d9;
+  --code-block-control-border: #444c56;
+  --syntax-text: #e1e4e8;
+  --syntax-comment: #8b949e;
+  --syntax-keyword: #ff7b72;
+  --syntax-string: #a5d6ff;
+  --syntax-constant: #79c0ff;
+  --syntax-function: #d2a8ff;
+  --syntax-builtin: #ffa657;
+  --syntax-tag: #7ee787;
+  --syntax-punctuation: #6e7681;
+  --syntax-error: #f85149;
+  --math-source-delimiter: #b5bd68;
+  --math-source-inline: #81a2be;
+  --math-source-block: #8abeb7;
+
+  /* Editor content */
+  --blockquote-border: #3a3a3a;
+  --blockquote-text: #9a9a9a;
+  --mark-bg: #5c5326;
+  --search-match-bg: rgba(255, 223, 93, 0.3);
+  --search-match-ring: rgba(255, 193, 7, 0.4);
+  --search-current-bg: rgba(255, 152, 0, 0.5);
+  --search-current-ring: rgba(255, 152, 0, 0.7);
+
+  /* Embedded blocks (front matter) */
+  --block-bg: #1e1e1e;
+  --block-header-bg: #252526;
+  --block-border: #333;
+  --block-border-hover: #4a4a4a;
+  --block-btn-border: #444;
+  --block-text-muted: #a0a0a0;
+
+  /* Preferences window (values previously scoped under .dark in PreferencesWindow.vue) */
+  --prefs-bg: #2d2d2d;
+  --prefs-toolbar-bg: #383838;
+  --prefs-border: #4a4a4a;
+  --prefs-icon-color: #aaa;
+  --prefs-icon-active-color: #58a6ff;
+  --prefs-tab-text: #aaa;
+  --prefs-tab-text-active: #58a6ff;
+  --pref-group-bg: #383838;
+  --pref-group-border: #4a4a4a;
+  --pref-group-title-color: #e0e0e0;
+  --pref-row-border: #4a4a4a;
+  --pref-label-color: #ccc;
+  --pref-input-border: #555;
+  --pref-input-bg: #2d2d2d;
+  --pref-input-color: #e0e0e0;
+  --pref-hint-color: #888;
 
   color-scheme: dark;
 }
@@ -157,6 +424,136 @@ html, body, #app {
   --sidebar-file-color: #93a1a1;
   --sidebar-markdown-color: #268bd2;
   --sidebar-error-color: #dc322f;
+  --tab-focus-ring: rgba(38, 139, 210, 0.45);
+
+  /* Neutral ink (rgb triplet for tints: rgba(var(--ink-rgb), a)) and text ramp */
+  --ink-rgb: 0, 0, 0;
+  --text-secondary: #839496;
+  --text-emphasis: #586e75;
+  --text-muted: #93a1a1;
+  --text-faint: #93a1a1;
+  --text-placeholder: #93a1a1;
+
+  /* Surfaces, borders, buttons */
+  --bg-secondary: #eee8d5;
+  --surface-hover: #eee8d5;
+  --surface-muted: #eee8d5;
+  --border-color: #ddd6c1;
+  --border-subtle: #eee8d5;
+  --border-faint: #eee8d5;
+  --border-strong: #93a1a1;
+  --input-border: #ddd6c1;
+  --button-bg: #eee8d5;
+  --button-hover-bg: #e4ddc8;
+  --button-border: #ddd6c1;
+  --button-hover-border: #93a1a1;
+  --dialog-border: #ddd6c1;
+  --dialog-button-border: #ddd6c1;
+
+  /* Accents (--accent-color aliases --tab-active-indicator; --control-accent aliases --sidebar-selected-color) */
+  --accent-rgb: 38, 139, 210;
+  --accent-hover: #1f76b5;
+  --control-accent-rgb: 38, 139, 210;
+  --link-color: #268bd2;
+  --focus-outline: #268bd2;
+  --focus-outline-rgb: 38, 139, 210;
+  --focus-surface: #eee8d5;
+
+  /* Status colours */
+  --error-rgb: 220, 50, 47;
+  --success-color: #859900;
+  --success-text: #859900;
+  --danger-text: #dc322f;
+  --system-green-rgb: 133, 153, 0;
+  --system-red-rgb: 220, 50, 47;
+  --save-ok-text: #859900;
+  --save-ok-icon: #859900;
+  --save-error-text: #dc322f;
+  --save-error-icon: #dc322f;
+  --notice-success-bg: #eef0d0;
+  --notice-success-text: #5f6e00;
+  --notice-success-border: #d5dba8;
+  --notice-danger-bg: #f9e0d5;
+  --notice-danger-text: #a8221f;
+  --notice-danger-border: #efc2b3;
+  --notice-warning-bg: #f6e8b8;
+  --notice-warning-text: #7a5c00;
+  --notice-warning-border: #e9d48e;
+  --status-success-bg: #eef0d0;
+  --status-success-text: #5f6e00;
+  --status-danger-bg: #f9e0d5;
+  --status-danger-text: #dc322f;
+  --status-info-bg: #e3eef6;
+  --status-info-text: #268bd2;
+  --warning-panel-bg: #f6edcc;
+  --warning-panel-border: #e9d48e;
+  --warning-panel-title: #7a5c00;
+  --warning-panel-text: #8a6f20;
+  --warning-panel-detail: #8a6f20;
+  --warning-panel-detail-strong: #7a5c00;
+  --warning-panel-item-bg: rgba(253, 246, 227, 0.7);
+  --warning-panel-item-border: #e9d48e;
+  --warning-panel-link: #268bd2;
+  --warning-panel-link-hover: #1f76b5;
+  --math-error-text: #dc322f;
+  --math-error-bg: #f9e0d5;
+  --math-preview-error-text: #dc322f;
+
+  /* Code and syntax highlighting (light = GitHub light palette) */
+  --code-inline-bg: #eee8d5;
+  --code-inline-text: #cb4b16;
+  --code-block-bg: #eee8d5;
+  --code-block-control: #93a1a1;
+  --code-block-control-hover: #586e75;
+  --code-block-control-border: #ddd6c1;
+  --syntax-text: #586e75;
+  --syntax-comment: #93a1a1;
+  --syntax-keyword: #859900;
+  --syntax-string: #2aa198;
+  --syntax-constant: #d33682;
+  --syntax-function: #268bd2;
+  --syntax-builtin: #cb4b16;
+  --syntax-tag: #b58900;
+  --syntax-punctuation: #93a1a1;
+  --syntax-error: #dc322f;
+  --math-source-delimiter: #859900;
+  --math-source-inline: #268bd2;
+  --math-source-block: #2aa198;
+
+  /* Editor content */
+  --blockquote-border: #ddd6c1;
+  --blockquote-text: #93a1a1;
+  --mark-bg: #f3e2a5;
+  --search-match-bg: rgba(181, 137, 0, 0.25);
+  --search-match-ring: rgba(181, 137, 0, 0.4);
+  --search-current-bg: rgba(203, 75, 22, 0.35);
+  --search-current-ring: rgba(203, 75, 22, 0.5);
+
+  /* Embedded blocks (front matter) */
+  --block-bg: #eee8d5;
+  --block-header-bg: #e8e1cc;
+  --block-border: #ddd6c1;
+  --block-border-hover: #93a1a1;
+  --block-btn-border: #ddd6c1;
+  --block-text-muted: #657b83;
+
+  /* Preferences window (values previously scoped under .dark in PreferencesWindow.vue) */
+  --prefs-bg: #eee8d5;
+  --prefs-toolbar-bg: #e4ddc8;
+  --prefs-border: #ddd6c1;
+  --prefs-icon-color: #657b83;
+  --prefs-icon-active-color: #268bd2;
+  --prefs-tab-text: #657b83;
+  --prefs-tab-text-active: #268bd2;
+  --pref-group-bg: #fdf6e3;
+  --pref-group-border: #ddd6c1;
+  --pref-group-title-color: #586e75;
+  --pref-row-border: #eee8d5;
+  --pref-label-color: #657b83;
+  --pref-input-border: #ddd6c1;
+  --pref-input-bg: #fdf6e3;
+  --pref-input-color: #586e75;
+  --pref-hint-color: #93a1a1;
 }
 
 /* ---- Solarized Dark Theme ---- */
@@ -189,6 +586,136 @@ html, body, #app {
   --sidebar-file-color: #586e75;
   --sidebar-markdown-color: #268bd2;
   --sidebar-error-color: #dc322f;
+  --tab-focus-ring: rgba(38, 139, 210, 0.45);
+
+  /* Neutral ink (rgb triplet for tints: rgba(var(--ink-rgb), a)) and text ramp */
+  --ink-rgb: 255, 255, 255;
+  --text-secondary: #657b83;
+  --text-emphasis: #93a1a1;
+  --text-muted: #657b83;
+  --text-faint: #586e75;
+  --text-placeholder: #586e75;
+
+  /* Surfaces, borders, buttons */
+  --bg-secondary: #073642;
+  --surface-hover: #073642;
+  --surface-muted: #073642;
+  --border-color: #0a4f5e;
+  --border-subtle: #073642;
+  --border-faint: #073642;
+  --border-strong: #586e75;
+  --input-border: #0a4f5e;
+  --button-bg: #073642;
+  --button-hover-bg: #0a4f5e;
+  --button-border: #0a4f5e;
+  --button-hover-border: #586e75;
+  --dialog-border: #0a4f5e;
+  --dialog-button-border: #0a4f5e;
+
+  /* Accents (--accent-color aliases --tab-active-indicator; --control-accent aliases --sidebar-selected-color) */
+  --accent-rgb: 38, 139, 210;
+  --accent-hover: #1f76b5;
+  --control-accent-rgb: 38, 139, 210;
+  --link-color: #268bd2;
+  --focus-outline: #268bd2;
+  --focus-outline-rgb: 38, 139, 210;
+  --focus-surface: #073642;
+
+  /* Status colours */
+  --error-rgb: 220, 50, 47;
+  --success-color: #859900;
+  --success-text: #859900;
+  --danger-text: #dc322f;
+  --system-green-rgb: 133, 153, 0;
+  --system-red-rgb: 220, 50, 47;
+  --save-ok-text: #859900;
+  --save-ok-icon: #859900;
+  --save-error-text: #dc322f;
+  --save-error-icon: #dc322f;
+  --notice-success-bg: #0f3b2e;
+  --notice-success-text: #a3b830;
+  --notice-success-border: #2d5a3a;
+  --notice-danger-bg: #3a1e24;
+  --notice-danger-text: #f08a87;
+  --notice-danger-border: #5a2d2d;
+  --notice-warning-bg: #2e3a1e;
+  --notice-warning-text: #d4c48f;
+  --notice-warning-border: #5a5a2d;
+  --status-success-bg: #0f3b2e;
+  --status-success-text: #859900;
+  --status-danger-bg: #3a1e24;
+  --status-danger-text: #f08a87;
+  --status-info-bg: #0a3d55;
+  --status-info-text: #268bd2;
+  --warning-panel-bg: #0b3a3a;
+  --warning-panel-border: #5a5a2d;
+  --warning-panel-title: #b58900;
+  --warning-panel-text: #a89060;
+  --warning-panel-detail: #a89060;
+  --warning-panel-detail-strong: #b58900;
+  --warning-panel-item-bg: rgba(0, 43, 54, 0.6);
+  --warning-panel-item-border: #3a4a2e;
+  --warning-panel-link: #268bd2;
+  --warning-panel-link-hover: #5fb0e8;
+  --math-error-text: #dc322f;
+  --math-error-bg: #3a1e24;
+  --math-preview-error-text: #dc322f;
+
+  /* Code and syntax highlighting (light = GitHub light palette) */
+  --code-inline-bg: #073642;
+  --code-inline-text: #cb4b16;
+  --code-block-bg: #073642;
+  --code-block-control: #586e75;
+  --code-block-control-hover: #93a1a1;
+  --code-block-control-border: #0a4f5e;
+  --syntax-text: #93a1a1;
+  --syntax-comment: #586e75;
+  --syntax-keyword: #859900;
+  --syntax-string: #2aa198;
+  --syntax-constant: #d33682;
+  --syntax-function: #268bd2;
+  --syntax-builtin: #cb4b16;
+  --syntax-tag: #b58900;
+  --syntax-punctuation: #586e75;
+  --syntax-error: #dc322f;
+  --math-source-delimiter: #859900;
+  --math-source-inline: #268bd2;
+  --math-source-block: #2aa198;
+
+  /* Editor content */
+  --blockquote-border: #0a4f5e;
+  --blockquote-text: #657b83;
+  --mark-bg: #4d4116;
+  --search-match-bg: rgba(181, 137, 0, 0.35);
+  --search-match-ring: rgba(181, 137, 0, 0.5);
+  --search-current-bg: rgba(203, 75, 22, 0.5);
+  --search-current-ring: rgba(203, 75, 22, 0.7);
+
+  /* Embedded blocks (front matter) */
+  --block-bg: #073642;
+  --block-header-bg: #08404e;
+  --block-border: #0a4f5e;
+  --block-border-hover: #586e75;
+  --block-btn-border: #0a4f5e;
+  --block-text-muted: #839496;
+
+  /* Preferences window (values previously scoped under .dark in PreferencesWindow.vue) */
+  --prefs-bg: #073642;
+  --prefs-toolbar-bg: #0a3f4c;
+  --prefs-border: #0a4f5e;
+  --prefs-icon-color: #93a1a1;
+  --prefs-icon-active-color: #268bd2;
+  --prefs-tab-text: #93a1a1;
+  --prefs-tab-text-active: #268bd2;
+  --pref-group-bg: #002b36;
+  --pref-group-border: #0a4f5e;
+  --pref-group-title-color: #93a1a1;
+  --pref-row-border: #073642;
+  --pref-label-color: #839496;
+  --pref-input-border: #0a4f5e;
+  --pref-input-bg: #002b36;
+  --pref-input-color: #93a1a1;
+  --pref-hint-color: #586e75;
   color-scheme: dark;
 }
 
@@ -222,6 +749,178 @@ html, body, #app {
   --sidebar-file-color: #636c76;
   --sidebar-markdown-color: #0969da;
   --sidebar-error-color: #cf222e;
+  --tab-focus-ring: rgba(9, 105, 218, 0.45);
+
+  /* Neutral ink (rgb triplet for tints: rgba(var(--ink-rgb), a)) and text ramp */
+  --ink-rgb: 0, 0, 0;
+  --text-secondary: #59636e;
+  --text-emphasis: #1f2328;
+  --text-muted: #636c76;
+  --text-faint: #6e7781;
+  --text-placeholder: #8c959f;
+
+  /* Surfaces, borders, buttons */
+  --bg-secondary: #f6f8fa;
+  --surface-hover: #f3f4f6;
+  --surface-muted: #eaeef2;
+  --border-color: #d0d7de;
+  --border-subtle: #d8dee4;
+  --border-faint: #eaeef2;
+  --border-strong: #afb8c1;
+  --input-border: #d0d7de;
+  --button-bg: #f6f8fa;
+  --button-hover-bg: #eaeef2;
+  --button-border: #d0d7de;
+  --button-hover-border: #afb8c1;
+  --dialog-border: #d0d7de;
+  --dialog-button-border: #d0d7de;
+
+  /* Accents (--accent-color aliases --tab-active-indicator; --control-accent aliases --sidebar-selected-color) */
+  --accent-rgb: 9, 105, 218;
+  --accent-hover: #0860ca;
+  --control-accent-rgb: 9, 105, 218;
+  --link-color: #0969da;
+  --focus-outline: #0969da;
+  --focus-outline-rgb: 9, 105, 218;
+  --focus-surface: #ddf4ff;
+
+  /* Status colours */
+  --error-rgb: 207, 34, 46;
+  --success-color: #1a7f37;
+  --success-text: #1a7f37;
+  --danger-text: #cf222e;
+  --system-green-rgb: 26, 127, 55;
+  --system-red-rgb: 207, 34, 46;
+  --save-ok-text: #1a7f37;
+  --save-ok-icon: #1a7f37;
+  --save-error-text: #cf222e;
+  --save-error-icon: #cf222e;
+  --notice-success-bg: #dafbe1;
+  --notice-success-text: #1a7f37;
+  --notice-success-border: #aceebb;
+  --notice-danger-bg: #ffebe9;
+  --notice-danger-text: #a40e26;
+  --notice-danger-border: #ffcecb;
+  --notice-warning-bg: #fff8c5;
+  --notice-warning-text: #7d4e00;
+  --notice-warning-border: #f1dfa0;
+  --status-success-bg: #dafbe1;
+  --status-success-text: #1a7f37;
+  --status-danger-bg: #ffebe9;
+  --status-danger-text: #cf222e;
+  --status-info-bg: #ddf4ff;
+  --status-info-text: #0969da;
+  --warning-panel-bg: #fff8c5;
+  --warning-panel-border: #f1dfa0;
+  --warning-panel-title: #7d4e00;
+  --warning-panel-text: #7d4e00;
+  --warning-panel-detail: #9a6700;
+  --warning-panel-detail-strong: #7d4e00;
+  --warning-panel-item-bg: rgba(255, 255, 255, 0.7);
+  --warning-panel-item-border: #f1dfa0;
+  --warning-panel-link: #0969da;
+  --warning-panel-link-hover: #0860ca;
+  --math-error-text: #cf222e;
+  --math-error-bg: #ffebe9;
+  --math-preview-error-text: #cf222e;
+
+  /* Code and syntax highlighting (light = GitHub light palette) */
+  --code-inline-bg: #eff1f3;
+  --code-inline-text: #bc4c00;
+  --code-block-bg: #f6f8fa;
+  --code-block-control: #6e7781;
+  --code-block-control-hover: #1f2328;
+  --code-block-control-border: #d0d7de;
+  --syntax-text: #1f2328;
+  --syntax-comment: #59636e;
+  --syntax-keyword: #cf222e;
+  --syntax-string: #0a3069;
+  --syntax-constant: #0550ae;
+  --syntax-function: #8250df;
+  --syntax-builtin: #953800;
+  --syntax-tag: #116329;
+  --syntax-punctuation: #6e7781;
+  --syntax-error: #cf222e;
+  --math-source-delimiter: #1a7f37;
+  --math-source-inline: #0550ae;
+  --math-source-block: #1b7c83;
+
+  /* Editor content */
+  --blockquote-border: #d0d7de;
+  --blockquote-text: #59636e;
+  --mark-bg: #fff8c5;
+  --search-match-bg: rgba(255, 223, 93, 0.5);
+  --search-match-ring: rgba(255, 193, 7, 0.3);
+  --search-current-bg: rgba(255, 152, 0, 0.6);
+  --search-current-ring: rgba(255, 152, 0, 0.5);
+
+  /* Embedded blocks (front matter) */
+  --block-bg: #f6f8fa;
+  --block-header-bg: #eaeef2;
+  --block-border: #d0d7de;
+  --block-border-hover: #afb8c1;
+  --block-btn-border: #d0d7de;
+  --block-text-muted: #59636e;
+
+  /* Preferences window (values previously scoped under .dark in PreferencesWindow.vue) */
+  --prefs-bg: #f6f8fa;
+  --prefs-toolbar-bg: #eaeef2;
+  --prefs-border: #d0d7de;
+  --prefs-icon-color: #59636e;
+  --prefs-icon-active-color: #0969da;
+  --prefs-tab-text: #59636e;
+  --prefs-tab-text-active: #0969da;
+  --pref-group-bg: #ffffff;
+  --pref-group-border: #d0d7de;
+  --pref-group-title-color: #1f2328;
+  --pref-row-border: #eaeef2;
+  --pref-label-color: #1f2328;
+  --pref-input-border: #d0d7de;
+  --pref-input-bg: #ffffff;
+  --pref-input-color: #1f2328;
+  --pref-hint-color: #636c76;
+}
+
+/* ---- Exported / copied documents ----
+ * publishDocument.collectThemeCss() copies only .gdown-editor/.math-* rules (not :root),
+ * and exports have always used the light content palette. Give the standalone
+ * `.gdown-editor.content` wrapper the light values of the content tokens those rules use.
+ * (In the app the editor element never carries the `content` class.) */
+.gdown-editor.content {
+  --bg-secondary: #fafafa;
+  --surface-hover: #f5f5f5;
+  --surface-muted: #f0f0f0;
+  --border-subtle: #e8e8e8;
+  --border-strong: #ccc;
+  --text-muted: #888;
+  --text-faint: #999;
+  --text-placeholder: #aaa;
+  --text-emphasis: #555;
+  --ink-rgb: 0, 0, 0;
+  --link-color: #4183c4;
+  --focus-outline: #4183c4;
+  --focus-outline-rgb: 65, 131, 196;
+  --focus-surface: #f0f7ff;
+  --error-rgb: 211, 47, 47;
+  --math-error-text: #e53e3e;
+  --math-error-bg: #fff5f5;
+  --code-inline-bg: #f5f5f5;
+  --code-inline-text: #e96900;
+  --syntax-text: #24292e;
+  --syntax-comment: #6a737d;
+  --syntax-keyword: #d73a49;
+  --syntax-string: #032f62;
+  --syntax-constant: #005cc5;
+  --syntax-function: #6f42c1;
+  --syntax-builtin: #e36209;
+  --syntax-tag: #22863a;
+  --blockquote-border: #dfe2e5;
+  --blockquote-text: #6a737d;
+  --mark-bg: #fff3a3;
+  --search-match-bg: rgba(255, 223, 93, 0.5);
+  --search-match-ring: rgba(255, 193, 7, 0.3);
+  --search-current-bg: rgba(255, 152, 0, 0.6);
+  --search-current-ring: rgba(255, 152, 0, 0.5);
 }
 
 /* ---- Editor CSS variable defaults ---- */

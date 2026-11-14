@@ -305,7 +305,7 @@ onUnmounted(() => {
 
 .link-btn-primary {
   background: var(--tab-active-indicator, #4a9eff);
-  color: #fff !important;
+  color: var(--accent-text) !important;
 }
 
 .link-btn-primary:hover {
@@ -319,7 +319,7 @@ onUnmounted(() => {
 }
 
 .link-btn-remove:hover {
-  background: rgba(192, 57, 43, 0.08) !important;
+  background: rgba(var(--error-rgb), 0.08) !important;
 }
 
 .link-edit-form {
@@ -352,7 +352,7 @@ onUnmounted(() => {
 
 .link-edit-input:focus {
   border-color: var(--tab-active-indicator, #4a9eff);
-  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.15);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.15);
 }
 
 .link-edit-actions {

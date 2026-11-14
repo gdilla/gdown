@@ -312,16 +312,16 @@ watch(
 <style scoped>
 .frontmatter-block {
   margin: 0 0 1.5em 0;
-  border: 1px solid #e1e4e8;
+  border: 1px solid var(--block-border);
   border-radius: 6px;
   overflow: hidden;
-  background: #fafbfc;
+  background: var(--block-bg);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
   transition: border-color 0.2s;
 }
 
 .frontmatter-block:hover {
-  border-color: #c8ccd0;
+  border-color: var(--block-border-hover);
 }
 
 /* Header */
@@ -329,8 +329,8 @@ watch(
   display: flex;
   align-items: center;
   padding: 6px 12px;
-  background: #f1f3f5;
-  border-bottom: 1px solid #e1e4e8;
+  background: var(--block-header-bg);
+  border-bottom: 1px solid var(--block-border);
   cursor: pointer;
   user-select: none;
   gap: 6px;
@@ -339,7 +339,7 @@ watch(
 
 .frontmatter-chevron {
   font-size: 10px;
-  color: #586069;
+  color: var(--block-text-muted);
   width: 14px;
   text-align: center;
   transition: transform 0.15s;
@@ -348,7 +348,7 @@ watch(
 .frontmatter-label {
   font-size: 12px;
   font-weight: 600;
-  color: #586069;
+  color: var(--block-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   flex: 1;
@@ -361,11 +361,11 @@ watch(
 
 .frontmatter-btn {
   background: none;
-  border: 1px solid #d1d5da;
+  border: 1px solid var(--block-btn-border);
   border-radius: 4px;
   padding: 1px 8px;
   font-size: 11px;
-  color: #586069;
+  color: var(--block-text-muted);
   cursor: pointer;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
   transition:
@@ -375,8 +375,8 @@ watch(
 }
 
 .frontmatter-btn:hover {
-  background: #e1e4e8;
-  color: #24292e;
+  background: var(--block-border);
+  color: var(--syntax-text);
 }
 
 .frontmatter-btn-add {
@@ -423,7 +423,7 @@ watch(
   font-size: 13px;
   font-family: 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
   font-weight: 600;
-  color: #005cc5;
+  color: var(--syntax-constant);
   background: transparent;
   outline: none;
   transition:
@@ -432,16 +432,16 @@ watch(
 }
 
 .frontmatter-key:focus {
-  border-color: #4183c4;
-  background: #fff;
+  border-color: var(--focus-outline);
+  background: var(--bg-primary);
 }
 
 .frontmatter-key:hover:not(:focus) {
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(var(--ink-rgb), 0.03);
 }
 
 .frontmatter-separator {
-  color: #959da5;
+  color: var(--syntax-punctuation);
   font-family: 'SF Mono', Menlo, monospace;
   font-size: 13px;
   flex-shrink: 0;
@@ -455,7 +455,7 @@ watch(
   border-radius: 3px;
   font-size: 13px;
   font-family: 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
-  color: #24292e;
+  color: var(--syntax-text);
   background: transparent;
   outline: none;
   transition:
@@ -464,44 +464,44 @@ watch(
 }
 
 .frontmatter-value:focus {
-  border-color: #4183c4;
-  background: #fff;
+  border-color: var(--focus-outline);
+  background: var(--bg-primary);
 }
 
 .frontmatter-value:hover:not(:focus) {
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(var(--ink-rgb), 0.03);
 }
 
 /* Value type coloring */
 .frontmatter-value.type-string {
-  color: #032f62;
+  color: var(--syntax-string);
 }
 
 .frontmatter-value.type-number {
-  color: #005cc5;
+  color: var(--syntax-constant);
 }
 
 .frontmatter-value.type-boolean {
-  color: #d73a49;
+  color: var(--syntax-keyword);
 }
 
 .frontmatter-value.type-date {
-  color: #6f42c1;
+  color: var(--syntax-function);
 }
 
 .frontmatter-value.type-array {
-  color: #22863a;
+  color: var(--syntax-tag);
 }
 
 .frontmatter-value.type-null {
-  color: #959da5;
+  color: var(--syntax-punctuation);
   font-style: italic;
 }
 
 .frontmatter-field-remove {
   background: none;
   border: none;
-  color: #cb2431;
+  color: var(--syntax-error);
   font-size: 16px;
   cursor: pointer;
   padding: 0 4px;
@@ -512,11 +512,11 @@ watch(
 }
 
 .frontmatter-field-remove:hover {
-  color: #d73a49;
+  color: var(--syntax-keyword);
 }
 
 .frontmatter-empty {
-  color: #959da5;
+  color: var(--syntax-punctuation);
   font-size: 13px;
   font-style: italic;
   padding: 8px 0;
@@ -537,46 +537,17 @@ watch(
   font-family: 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.5;
-  color: #24292e;
-  background: #fafbfc;
+  color: var(--syntax-text);
+  background: var(--block-bg);
   box-sizing: border-box;
   tab-size: 2;
 }
 
 .frontmatter-raw textarea::placeholder {
-  color: #aaa;
+  color: var(--text-placeholder);
 }
 
 .frontmatter-raw textarea:focus {
-  background: #fff;
-}
-
-/* Dark theme support via CSS variables */
-:root[data-theme='dark'] .frontmatter-block,
-.dark .frontmatter-block {
-  background: #1e1e1e;
-  border-color: #333;
-}
-
-:root[data-theme='dark'] .frontmatter-header,
-.dark .frontmatter-header {
-  background: #252526;
-  border-bottom-color: #333;
-}
-
-:root[data-theme='dark'] .frontmatter-key,
-.dark .frontmatter-key {
-  color: #79b8ff;
-}
-
-:root[data-theme='dark'] .frontmatter-value,
-.dark .frontmatter-value {
-  color: #e1e4e8;
-}
-
-:root[data-theme='dark'] .frontmatter-raw textarea,
-.dark .frontmatter-raw textarea {
-  background: #1e1e1e;
-  color: #e1e4e8;
+  background: var(--bg-primary);
 }
 </style>

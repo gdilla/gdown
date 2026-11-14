@@ -78,7 +78,7 @@ function handleError() {
   border-top: 1px solid var(--sidebar-border, #e0e0e0);
   background: var(--sidebar-bg, #f5f5f5);
   font-size: 12px;
-  color: var(--text-secondary, #888);
+  color: var(--text-muted);
 }
 
 .image-file-name {
@@ -87,13 +87,13 @@ function handleError() {
 
 .image-error {
   text-align: center;
-  color: var(--text-secondary, #888);
+  color: var(--text-muted);
 }
 
 .image-error-path {
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;
-  color: var(--text-secondary, #aaa);
+  color: var(--text-placeholder);
   margin-top: 8px;
 }
 </style>

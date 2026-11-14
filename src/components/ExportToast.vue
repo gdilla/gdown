@@ -44,7 +44,7 @@ const publishStore = usePublishStore()
 }
 
 .export-toast--success {
-  border-left: 3px solid #34c759;
+  border-left: 3px solid rgb(var(--system-green-rgb));
 }
 
 .export-toast--error {

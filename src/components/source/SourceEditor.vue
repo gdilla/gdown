@@ -128,19 +128,19 @@ function buildExtensions(): Extension[] {
       },
       // Math delimiter styles
       '.cm-math-delimiter': {
-        color: '#b5bd68',
+        color: 'var(--math-source-delimiter)',
         fontWeight: 'bold',
       },
       '.cm-math-inline': {
-        color: '#81a2be',
+        color: 'var(--math-source-inline)',
         fontStyle: 'italic',
       },
       '.cm-math-block-delimiter': {
-        color: '#b5bd68',
+        color: 'var(--math-source-delimiter)',
         fontWeight: 'bold',
       },
       '.cm-math-block': {
-        color: '#8abeb7',
+        color: 'var(--math-source-block)',
       },
     }),
   ]
@@ -428,7 +428,7 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--border-color, #e0e0e0);
   font-size: 12px;
   font-weight: 600;
-  color: #666;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -437,14 +437,14 @@ onBeforeUnmount(() => {
   background: none;
   border: none;
   font-size: 18px;
-  color: #999;
+  color: var(--text-faint);
   cursor: pointer;
   padding: 0 4px;
   line-height: 1;
 }
 
 .math-preview-close:hover {
-  color: #333;
+  color: var(--text-primary);
 }
 
 .math-preview-content {
@@ -454,7 +454,7 @@ onBeforeUnmount(() => {
 }
 
 .math-preview-empty {
-  color: #999;
+  color: var(--text-faint);
   font-size: 13px;
   font-style: italic;
   text-align: center;
@@ -465,13 +465,13 @@ onBeforeUnmount(() => {
   margin-bottom: 16px;
   padding: 10px;
   border-radius: 6px;
-  background: white;
-  border: 1px solid #e8e8e8;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
 }
 
 .math-preview-label {
   font-size: 11px;
-  color: #999;
+  color: var(--text-faint);
   margin-bottom: 6px;
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -495,27 +495,27 @@ onBeforeUnmount(() => {
 .math-preview-source {
   margin-top: 6px;
   padding-top: 6px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--border-faint);
 }
 
 .math-preview-source code {
   font-size: 11px;
-  color: #666;
+  color: var(--text-secondary);
   font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
   word-break: break-all;
 }
 
 .math-preview-display {
-  border-left: 3px solid #8abeb7;
+  border-left: 3px solid var(--math-source-block);
 }
 
 .math-preview-inline {
-  border-left: 3px solid #81a2be;
+  border-left: 3px solid var(--math-source-inline);
 }
 
 .math-error {
-  color: #c0392b;
-  background: #fce4ec;
+  color: var(--math-preview-error-text);
+  background: var(--status-danger-bg);
   padding: 2px 6px;
   border-radius: 3px;
   font-family: monospace;

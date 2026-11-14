@@ -30,12 +30,12 @@
 
 /* Inline Code — Typora-like pill styling */
 .gdown-editor code {
-  background: #f5f5f5;
+  background: var(--code-inline-bg);
   padding: 2px 6px;
   border-radius: 3px;
   font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
   font-size: 0.9em;
-  color: #e96900;
+  color: var(--code-inline-text);
   /* Prevent code from inheriting bold/italic from parent */
   font-weight: normal;
   font-style: normal;
@@ -58,7 +58,7 @@
 
 /* Highlight/Mark — Typora-like yellow background */
 .gdown-editor mark {
-  background-color: #fff3a3;
+  background-color: var(--mark-bg);
   padding: 1px 2px;
   border-radius: 2px;
   color: inherit;
