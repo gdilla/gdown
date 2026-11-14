@@ -95,12 +95,6 @@ const ALLOWLIST: AllowEntry[] = [
   },
   // Pending migration — each later commit on this branch removes its files.
   ...[
-    '/src/style.css',
-    '/src/styles/math.css',
-    '/src/styles/inline-formatting.css',
-    '/src/components/Editor.vue',
-    '/src/components/CodeBlockNodeView.vue',
-    '/src/components/FrontMatterNodeView.vue',
     '/src/App.vue',
     '/src/components/ExportDialog.vue',
     '/src/components/ExportToast.vue',
