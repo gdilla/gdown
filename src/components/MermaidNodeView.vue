@@ -30,7 +30,13 @@
         <span class="mermaid-error-icon">&#x26A0;</span>
         <span>{{ renderError }}</span>
       </div>
-      <div v-else-if="svgOutput" class="mermaid-svg-container" v-html="svgOutput"></div>
+      <div
+        v-else-if="svgOutput"
+        class="mermaid-svg-container"
+        @click="handleDiagramLinkClick"
+        @auxclick="handleDiagramLinkClick"
+        v-html="svgOutput"
+      ></div>
       <div v-else class="mermaid-placeholder">
         <span>Double-click to add Mermaid diagram code</span>
       </div>
@@ -42,6 +48,7 @@
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { NodeViewWrapper } from '@tiptap/vue-3'
 import type { NodeViewProps } from '@tiptap/vue-3'
+import { openUrl } from '@tauri-apps/plugin-opener'
 
 const props = defineProps<NodeViewProps>()
 
@@ -97,6 +104,22 @@ async function renderDiagram() {
     // Clean up any error elements mermaid may have injected
     const errorEl = document.getElementById(`d${renderCounter}`)
     if (errorEl) errorEl.remove()
+  }
+}
+
+/**
+ * Links from `click A href "…"` must never navigate the app webview (that would
+ * replace Leaf with a remote page). Cmd/Ctrl+click opens http(s) links in the
+ * system browser, like editor links; other schemes are ignored.
+ */
+function handleDiagramLinkClick(event: MouseEvent) {
+  const link = (event.target as Element | null)?.closest('a')
+  if (!link) return
+  event.preventDefault()
+  const href =
+    link.getAttribute('href') ?? link.getAttributeNS('http://www.w3.org/1999/xlink', 'href')
+  if (href && /^https?:\/\//i.test(href) && (event.metaKey || event.ctrlKey)) {
+    openUrl(href).catch((err) => console.warn('Failed to open diagram link:', err))
   }
 }
 
