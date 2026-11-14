@@ -60,12 +60,14 @@ const urlInput = ref<HTMLInputElement | null>(null)
 
 let savedFrom = 0
 let savedTo = 0
+let selectedText = ''
 
 function handleInsertLink(event: Event) {
   const detail = (event as CustomEvent).detail || {}
   savedFrom = detail.from || 0
   savedTo = detail.to || 0
-  linkText.value = detail.text || ''
+  selectedText = detail.text || ''
+  linkText.value = selectedText
   linkUrl.value = ''
   linkTitle.value = ''
   visible.value = true
@@ -79,37 +81,19 @@ function handleInsertLink(event: Event) {
 }
 
 function confirm() {
-  if (!linkUrl.value) return
+  const href = linkUrl.value.trim()
+  if (!href) return
 
+  const attrs = { href, title: linkTitle.value || null, target: '_blank' }
+  const range = { from: savedFrom, to: savedTo }
+  const text = linkText.value || href
   const chain = props.editor.chain().focus()
 
-  if (linkText.value && savedFrom === savedTo) {
-    // No selection, insert text with link
-    chain
-      .insertContentAt(savedFrom, {
-        type: 'text',
-        text: linkText.value,
-        marks: [
-          {
-            type: 'link',
-            attrs: {
-              href: linkUrl.value,
-              title: linkTitle.value || null,
-              target: '_blank',
-            },
-          },
-        ],
-      })
-      .run()
+  if (savedFrom !== savedTo && text === selectedText) {
+    // Unchanged selection: link it in place, keeping its inline formatting.
+    chain.setTextSelection(range).setLink(attrs).run()
   } else {
-    // Selection exists, wrap it in link
-    chain
-      .extendMarkRange('link')
-      .setLink({
-        href: linkUrl.value,
-        target: '_blank',
-      })
-      .run()
+    chain.insertContentAt(range, { type: 'text', text, marks: [{ type: 'link', attrs }] }).run()
   }
 
   visible.value = false
