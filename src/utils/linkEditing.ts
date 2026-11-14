@@ -1,4 +1,5 @@
-import type { Editor } from '@tiptap/core'
+import type { CommandProps, Editor } from '@tiptap/core'
+import { Selection, TextSelection } from '@tiptap/pm/state'
 
 export interface LinkAttrs {
   href: string
@@ -24,6 +25,16 @@ export function isPlainTextRange(editor: Editor, from: number, to: number): bool
 }
 
 /**
+ * Chain command: collapse the selection to the end of the current one, so the
+ * next keystroke cannot overwrite the content that was just (un)linked. A
+ * character typed there joins the link (the link mark is inclusive, as on main).
+ */
+export function collapseToSelectionEnd({ tr }: CommandProps): boolean {
+  tr.setSelection(Selection.near(tr.doc.resolve(tr.selection.to), -1))
+  return true
+}
+
+/**
  * Link [from, to]. `text` replaces the range's text only when the range is
  * empty or plain text in one block; otherwise the content is linked in place.
  * Replaces inline text directly: insertContentAt can rewrite the parent block
@@ -38,7 +49,13 @@ export function applyLink(
 ): void {
   const unchanged = !text || text === editor.state.doc.textBetween(from, to)
   if (from !== to && (unchanged || !isPlainTextRange(editor, from, to))) {
-    editor.chain().focus().setTextSelection({ from, to }).setLink(attrs).run()
+    editor
+      .chain()
+      .focus()
+      .setTextSelection({ from, to })
+      .setLink(attrs)
+      .command(collapseToSelectionEnd)
+      .run()
     return
   }
   if (!text) return
@@ -64,6 +81,7 @@ export function applyLink(
           ),
         )
       tr.replaceWith(from, to, state.schema.text(text, marks))
+      tr.setSelection(TextSelection.create(tr.doc, from + text.length))
       return true
     })
     .run()

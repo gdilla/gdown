@@ -4,9 +4,15 @@
  *
  * For every case: document structure (all non-text node types, in order) is
  * unchanged, no content is lost, and the new link covers exactly the intended
- * content.
+ * content. Post-conditions (decided for every action):
+ * - focus is back in the editor after confirm, cancel and Escape;
+ * - the selection is collapsed at the END of the affected content (inserted or
+ *   replaced text, or the end of a range linked in place / unlinked), so the
+ *   next keystroke cannot overwrite it;
+ * - a character typed next lands there and, like main (the link mark is
+ *   inclusive), joins the new link; after Unlink it is plain text.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { markRaw, nextTick } from 'vue'
@@ -24,10 +30,24 @@ import { useEditorSettingsStore } from '../../stores/editorSettings'
 const OLD = 'https://old.example/'
 const NEW = 'https://new.example/'
 
+// jsdom has no layout; ProseMirror scrolls the selection into view on focus.
+beforeAll(() => {
+  const rects = () => Object.assign([], { item: () => null }) as unknown as DOMRectList
+  Range.prototype.getClientRects = rects
+  Range.prototype.getBoundingClientRect = () => new DOMRect()
+  Element.prototype.getClientRects = rects
+})
+
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve))
+
 const leaf = (node: PMNode): string => (node.type.name === 'image' ? '[img]' : '\n')
 
+/** Editor attached to the document so focus can be asserted. */
 function createEditor(html: string): Editor {
+  const element = document.createElement('div')
+  document.body.appendChild(element)
   return new Editor({
+    element,
     extensions: [
       // trailingNode off: it appends a paragraph on the first edit, which is not ours.
       StarterKit.configure({ link: false, trailingNode: false }),
@@ -99,6 +119,38 @@ function find(editor: Editor, word: string): number {
   })
   if (at < 0) throw new Error(`"${word}" not in document`)
   return at
+}
+
+function destroyEditor(editor: Editor): void {
+  const element = editor.view.dom.parentElement
+  editor.destroy()
+  element?.remove()
+}
+
+/**
+ * Post-condition: focus in the editor, a collapsed caret after `caretPrefix`
+ * (document text up to the caret), and one typed character landing there
+ * without touching anything else; `linkedAfter` is what `href` then covers.
+ */
+async function expectCaretThenType(
+  editor: Editor,
+  caretPrefix: string,
+  href: string,
+  linkedAfter: string,
+): Promise<void> {
+  await nextFrame()
+  expect(editor.view.dom.contains(document.activeElement), 'focus back in the editor').toBe(true)
+  const { empty, from } = editor.state.selection
+  expect(empty, 'selection collapsed').toBe(true)
+  expect(text(editor, 0, from), 'caret position').toBe(caretPrefix)
+  const textBefore = text(editor)
+  const structureBefore = structure(editor)
+
+  editor.view.dispatch(editor.state.tr.insertText('X'))
+
+  expect(text(editor)).toBe(caretPrefix + 'X' + textBefore.slice(caretPrefix.length))
+  expect(structure(editor)).toEqual(structureBefore)
+  expect(linkedContent(editor, href)).toBe(linkedAfter)
 }
 
 async function setInput(selector: string, value: string): Promise<void> {
@@ -212,7 +264,7 @@ describe('InsertLinkDialog selection matrix', () => {
 
   afterEach(() => {
     wrapper.unmount()
-    editor.destroy()
+    destroyEditor(editor)
   })
 
   function setup(html: string): void {
@@ -231,6 +283,7 @@ describe('InsertLinkDialog selection matrix', () => {
         const suffix = text(editor, to)
         const selected = editor.state.doc.textBetween(from, to, '', leaf)
         const fullBefore = text(editor)
+        const upToEnd = text(editor, 0, to)
 
         editor.commands.keyboardShortcut('Mod-k')
         await nextTick()
@@ -257,21 +310,26 @@ describe('InsertLinkDialog selection matrix', () => {
           expect(text(editor)).toBe(before.prefix + inserted + suffix)
           expect(linkedContent(editor, NEW)).toBe(inserted)
           expect(hasMark(editor, NEW, 'code')).toBe(false)
+          if (action === 'title') expect(linkTitle(editor, NEW)).toBe('Tip')
+          await expectCaretThenType(editor, before.prefix + inserted, NEW, inserted + 'X')
         } else if (replaced) {
           expect(text(editor)).toBe(before.prefix + 'NEW' + suffix)
           expect(linkedContent(editor, NEW)).toBe('NEW')
+          await expectCaretThenType(editor, before.prefix + 'NEW', NEW, 'NEWX')
         } else {
           expect(text(editor)).toBe(fullBefore)
           expect(linkedContent(editor, NEW)).toBe(selected)
+          if (action === 'title') expect(linkTitle(editor, NEW)).toBe('Tip')
+          await expectCaretThenType(editor, upToEnd, NEW, selected + 'X')
         }
-        if (action === 'title') expect(linkTitle(editor, NEW)).toBe('Tip')
       })
     }
   }
 
-  it('Cmd+K with the caret inside an existing link removes the whole link', () => {
+  it('Cmd+K with the caret inside an existing link removes the whole link', async () => {
     setup(`<p>Go <a href="${OLD}">to docs</a> now</p>`)
-    editor.commands.setTextSelection(find(editor, 'docs') + 1)
+    const caret = find(editor, 'docs') + 1
+    editor.commands.setTextSelection(caret)
     const before = { structure: structure(editor), text: text(editor) }
 
     editor.commands.keyboardShortcut('Mod-k')
@@ -279,7 +337,36 @@ describe('InsertLinkDialog selection matrix', () => {
     expect(linkedContent(editor, OLD)).toBe('')
     expect(text(editor)).toBe(before.text)
     expect(structure(editor)).toEqual(before.structure)
+    // The caret stays where it was; a typed character is plain text.
+    await expectCaretThenType(editor, text(editor, 0, caret), OLD, '')
   })
+
+  for (const close of ['Cancel', 'Escape'] as const) {
+    it(`${close} closes without changes and returns focus and selection to the editor`, async () => {
+      setup('<h2>Alpha beta gamma</h2>')
+      word('beta')(editor)
+      const { from, to } = editor.state.selection
+      const before = editor.getJSON()
+
+      editor.commands.keyboardShortcut('Mod-k')
+      await nextTick()
+      await setInput('#link-url', NEW)
+      if (close === 'Cancel') clickButton('Cancel')
+      else
+        document.body
+          .querySelector('#link-url')!
+          .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await nextTick()
+      await nextTick()
+      await nextFrame()
+
+      expect(document.body.querySelector('#link-url')).toBeNull()
+      expect(editor.getJSON()).toEqual(before)
+      expect(editor.view.dom.contains(document.activeElement)).toBe(true)
+      expect(editor.state.selection.from).toBe(from)
+      expect(editor.state.selection.to).toBe(to)
+    })
+  }
 })
 
 // ── Tooltip ──────────────────────────────────────────────────────────
@@ -337,7 +424,7 @@ describe('LinkTooltip link matrix', () => {
 
   afterEach(() => {
     wrapper.unmount()
-    editor.destroy()
+    destroyEditor(editor)
   })
 
   /** Range of the OLD link. */
@@ -365,6 +452,7 @@ describe('LinkTooltip link matrix', () => {
           prefix: text(editor, 0, from),
           suffix: text(editor, to),
           linked: linkedContent(editor, OLD),
+          upToEnd: text(editor, 0, to),
         }
 
         editor.commands.setTextSelection(from + 1)
@@ -379,6 +467,7 @@ describe('LinkTooltip link matrix', () => {
           expect(linkedContent(editor, OLD)).toBe('')
           expect(text(editor)).toBe(before.text)
           expect(structure(editor)).toEqual(before.structure)
+          await expectCaretThenType(editor, before.upToEnd, OLD, '')
           return
         }
 
@@ -403,11 +492,40 @@ describe('LinkTooltip link matrix', () => {
         if (action === 'text' && shape.plain) {
           expect(text(editor)).toBe(before.prefix + 'NEW' + before.suffix)
           expect(linkedContent(editor, NEW)).toBe('NEW')
+          await expectCaretThenType(editor, before.prefix + 'NEW', NEW, 'NEWX')
         } else {
           expect(text(editor)).toBe(before.text)
           expect(linkedContent(editor, NEW)).toBe(before.linked)
+          await expectCaretThenType(editor, before.upToEnd, NEW, before.linked + 'X')
         }
       })
     }
+  }
+
+  for (const close of ['Cancel', 'Escape'] as const) {
+    it(`${close} leaves the link unchanged and returns focus to the editor`, async () => {
+      editor = createEditor(`<p>Go ${a('docs')} now</p>`)
+      wrapper = mount(LinkTooltip, { props: { editor: markRaw(editor) } })
+      const before = editor.getJSON()
+      editor.commands.setTextSelection(find(editor, 'docs') + 1)
+      editor.view.dom
+        .querySelector('a')!
+        .dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+      await nextTick()
+      clickButton('Edit')
+      await nextTick()
+      await setInput('.link-edit-input[type="url"]', NEW)
+      if (close === 'Cancel') clickButton('Cancel')
+      else
+        document.body
+          .querySelector('.link-edit-input')!
+          .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await nextTick()
+      await nextFrame()
+
+      expect(document.body.querySelector('.link-edit-input')).toBeNull()
+      expect(editor.getJSON()).toEqual(before)
+      expect(editor.view.dom.contains(document.activeElement)).toBe(true)
+    })
   }
 })

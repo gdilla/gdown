@@ -67,7 +67,12 @@ import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import type { Editor } from '@tiptap/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { useEditorSettingsStore } from '../stores/editorSettings'
-import { applyLink, isPlainTextRange, type LinkAttrs } from '../utils/linkEditing'
+import {
+  applyLink,
+  collapseToSelectionEnd,
+  isPlainTextRange,
+  type LinkAttrs,
+} from '../utils/linkEditing'
 
 const props = defineProps<{ editor: Editor }>()
 const editorSettings = useEditorSettingsStore()
@@ -147,7 +152,13 @@ async function copyLink() {
 }
 
 function removeLink() {
-  props.editor.chain().focus().extendMarkRange('link').unsetLink().run()
+  props.editor
+    .chain()
+    .focus()
+    .extendMarkRange('link')
+    .unsetLink()
+    .command(collapseToSelectionEnd)
+    .run()
   visible.value = false
 }
 
