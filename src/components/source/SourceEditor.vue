@@ -47,8 +47,6 @@ const mathPreviewHtml = ref('')
 const cmView = shallowRef<EditorView | null>(null)
 const settingsCompartment = new Compartment()
 
-// Flag to suppress modification tracking during content restoration
-let isRestoringContent = false
 // The tab represented by this mounted editor. activeTabId can move before
 // Vue unmounts the editor when switching to an image tab.
 let renderedTabId: string | null = null
@@ -81,7 +79,7 @@ function buildExtensions(): Extension[] {
     frontmatterHighlightTheme,
     keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
     EditorView.updateListener.of((update) => {
-      if (update.docChanged && !isRestoringContent) {
+      if (update.docChanged) {
         const tabId = renderedTabId
         if (tabId) {
           const content = update.state.doc.toString()
@@ -220,25 +218,14 @@ function initEditor() {
 }
 
 /**
- * Update editor content from tab state (e.g., on tab switch).
+ * Update editor content from tab state (e.g., on tab switch or file reload).
+ * A fresh state, not a change dispatch, so Undo cannot cross into the previous
+ * document: a change with addToHistory false still lets older history entries
+ * replay into the new one. setState also skips the update listener.
  */
 function restoreContent(content: string) {
   if (!cmView.value) return
-  isRestoringContent = true
-  try {
-    const currentDoc = cmView.value.state.doc.toString()
-    if (currentDoc !== content) {
-      cmView.value.dispatch({
-        changes: {
-          from: 0,
-          to: cmView.value.state.doc.length,
-          insert: content,
-        },
-      })
-    }
-  } finally {
-    isRestoringContent = false
-  }
+  cmView.value.setState(EditorState.create({ doc: content, extensions: buildExtensions() }))
 }
 
 /** Capture raw content and navigation state before a tab or mode change. */
