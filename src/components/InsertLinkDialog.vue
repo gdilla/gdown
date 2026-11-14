@@ -76,7 +76,9 @@ function handleInsertLink(event: Event) {
   linkTitle.value = ''
   visible.value = true
   nextTick(() => {
-    if (linkText.value) {
+    // A disabled Text field cannot take focus; leaving it in the editor would let
+    // typing replace the selected image.
+    if (linkText.value || !textEditable.value) {
       urlInput.value?.focus()
     } else {
       textInput.value?.focus()

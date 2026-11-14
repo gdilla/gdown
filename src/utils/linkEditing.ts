@@ -13,7 +13,9 @@ export interface LinkAttrs {
  */
 export function isPlainTextRange(editor: Editor, from: number, to: number): boolean {
   const { doc } = editor.state
-  if (!doc.resolve(from).sameParent(doc.resolve(to))) return false
+  const $from = doc.resolve(from)
+  // Both ends in one textblock (Cmd+A resolves both ends to the doc itself).
+  if (!$from.parent.isTextblock || !$from.sameParent(doc.resolve(to))) return false
   let plain = true
   doc.nodesBetween(from, to, (node) => {
     if (node.isInline && !node.isText) plain = false
@@ -44,8 +46,24 @@ export function applyLink(
     .chain()
     .focus()
     .command(({ tr, state }) => {
-      tr.insertText(text, from, to)
-      tr.addMark(from, from + text.length, state.schema.marks.link!.create(attrs))
+      const linkType = state.schema.marks.link!
+      const $from = state.doc.resolve(from)
+      if (!$from.parent.type.allowsMarkType(linkType)) return false
+      // Keep the surrounding formatting (e.g. bold) but drop marks that cannot
+      // coexist with a link (inline code excludes it) and any previous link.
+      const surrounding =
+        from === to ? $from.marks() : ($from.marksAcross(state.doc.resolve(to)) ?? [])
+      const marks = linkType
+        .create(attrs)
+        .addToSet(
+          surrounding.filter(
+            (mark) =>
+              mark.type !== linkType &&
+              !mark.type.excludes(linkType) &&
+              !linkType.excludes(mark.type),
+          ),
+        )
+      tr.replaceWith(from, to, state.schema.text(text, marks))
       return true
     })
     .run()
