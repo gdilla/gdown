@@ -56,6 +56,29 @@ pub fn write_file(path: String, content: String) -> Result<u64, String> {
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Where a write to `path` should land so a symlink at `path` survives: follow
+/// the link chain (relative targets against the link's own directory) to the
+/// final target, which need not exist yet. A path that is not a symlink, or does
+/// not exist, is its own target; symlinked parent directories are left for the
+/// OS to traverse. A loop (or over 40 hops) is an error.
+pub(crate) fn resolve_write_target(path: &Path) -> Result<PathBuf, String> {
+    let mut current = path.to_path_buf();
+    for _ in 0..40 {
+        match fs::read_link(&current) {
+            Ok(target) => {
+                let base = current.parent().unwrap_or(Path::new(""));
+                current = base.join(target);
+            }
+            // Not a symlink (or missing): this is where the bytes go.
+            Err(_) => return Ok(current),
+        }
+    }
+    Err(format!(
+        "Too many levels of symbolic links: '{}'",
+        path.display()
+    ))
+}
+
 /// Atomically replace `path` with `bytes`: write a uniquely named hidden temp
 /// file in the same directory, fsync it, then rename it over the target. The
 /// temp name is claimed with `create_new`, so it never collides with another
@@ -721,6 +744,49 @@ mod tests {
 
         assert!(write_file(s(&target), "content".into()).is_err());
         assert_eq!(dir_names(dir.path()), vec!["folder.md"]);
+    }
+
+    #[test]
+    fn test_resolve_write_target_follows_symlinks_like_a_write_would() {
+        use std::os::unix::fs::symlink;
+        let dir = tempdir().unwrap();
+        let d = dir.path();
+        let resolve = |p: &Path| resolve_write_target(p);
+        fs::write(d.join("real.md"), "x").unwrap();
+        fs::create_dir(d.join("realdir")).unwrap();
+        symlink(d.join("real.md"), d.join("abs-link.md")).unwrap();
+        symlink("real.md", d.join("rel-link.md")).unwrap();
+        symlink("rel-link.md", d.join("chain.md")).unwrap();
+        symlink("not-yet.md", d.join("dangling.md")).unwrap();
+        symlink("loop-b.md", d.join("loop-a.md")).unwrap();
+        symlink("loop-a.md", d.join("loop-b.md")).unwrap();
+        symlink(d.join("realdir"), d.join("linkdir")).unwrap();
+
+        // Regular and missing files resolve to themselves.
+        assert_eq!(resolve(&d.join("real.md")).unwrap(), d.join("real.md"));
+        assert_eq!(resolve(&d.join("new.md")).unwrap(), d.join("new.md"));
+        // Links (absolute, relative, chained) resolve to the final target.
+        assert_eq!(resolve(&d.join("abs-link.md")).unwrap(), d.join("real.md"));
+        assert_eq!(resolve(&d.join("rel-link.md")).unwrap(), d.join("real.md"));
+        assert_eq!(resolve(&d.join("chain.md")).unwrap(), d.join("real.md"));
+        // A dangling link resolves to the target it names, not to itself.
+        assert_eq!(
+            resolve(&d.join("dangling.md")).unwrap(),
+            d.join("not-yet.md")
+        );
+        // A loop is an error, never the link itself.
+        assert!(resolve(&d.join("loop-a.md")).is_err());
+        // A file under a symlinked directory is reached through that directory.
+        let under = resolve(&d.join("linkdir").join("f.md")).unwrap();
+        fs::write(&under, "y").unwrap();
+        assert_eq!(
+            fs::read_to_string(d.join("realdir").join("f.md")).unwrap(),
+            "y"
+        );
+        assert!(fs::symlink_metadata(d.join("linkdir"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
     }
 
     #[test]
