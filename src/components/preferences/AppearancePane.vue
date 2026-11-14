@@ -171,7 +171,7 @@ function adjustFontSize(delta: number) {
   border-radius: 6px;
   display: flex;
   overflow: hidden;
-  border: 1px solid var(--pref-input-border, #ddd);
+  border: 1px solid var(--input-border);
 }
 
 .preview-sidebar {
@@ -362,7 +362,7 @@ function adjustFontSize(delta: number) {
 /* Font preview */
 .font-preview {
   padding: 14px;
-  border: 1px solid var(--pref-input-border, #ddd);
+  border: 1px solid var(--input-border);
   border-radius: 8px;
   background: var(--pref-input-bg, #fff);
   color: var(--pref-label-color, #444);

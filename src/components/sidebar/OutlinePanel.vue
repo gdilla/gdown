@@ -63,7 +63,16 @@ async function copyWholeDoc(format: 'markdown' | 'richtext') {
           title="Copy document as Markdown"
           @click="copyWholeDoc('markdown')"
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <rect x="5" y="2" width="9" height="11" rx="1.5" />
             <path d="M2 5v8.5A1.5 1.5 0 003.5 15H10" />
           </svg>
@@ -75,7 +84,16 @@ async function copyWholeDoc(format: 'markdown' | 'richtext') {
           title="Copy document as Rich Text"
           @click="copyWholeDoc('richtext')"
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <rect x="2" y="2" width="12" height="12" rx="1.5" />
             <path d="M5 6h6M5 8.5h6M5 11h3" />
           </svg>
@@ -89,9 +107,7 @@ async function copyWholeDoc(format: 'markdown' | 'richtext') {
       <!-- No headings state -->
       <div v-if="!outlineStore.hasHeadings" class="outline-empty">
         <p class="outline-empty-text">No headings found</p>
-        <p class="outline-empty-hint">
-          Use <kbd>#</kbd> to create headings
-        </p>
+        <p class="outline-empty-hint">Use <kbd>#</kbd> to create headings</p>
       </div>
 
       <!-- Heading list -->
@@ -116,7 +132,16 @@ async function copyWholeDoc(format: 'markdown' | 'richtext') {
               title="Copy section as Markdown"
               @click.stop="copySectionAs(index, 'markdown')"
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <rect x="5" y="2" width="9" height="11" rx="1.5" />
                 <path d="M2 5v8.5A1.5 1.5 0 003.5 15H10" />
               </svg>
@@ -126,15 +151,28 @@ async function copyWholeDoc(format: 'markdown' | 'richtext') {
               title="Copy section as Rich Text"
               @click.stop="copySectionAs(index, 'richtext')"
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <rect x="2" y="2" width="12" height="12" rx="1.5" />
                 <path d="M5 6h6M5 8.5h6M5 11h3" />
               </svg>
             </button>
             <span
-              v-if="copiedKey === `section-${index}-markdown` || copiedKey === `section-${index}-richtext`"
+              v-if="
+                copiedKey === `section-${index}-markdown` ||
+                copiedKey === `section-${index}-richtext`
+              "
               class="copied-badge copied-badge-inline"
-            >Copied!</span>
+              >Copied!</span
+            >
           </div>
         </div>
       </nav>
@@ -181,12 +219,14 @@ async function copyWholeDoc(format: 'markdown' | 'richtext') {
   border: none;
   background: none;
   cursor: pointer;
-  color: var(--text-secondary, #888);
+  color: var(--text-muted);
   border-radius: 4px;
   font-size: 11px;
   line-height: 1;
   position: relative;
-  transition: background-color 0.1s ease, color 0.1s ease;
+  transition:
+    background-color 0.1s ease,
+    color 0.1s ease;
 }
 
 .outline-action-btn:hover {
@@ -252,7 +292,9 @@ async function copyWholeDoc(format: 'markdown' | 'richtext') {
   overflow: hidden;
   text-overflow: ellipsis;
   border-radius: 0;
-  transition: background-color 0.1s ease, color 0.1s ease;
+  transition:
+    background-color 0.1s ease,
+    color 0.1s ease;
 }
 
 .outline-item:hover {
@@ -291,9 +333,11 @@ async function copyWholeDoc(format: 'markdown' | 'richtext') {
   border: none;
   background: none;
   cursor: pointer;
-  color: var(--text-secondary, #888);
+  color: var(--text-muted);
   border-radius: 3px;
-  transition: background-color 0.1s ease, color 0.1s ease;
+  transition:
+    background-color 0.1s ease,
+    color 0.1s ease;
 }
 
 .outline-item-action-btn:hover {
@@ -306,7 +350,7 @@ async function copyWholeDoc(format: 'markdown' | 'richtext') {
   top: -18px;
   right: 0;
   font-size: 10px;
-  color: var(--text-secondary, #4caf50);
+  color: var(--success-color);
   background: var(--sidebar-bg, #f5f5f5);
   padding: 1px 5px;
   border-radius: 3px;
@@ -321,10 +365,18 @@ async function copyWholeDoc(format: 'markdown' | 'richtext') {
 }
 
 @keyframes copied-fade {
-  0% { opacity: 0; }
-  15% { opacity: 1; }
-  70% { opacity: 1; }
-  100% { opacity: 0; }
+  0% {
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 /* Heading level visual differentiation */

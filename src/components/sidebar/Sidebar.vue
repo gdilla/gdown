@@ -345,7 +345,7 @@ const sidebarStyle = computed(() => ({
 }
 
 .breadcrumb-separator {
-  color: var(--text-secondary, #999);
+  color: var(--text-faint);
   opacity: 0.6;
   flex-shrink: 0;
   user-select: none;
@@ -356,7 +356,7 @@ const sidebarStyle = computed(() => ({
   background: none;
   padding: 1px 2px;
   cursor: pointer;
-  color: var(--text-secondary, #999);
+  color: var(--text-faint);
   font-size: inherit;
   font-family: inherit;
   border-radius: 2px;
