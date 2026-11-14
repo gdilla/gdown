@@ -178,6 +178,46 @@ describe('SourceEditor find and outline', () => {
     expect(tab.editorState.markdown).toBe('alpha beta alpha')
   })
 
+  // CodeMirror's Mod is Ctrl under jsdom. Each key below is owned by an
+  // App.vue / SourceEditor window handler, so CodeMirror must leave it alone.
+  function pressInEditor(view: EditorView, init: KeyboardEventInit & { keyCode: number }) {
+    const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
+    view.contentDOM.dispatchEvent(event)
+    return event
+  }
+
+  it.each([
+    ['Mod-Shift-l (sidebar toggle)', { key: 'L', keyCode: 76, shiftKey: true }],
+    ['Mod-f (App.vue routes find)', { key: 'f', keyCode: 70 }],
+    ['Mod-/ (mode switch)', { key: '/', keyCode: 191 }],
+    ['Mod-d (no keyboard multi-cursor)', { key: 'd', keyCode: 68 }],
+    ['Shift-Mod-g (open by path)', { key: 'G', keyCode: 71, shiftKey: true }],
+  ])('leaves %s to the app', async (_name, init) => {
+    const tabsStore = useTabsStore()
+    tabsStore.createTab(null, 'alpha beta alpha')
+    const { view } = mountEditor()
+    view.dispatch({ selection: { anchor: 0, head: 5 } })
+
+    const event = pressInEditor(view, { ctrlKey: true, ...init })
+    await nextTick()
+
+    expect(event.defaultPrevented).toBe(false)
+    expect(view.state.doc.toString()).toBe('alpha beta alpha')
+    expect(view.state.selection.ranges.map((r) => [r.from, r.to])).toEqual([[0, 5]])
+    expect(wrapper!.element.querySelector('.cm-search')).toBeNull()
+  })
+
+  it('does not add a cursor on Cmd/Ctrl+click', () => {
+    const tabsStore = useTabsStore()
+    tabsStore.createTab(null, 'alpha')
+    const { view } = mountEditor()
+    const click = new MouseEvent('mousedown', { metaKey: true, ctrlKey: true })
+
+    const [addsRange] = view.state.facet(EditorView.clickAddsSelectionRange)
+
+    expect(addsRange?.(click)).toBe(false)
+  })
+
   it('clears its outline and pending refresh on unmount', () => {
     const tabsStore = useTabsStore()
     tabsStore.createTab(null, '# One')

@@ -72,11 +72,15 @@ function scheduleOutlineRefresh(): void {
   outlineTimer = setTimeout(refreshOutline, OUTLINE_REFRESH_MS)
 }
 
-// Shift+Cmd+G is the app-wide "Open by Path" shortcut, so find-previous stays
-// on Shift+F3 / Shift+Enter instead of shadowing it.
-const sourceSearchKeymap = searchKeymap.map((binding) =>
-  binding.key === 'Mod-g' ? { ...binding, shift: undefined } : binding,
-)
+// Keys an app-level window handler owns; CodeMirror must not also act on them.
+// Mod-f: App.vue opens the panel. Mod-Shift-l: App.vue sidebar toggle.
+// Mod-/: SourceEditor mode switch (toggleComment would edit the doc first).
+// Mod-d: no keyboard multi-cursor, matching the WYSIWYG editor.
+const APP_OWNED_KEYS = new Set(['Mod-f', 'Mod-Shift-l', 'Mod-/', 'Mod-d'])
+const sourceKeymap = [...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]
+  .filter((binding) => !APP_OWNED_KEYS.has(binding.key ?? ''))
+  // Shift+Cmd+G is App.vue's "Open by Path"; find-previous stays on Shift+F3 / Shift+Enter.
+  .map((binding) => (binding.key === 'Mod-g' ? { ...binding, shift: undefined } : binding))
 
 /**
  * Build the full set of CodeMirror extensions
@@ -93,9 +97,10 @@ function buildExtensions(): Extension[] {
       }),
     ),
     highlightActiveLine(),
-    // The search panel's "all" (and Mod-d) create several ranges; draw them
-    // all. Tab state still records only selection.main.
+    // Only the search panel's explicit "all" creates several ranges; draw them.
+    // Cmd/Ctrl+click never adds a cursor. Tab state records selection.main.
     EditorState.allowMultipleSelections.of(true),
+    EditorView.clickAddsSelectionRange.of(() => false),
     drawSelection(),
     history(),
     bracketMatching(),
@@ -109,7 +114,7 @@ function buildExtensions(): Extension[] {
     frontmatterHighlightPlugin,
     frontmatterHighlightTheme,
     search({ top: true }),
-    keymap.of([...sourceSearchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
+    keymap.of(sourceKeymap),
     EditorView.updateListener.of((update) => {
       // restoreContent() swaps state without firing this listener; it
       // refreshes the outline itself.
