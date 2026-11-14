@@ -4,9 +4,15 @@
       v-if="exportStore.dialogVisible"
       class="export-overlay"
       @click.self="handleOverlayClick"
-      @keydown.escape="exportStore.closeDialog"
+      @keydown="handleDialogKeydown"
     >
-      <div class="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
+      <div
+        ref="dialogEl"
+        class="export-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-title"
+      >
         <!-- Header -->
         <div class="export-header">
           <h2 id="export-title" class="export-title">Export Document</h2>
@@ -226,12 +232,58 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useExportStore } from '../stores/export'
 
 const exportStore = useExportStore()
 const copiedMethod = ref<string | null>(null)
 const isRetrying = ref(false)
+const dialogEl = ref<HTMLElement | null>(null)
+let returnFocusTo: HTMLElement | null = null
+
+function focusableElements(): HTMLElement[] {
+  return Array.from(
+    dialogEl.value?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), a[href]',
+    ) ?? [],
+  )
+}
+
+// Same focus contract as the close prompt in App.vue: focus moves in on open,
+// Tab stays inside, Escape closes, and focus returns to where it was.
+watch(
+  () => exportStore.dialogVisible,
+  (visible) => {
+    if (visible) {
+      returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      void nextTick(() => focusableElements()[0]?.focus())
+    } else {
+      returnFocusTo?.focus()
+      returnFocusTo = null
+    }
+  },
+)
+
+function handleDialogKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    exportStore.closeDialog()
+    return
+  }
+  if (event.key !== 'Tab') return
+
+  const elements = focusableElements()
+  if (elements.length === 0) return
+  const first = elements[0]!
+  const last = elements[elements.length - 1]!
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
 
 const displayOutputPath = computed(() => {
   return exportStore.customOutputPath || exportStore.getDefaultOutputPath()

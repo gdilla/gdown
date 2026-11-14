@@ -222,6 +222,36 @@ describe('QuickOpenDialog', () => {
     expect(findOverlay()).toBeNull()
   })
 
+  it('returns focus to the previously focused element on Escape', async () => {
+    const editorSurface = document.createElement('div')
+    editorSurface.tabIndex = 0
+    document.body.appendChild(editorSurface)
+    editorSurface.focus()
+    wrapper = mount(QuickOpenDialog)
+
+    await openDialog(wrapper)
+    await nextTick()
+    expect(document.activeElement).toBe(findInput())
+
+    findInput()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+
+    expect(findOverlay()).toBeNull()
+    expect(document.activeElement).toBe(editorSurface)
+    editorSurface.remove()
+  })
+
+  it('keeps Tab focus inside the dialog', async () => {
+    wrapper = mount(QuickOpenDialog)
+    await openDialog(wrapper)
+    await nextTick()
+
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    findInput()!.dispatchEvent(tab)
+
+    expect(tab.defaultPrevented).toBe(true)
+  })
+
   it('cleans up event listener on unmount', () => {
     wrapper = mount(QuickOpenDialog)
     wrapper.unmount()
