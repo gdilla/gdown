@@ -11,7 +11,7 @@
         </div>
         <div v-else class="no-tab-placeholder">
           <div class="empty-state">
-            <h2 class="empty-state-title">gdown</h2>
+            <h2 class="empty-state-title">Leaf</h2>
             <p class="empty-state-subtitle">Open a file or create a new document</p>
             <div class="empty-state-actions">
               <button class="empty-state-button" @click="tabsStore.createTab()">
@@ -180,6 +180,25 @@ function appActionsBlocked(): boolean {
   return closePrompt.value !== null || exitInProgress || preferencesStore.visible
 }
 
+// Files opened from Finder while a modal blocks app actions wait here
+// instead of being dropped; they open once the block clears.
+const pendingOpenPaths: string[] = []
+
+function openOrQueueFiles(paths: string[]): void {
+  pendingOpenPaths.push(...paths.filter(Boolean))
+  if (appActionsBlocked()) return
+  for (const filePath of pendingOpenPaths.splice(0)) {
+    void tabsStore.openFile(filePath)
+  }
+}
+
+watch(
+  () => closePrompt.value === null && !preferencesStore.visible,
+  (unblocked) => {
+    if (unblocked) openOrQueueFiles([])
+  },
+)
+
 /** Resolve dirty tabs before Rust completes a native quit or window close. */
 async function handleExitRequested(): Promise<void> {
   if (exitInProgress) return
@@ -210,7 +229,10 @@ async function handleExitRequested(): Promise<void> {
       // Tauri is unavailable in browser development mode.
     }
   } finally {
-    if (!exitApproved) exitInProgress = false
+    if (!exitApproved) {
+      exitInProgress = false
+      openOrQueueFiles([])
+    }
   }
 }
 
@@ -581,11 +603,7 @@ onMounted(async () => {
     // This handles: macOS file associations, drag-drop onto dock icon,
     // "open with" context menu, or any other backend-initiated file open.
     unlistenFileOpenRequest = await listen<string>('open-file', (event) => {
-      if (appActionsBlocked()) return
-      const filePath = event.payload
-      if (filePath) {
-        tabsStore.openFile(filePath)
-      }
+      openOrQueueFiles([event.payload])
     })
 
     // Native window close and application quit are held by Rust until the
@@ -598,13 +616,7 @@ onMounted(async () => {
     // Fired by RunEvent::Opened when files are opened via macOS Open With,
     // double-click, or dock drag.
     unlistenOpenFiles = await listen<string[]>('open-files', (event) => {
-      if (appActionsBlocked()) return
-      const paths = event.payload
-      if (paths && Array.isArray(paths)) {
-        for (const filePath of paths) {
-          tabsStore.openFile(filePath)
-        }
-      }
+      if (Array.isArray(event.payload)) openOrQueueFiles(event.payload)
     })
 
     // Check for pending files from CLI args or early macOS open events
