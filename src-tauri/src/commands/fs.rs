@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::fs;
 use std::io::Write as IoWrite;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
@@ -60,8 +61,8 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// temp name is claimed with `create_new`, so overlapping writes (commands run
 /// off the main thread) never share a temp file. It is removed on any failure.
 /// A symlink is written through (the link survives) and the replaced file's
-/// permission bits are kept. Returns the written file's modified time, read
-/// from the open handle so a later external write cannot leak in.
+/// permission bits are kept (best effort). Returns the conflict baseline mtime
+/// (see `baseline_mtime`).
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<u64, String> {
     let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let dir = match target.parent() {
@@ -69,8 +70,46 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<u64, String> {
         _ => Path::new("."),
     };
 
-    // Short and independent of the target name, so long file names still fit.
-    let (tmp_path, mut tmp_file) = loop {
+    let existing = fs::metadata(&target).ok();
+    let (tmp_path, mut tmp_file) = create_temp_file(dir, existing.is_some())?;
+
+    let result = (|| -> std::io::Result<SystemTime> {
+        // Set the final mode before any content lands in the temp file. Best
+        // effort: some volumes (SMB/NAS, FUSE) reject chmod, and that must not
+        // fail the save; the temp file then stays 0600.
+        if let Some(existing) = &existing {
+            if let Err(e) = tmp_file.set_permissions(existing.permissions()) {
+                eprintln!(
+                    "Leaf: could not keep permissions of '{}': {}",
+                    target.display(),
+                    e
+                );
+            }
+        }
+        tmp_file.write_all(bytes)?;
+        tmp_file.sync_all()?;
+        let ours = WrittenFile::of(&tmp_file.metadata()?)?;
+        // Rename is atomic on the same filesystem.
+        fs::rename(&tmp_path, &target)?;
+        let on_disk = fs::metadata(&target)
+            .ok()
+            .and_then(|m| WrittenFile::of(&m).ok());
+        Ok(baseline_mtime(&ours, on_disk.as_ref()))
+    })();
+
+    let modified = result.map_err(|e| {
+        let _ = fs::remove_file(&tmp_path);
+        format!("Failed to write '{}': {}", target.display(), e)
+    })?;
+    millis_since_epoch(modified)
+}
+
+/// Claim a short, hidden, unique temp file in `dir` with `create_new`. The name is
+/// independent of the target name, so long file names still fit. A temp file that
+/// will replace an existing file starts as 0600, so that file's content is never
+/// readable more widely than it already was; a brand-new file gets the default mode.
+fn create_temp_file(dir: &Path, private: bool) -> Result<(PathBuf, fs::File), String> {
+    loop {
         let candidate = dir.join(format!(
             ".leaf-{}-{}.tmp",
             std::process::id(),
@@ -79,9 +118,10 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<u64, String> {
         match fs::OpenOptions::new()
             .write(true)
             .create_new(true)
+            .mode(if private { 0o600 } else { 0o666 })
             .open(&candidate)
         {
-            Ok(file) => break (candidate, file),
+            Ok(file) => return Ok((candidate, file)),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => {
                 return Err(format!(
@@ -91,25 +131,38 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<u64, String> {
                 ))
             }
         }
-    };
+    }
+}
 
-    let result = (|| -> std::io::Result<SystemTime> {
-        tmp_file.write_all(bytes)?;
-        if let Ok(existing) = fs::metadata(&target) {
-            tmp_file.set_permissions(existing.permissions())?;
-        }
-        tmp_file.sync_all()?;
-        let modified = tmp_file.metadata()?.modified()?;
-        // Rename is atomic on the same filesystem.
-        fs::rename(&tmp_path, &target)?;
-        Ok(modified)
-    })();
+/// Identity and mtime of a file, to recognise the file we wrote after the rename.
+struct WrittenFile {
+    dev: u64,
+    ino: u64,
+    len: u64,
+    modified: SystemTime,
+}
 
-    let modified = result.map_err(|e| {
-        let _ = fs::remove_file(&tmp_path);
-        format!("Failed to write '{}': {}", target.display(), e)
-    })?;
-    millis_since_epoch(modified)
+impl WrittenFile {
+    fn of(meta: &fs::Metadata) -> std::io::Result<Self> {
+        Ok(Self {
+            dev: meta.dev(),
+            ino: meta.ino(),
+            len: meta.len(),
+            modified: meta.modified()?,
+        })
+    }
+}
+
+/// The conflict baseline for a file just renamed into place: the mtime the final
+/// path reports, if it still holds our file (same inode and length), because that is
+/// what later `get_file_modified_time` calls see (SMB/NFS may set it at close).
+/// Otherwise the file was replaced after the rename, so keep our handle's mtime and
+/// let the change surface as a conflict.
+fn baseline_mtime(ours: &WrittenFile, on_disk: Option<&WrittenFile>) -> SystemTime {
+    match on_disk {
+        Some(d) if (d.dev, d.ino, d.len) == (ours.dev, ours.ino, ours.len) => d.modified,
+        _ => ours.modified,
+    }
 }
 
 fn millis_since_epoch(time: SystemTime) -> Result<u64, String> {
@@ -547,6 +600,48 @@ mod tests {
 
         let mode = fs::metadata(&file).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn test_temp_file_for_an_existing_file_starts_private() {
+        let dir = tempdir().unwrap();
+        let (private_path, _f) = create_temp_file(dir.path(), true).unwrap();
+        let mode = fs::metadata(&private_path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "content must never sit in a wider temp file");
+    }
+
+    #[test]
+    fn test_write_file_gives_a_new_file_the_default_mode() {
+        let dir = tempdir().unwrap();
+        let reference = dir.path().join("reference.md");
+        fs::File::create(&reference).unwrap();
+        let file = dir.path().join("new.md");
+
+        write_file(s(&file), "x".into()).unwrap();
+
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&file), mode(&reference));
+    }
+
+    fn stamp(ino: u64, len: u64, secs: u64) -> WrittenFile {
+        WrittenFile {
+            dev: 1,
+            ino,
+            len,
+            modified: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs),
+        }
+    }
+
+    #[test]
+    fn test_baseline_prefers_the_final_paths_mtime_only_for_our_own_file() {
+        let at = |secs| SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs);
+        let ours = stamp(7, 4, 100);
+        // SMB/NFS can set the mtime at close: same file, later stat differs.
+        assert_eq!(baseline_mtime(&ours, Some(&stamp(7, 4, 105))), at(105));
+        // Replaced by another file, or rewritten to a new length: keep ours.
+        assert_eq!(baseline_mtime(&ours, Some(&stamp(8, 4, 105))), at(100));
+        assert_eq!(baseline_mtime(&ours, Some(&stamp(7, 9, 105))), at(100));
+        assert_eq!(baseline_mtime(&ours, None), at(100));
     }
 
     #[test]
