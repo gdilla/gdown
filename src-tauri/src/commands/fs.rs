@@ -34,8 +34,12 @@ pub fn read_file(path: String) -> Result<String, String> {
 /// # Arguments
 /// * `path` - The absolute path of the file to write.
 /// * `content` - The string content to write.
+///
+/// # Returns
+/// The written file's modified time (ms since UNIX epoch), the same unit as
+/// `get_file_modified_time`, for use as the external-change baseline.
 #[tauri::command(async)]
-pub fn write_file(path: String, content: String) -> Result<(), String> {
+pub fn write_file(path: String, content: String) -> Result<u64, String> {
     let file_path = Path::new(&path);
 
     // Ensure parent directory exists
@@ -56,8 +60,9 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// temp name is claimed with `create_new`, so overlapping writes (commands run
 /// off the main thread) never share a temp file. It is removed on any failure.
 /// A symlink is written through (the link survives) and the replaced file's
-/// permission bits are kept.
-pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+/// permission bits are kept. Returns the written file's modified time, read
+/// from the open handle so a later external write cannot leak in.
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<u64, String> {
     let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let dir = match target.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
@@ -88,20 +93,29 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
         }
     };
 
-    let result = (|| -> std::io::Result<()> {
+    let result = (|| -> std::io::Result<SystemTime> {
         tmp_file.write_all(bytes)?;
         if let Ok(existing) = fs::metadata(&target) {
             tmp_file.set_permissions(existing.permissions())?;
         }
         tmp_file.sync_all()?;
+        let modified = tmp_file.metadata()?.modified()?;
         // Rename is atomic on the same filesystem.
-        fs::rename(&tmp_path, &target)
+        fs::rename(&tmp_path, &target)?;
+        Ok(modified)
     })();
 
-    result.map_err(|e| {
+    let modified = result.map_err(|e| {
         let _ = fs::remove_file(&tmp_path);
         format!("Failed to write '{}': {}", target.display(), e)
-    })
+    })?;
+    millis_since_epoch(modified)
+}
+
+fn millis_since_epoch(time: SystemTime) -> Result<u64, String> {
+    time.duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .map_err(|e| format!("System time error: {}", e))
 }
 
 /// Tauri command: Returns the last modified time of a file as milliseconds since UNIX epoch.
@@ -121,11 +135,7 @@ pub fn get_file_modified_time(path: String) -> Result<u64, String> {
         .modified()
         .map_err(|e| format!("Failed to get modified time for '{}': {}", path, e))?;
 
-    let duration = modified
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map_err(|e| format!("System time error: {}", e))?;
-
-    Ok(duration.as_millis() as u64)
+    millis_since_epoch(modified)
 }
 
 /// Represents a single node (file or directory) in the file tree.
@@ -517,6 +527,16 @@ mod tests {
             .file_type()
             .is_symlink());
         assert_eq!(fs::read_to_string(&real).unwrap(), "new");
+    }
+
+    #[test]
+    fn test_write_file_returns_the_written_files_modified_time() {
+        let dir = tempdir().unwrap();
+        let file = s(&dir.path().join("note.md"));
+
+        let written: u64 = write_file(file.clone(), "x".into()).unwrap();
+
+        assert_eq!(written, get_file_modified_time(file).unwrap());
     }
 
     #[test]

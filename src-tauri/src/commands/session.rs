@@ -35,7 +35,7 @@ fn session_file_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 pub fn save_session_state(app: tauri::AppHandle, state: String) -> Result<(), String> {
     let file_path = session_file_path(&app)?;
 
-    super::fs::atomic_write(&file_path, state.as_bytes())
+    super::fs::atomic_write(&file_path, state.as_bytes()).map(|_| ())
 }
 
 /// Tauri command: Load session state from the app data directory.
