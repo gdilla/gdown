@@ -525,7 +525,10 @@ pub fn run_pandoc_export(
     resource_path: Option<&str>,
 ) -> Result<ExportResult, String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let destination = Path::new(output_path);
+    // Export through a symlink to its target, so the link survives the rename.
+    let resolved =
+        std::fs::canonicalize(output_path).unwrap_or_else(|_| PathBuf::from(output_path));
+    let destination = resolved.as_path();
     // Keep the extension: Pandoc infers PDF output from it.
     let extension = destination
         .extension()
@@ -1190,6 +1193,25 @@ mod tests {
             None,
             None,
         )
+    }
+
+    #[test]
+    fn test_export_through_a_symlink_updates_its_target() {
+        let bin = tempfile::tempdir().unwrap();
+        let pandoc = fake_pandoc(bin.path(), "printf done > \"$out\"");
+        let out_dir = tempfile::tempdir().unwrap();
+        let target = out_dir.path().join("real.html");
+        let link = out_dir.path().join("link.html");
+        fs::write(&target, "old").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        html_export(&pandoc, &link).unwrap();
+
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "done");
     }
 
     #[test]
