@@ -456,13 +456,12 @@ pub fn resolve_file_path(path: String, base_dir: Option<String>) -> Result<Resol
         return Err("Path cannot be empty".to_string());
     }
 
-    let expanded = if path.starts_with('~') {
-        let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
-        if path == "~" {
-            home
-        } else {
-            home.join(&path[2..])
-        }
+    let home = || dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string());
+    // Only `~` and `~/...` mean home; `~name` is an ordinary relative name.
+    let expanded = if path == "~" {
+        home()?
+    } else if let Some(rest) = path.strip_prefix("~/") {
+        home()?.join(rest)
     } else {
         let p = PathBuf::from(&path);
         if p.is_absolute() {
@@ -940,6 +939,22 @@ mod tests {
         let result = resolve_file_path("~".to_string(), None).unwrap();
         assert!(result.exists);
         assert!(!result.is_file);
+    }
+
+    #[test]
+    fn test_resolve_file_path_tilde_slash_and_tilde_names() {
+        let home = dirs::home_dir().unwrap();
+        let base = tempdir().unwrap();
+        let base_str = Some(s(base.path()));
+
+        let sub = resolve_file_path("~/leaf-nope.md".into(), None).unwrap();
+        assert_eq!(sub.canonical_path, s(&home.join("leaf-nope.md")));
+
+        // `~é` used to panic (byte slice mid-codepoint); `~foo` became $HOME/oo.
+        let accented = resolve_file_path("~é".into(), base_str.clone()).unwrap();
+        assert_eq!(accented.canonical_path, s(&base.path().join("~é")));
+        let named = resolve_file_path("~foo".into(), base_str).unwrap();
+        assert_eq!(named.canonical_path, s(&base.path().join("~foo")));
     }
 
     #[test]
