@@ -543,5 +543,95 @@ title: Recent
       expect(store.tabs[1]?.isModified).toBe(true)
       expect(store.tabs[1]?.editorState.markdown).toBe('# Second draft')
     })
+
+    /** Two dirty file tabs; the second tab's write waits for `finishSecondWrite`. */
+    function twoDirtyTabsWithSlowSecondWrite(decisions: Record<string, CloseDecision>) {
+      const store = useTabsStore()
+      usePreferencesStore().autoSaveEnabled = false
+      const first = store.createTab('/tmp/first.md', '# First')
+      const second = store.createTab('/tmp/second.md', '# Second')
+      store.setModified(first.id, true)
+      store.setModified(second.id, true)
+      store.setCloseDecisionHandler(async (tab) => decisions[tab.filePath ?? ''] ?? 'cancel')
+      const secondWrite = deferred<number>()
+      mockedInvoke.mockImplementation(async (command, args) => {
+        if (command === 'get_file_modified_time') return 100
+        if (command === 'write_file') {
+          const { path } = args as { path: string }
+          return path === '/tmp/second.md' ? secondWrite.promise : 101
+        }
+        return undefined
+      })
+      return { store, first, second, finishSecondWrite: () => secondWrite.resolve(101) }
+    }
+
+    const writes = () => mockedInvoke.mock.calls.filter(([command]) => command === 'write_file')
+
+    it('cancels the quit when an already-saved tab is edited during a later write', async () => {
+      const { store, first, finishSecondWrite } = twoDirtyTabsWithSlowSecondWrite({
+        '/tmp/first.md': 'save',
+        '/tmp/second.md': 'save',
+      })
+
+      const quitting = store.prepareCloseAll()
+      await vi.waitFor(() => expect(writes()).toHaveLength(2))
+      // write_file runs off the main thread, so the first tab can be edited now.
+      store.saveEditorState(first.id, { markdown: '# First, edited during the quit' })
+      store.markContentChanged(first.id)
+      store.setModified(first.id, true)
+      finishSecondWrite()
+
+      await expect(quitting).resolves.toBe(false)
+      expect(store.tabs[0]?.isModified).toBe(true)
+      expect(store.tabs[0]?.editorState.markdown).toBe('# First, edited during the quit')
+    })
+
+    it('quits once every saved tab is clean', async () => {
+      const { store, finishSecondWrite } = twoDirtyTabsWithSlowSecondWrite({
+        '/tmp/first.md': 'save',
+        '/tmp/second.md': 'save',
+      })
+
+      const quitting = store.prepareCloseAll()
+      await vi.waitFor(() => expect(writes()).toHaveLength(2))
+      finishSecondWrite()
+
+      await expect(quitting).resolves.toBe(true)
+      expect(store.tabs.every((tab) => !tab.isModified)).toBe(true)
+    })
+
+    it("does not let a Don't Save tab cancel the quit", async () => {
+      const { store, first, finishSecondWrite } = twoDirtyTabsWithSlowSecondWrite({
+        '/tmp/first.md': 'discard',
+        '/tmp/second.md': 'save',
+      })
+
+      const quitting = store.prepareCloseAll()
+      await vi.waitFor(() => expect(writes()).toHaveLength(1))
+      finishSecondWrite()
+
+      await expect(quitting).resolves.toBe(true)
+      expect(writes().some(([, args]) => (args as { path: string }).path === '/tmp/first.md')).toBe(
+        false,
+      )
+      expect(store.tabs.find((tab) => tab.id === first.id)).toBeDefined()
+    })
+
+    it('still saves an untitled draft through Save As and quits', async () => {
+      const store = useTabsStore()
+      usePreferencesStore().autoSaveEnabled = false
+      const draft = store.createTab(null, '# Untitled draft')
+      store.setModified(draft.id, true)
+      store.setCloseDecisionHandler(async () => 'save')
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'save_file_dialog') return '/tmp/draft.md'
+        if (command === 'write_file') return 101
+        return undefined
+      })
+
+      await expect(store.prepareCloseAll()).resolves.toBe(true)
+      expect(store.tabs[0]?.filePath).toBe('/tmp/draft.md')
+      expect(store.tabs[0]?.isModified).toBe(false)
+    })
   })
 })
