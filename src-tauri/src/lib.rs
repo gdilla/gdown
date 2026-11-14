@@ -180,31 +180,13 @@ fn request_frontend_exit(app_handle: &tauri::AppHandle) {
     }
 }
 
-/// Resolves once no write or export is in flight. The quit handshake awaits this
-/// before its final dirty-document check and session snapshot.
-#[tauri::command(async)]
-fn wait_for_background_io() {
-    commands::wait_for_in_flight_io();
-}
-
 #[tauri::command]
-fn allow_exit(app: tauri::AppHandle, state: tauri::State<'_, ExitState>, force: Option<bool>) {
+fn allow_exit(app: tauri::AppHandle, state: tauri::State<'_, ExitState>) {
     let mut exit = state.0.lock().unwrap();
     exit.allowed = true;
     exit.pending = false;
     drop(exit);
-    if force == Some(true) {
-        // The user chose Quit Anyway past hung background work. Exports write to
-        // a temp file, so an interrupted one never leaves a partial destination.
-        app.exit(0);
-        return;
-    }
-    // Backstop: the frontend drains background IO first, so this normally finds
-    // nothing in flight. Wait off the main thread so the window stays responsive.
-    std::thread::spawn(move || {
-        commands::wait_for_in_flight_io();
-        app.exit(0);
-    });
+    app.exit(0);
 }
 
 #[tauri::command]
@@ -247,7 +229,6 @@ pub fn run() {
             list_files_with_mtime,
             find_instruction_files,
             allow_exit,
-            wait_for_background_io,
             cancel_exit,
         ])
         .setup(|app| {

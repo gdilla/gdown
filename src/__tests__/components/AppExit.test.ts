@@ -3,7 +3,9 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { invoke } from '@tauri-apps/api/core'
 import App from '../../App.vue'
+import { useExportStore } from '../../stores/export'
 import { useTabsStore } from '../../stores/tabs'
+import type { ExportConfig } from '../../types/export'
 
 const { listeners } = vi.hoisted(() => ({ listeners: new Map<string, () => void>() }))
 
@@ -13,6 +15,10 @@ vi.mock('@tauri-apps/api/event', () => ({
     return () => {}
   }),
   emit: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../services/export', () => ({
+  getExportConfig: vi.fn(async () => ({ extra_args: [] }) as unknown as ExportConfig),
 }))
 
 const stubs = {
@@ -32,39 +38,19 @@ const stubs = {
 }
 
 const mockedInvoke = vi.mocked(invoke)
+const calls = (command: string) => mockedInvoke.mock.calls.filter(([c]) => c === command)
 
-describe('App quit while background work is in flight', () => {
-  let wrapper: VueWrapper
-  let finishBackgroundWork: () => void
-  let sessions: Array<{ state: string; inert: boolean }>
-
-  const calls = (command: string) => mockedInvoke.mock.calls.filter(([c]) => c === command)
-  const appUi = () => wrapper.find('.app-ui').element
-  const requestExit = () => listeners.get('app-exit-requested')!()
-
-  async function mountApp() {
-    wrapper = mount(App, { global: { stubs }, attachTo: document.body })
-    await flushPromises()
-    sessions.length = 0
-  }
+describe('App quit during an export', () => {
+  let wrapper: VueWrapper | undefined
 
   beforeEach(() => {
     localStorage.clear()
     setActivePinia(createPinia())
     listeners.clear()
-    sessions = []
-    const backgroundWork = new Promise<void>((resolve) => {
-      finishBackgroundWork = resolve
-    })
     mockedInvoke.mockReset()
-    mockedInvoke.mockImplementation(async (command, args) => {
-      if (command === 'wait_for_background_io') return backgroundWork as never
-      if (command === 'save_session_state') {
-        const state = (args as { state: string }).state
-        const ui = document.querySelector('.app-ui')
-        sessions.push({ state, inert: ui?.hasAttribute('inert') ?? false })
-        return undefined as never
-      }
+    mockedInvoke.mockImplementation(async (command) => {
+      // Pandoc never finishes within this test.
+      if (command === 'export_document') return new Promise(() => {}) as never
       if (command === 'get_pending_open_files') return [] as never
       return null as never
     })
@@ -72,97 +58,29 @@ describe('App quit while background work is in flight', () => {
 
   afterEach(() => {
     wrapper?.unmount()
+    wrapper = undefined
   })
 
-  it('takes the final snapshot only after background work drains, then keeps the UI inert', async () => {
-    useTabsStore().createTab(null, '# Draft')
-    await mountApp()
-
-    requestExit()
-    await flushPromises()
-    expect(calls('wait_for_background_io')).toHaveLength(1)
-    expect(sessions).toHaveLength(0)
-    expect(appUi().hasAttribute('inert')).toBe(false)
-
-    finishBackgroundWork()
-    await vi.waitFor(() => expect(calls('allow_exit')).toHaveLength(1))
-    expect(sessions).toHaveLength(1)
-    expect(sessions[0]!.inert).toBe(true)
-    expect(appUi().hasAttribute('inert')).toBe(true)
-  })
-
-  it('captures edits made while waiting in the final recovery snapshot', async () => {
-    const tabs = useTabsStore()
-    const tab = tabs.createTab(null, '# Before')
-    let editorText = '# Before'
-    const capture = () => tabs.saveEditorState(tab.id, { markdown: editorText })
-    window.addEventListener('gdown:capture-state', capture)
-    try {
-      await mountApp()
-      requestExit()
-      await flushPromises()
-
-      editorText = '# Typed while waiting'
-      finishBackgroundWork()
-      await vi.waitFor(() => expect(calls('allow_exit')).toHaveLength(1))
-    } finally {
-      window.removeEventListener('gdown:capture-state', capture)
-    }
-
-    const finalSnapshot = JSON.parse(sessions[sessions.length - 1]!.state) as {
-      tabs: Array<{ markdown: string }>
-    }
-    expect(finalSnapshot.tabs[0]!.markdown).toBe('# Typed while waiting')
-  })
-
-  it('restores normal editing when the quit is cancelled while waiting', async () => {
-    useTabsStore().createTab(null, '# Draft')
-    await mountApp()
-
-    requestExit()
-    await vi.waitFor(() => expect(wrapper.find('.finishing-work').exists()).toBe(true))
-    await wrapper.find('.finishing-work .finishing-work-cancel').trigger('click')
+  it('quits through the normal handshake without waiting for the export', async () => {
+    // Pandoc writes to a hidden temp file that is renamed only on success
+    // (export.rs run_pandoc_export), so abandoning it leaves the destination as it was.
+    useTabsStore().createTab('/tmp/notes.md', '# Notes')
+    wrapper = mount(App, { global: { stubs } })
     await flushPromises()
 
-    expect(calls('cancel_exit')).toHaveLength(1)
-    expect(calls('allow_exit')).toHaveLength(0)
-    expect(sessions).toHaveLength(0)
-    expect(wrapper.find('.finishing-work').exists()).toBe(false)
-    expect(appUi().hasAttribute('inert')).toBe(false)
+    const exportStore = useExportStore()
+    exportStore.formats = [{ id: 'html', label: 'HTML', extension: 'html' }]
+    exportStore.pandocInfo = { path: '/usr/bin/pandoc', version: '3.7' }
+    exportStore.selectedFormatId = 'html'
+    exportStore.customOutputPath = '/tmp/notes.html'
+    void exportStore.performExport()
+    await vi.waitFor(() => expect(calls('export_document')).toHaveLength(1))
 
-    // A later quit starts a fresh handshake.
-    requestExit()
-    await flushPromises()
-    expect(calls('wait_for_background_io')).toHaveLength(2)
-  })
-
-  it('lets the user quit anyway past hung background work', async () => {
-    useTabsStore().createTab(null, '# Draft')
-    await mountApp()
-
-    requestExit()
-    await vi.waitFor(() => expect(wrapper.find('.finishing-work').exists()).toBe(true))
-    await wrapper.find('.finishing-work .finishing-work-force').trigger('click')
+    listeners.get('app-exit-requested')!()
 
     await vi.waitFor(() => expect(calls('allow_exit')).toHaveLength(1))
-    expect(calls('allow_exit')[0]![1]).toEqual({ force: true })
-    expect(sessions).toHaveLength(1)
-  })
-
-  it('still runs the dirty-document prompt after background work drains', async () => {
-    const tabs = useTabsStore()
-    const tab = tabs.createTab('/tmp/note.md', '# Dirty')
-    tabs.setModified(tab.id, true)
-    await mountApp()
-    finishBackgroundWork()
-
-    requestExit()
-    await vi.waitFor(() => expect(wrapper.find('.close-prompt').exists()).toBe(true))
-    expect(wrapper.find('.close-prompt').element.closest('[inert]')).toBeNull()
-    const dontSave = wrapper.findAll('.close-prompt button').find((b) => b.text() === "Don't Save")!
-    await dontSave.trigger('click')
-
-    await vi.waitFor(() => expect(calls('allow_exit')).toHaveLength(1))
+    expect(calls('save_session_state').length).toBeGreaterThan(0)
     expect(calls('cancel_exit')).toHaveLength(0)
+    expect(exportStore.isExporting).toBe(true)
   })
 })

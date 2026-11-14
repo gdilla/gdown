@@ -531,8 +531,24 @@ pub fn run_pandoc_export(
         .extension()
         .map(|e| format!(".{}", e.to_string_lossy()))
         .unwrap_or_default();
+    let prefix = export_temp_prefix(destination);
+    // Remove temps an earlier export to this destination abandoned (quit or
+    // crash). export_document holds this destination's claim, so none of them
+    // belongs to an export still running in this process.
+    let dir = match destination.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().starts_with(&prefix) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
     let tmp_path = destination.with_file_name(format!(
-        ".leaf-export-{}-{}{}",
+        "{}{}-{}{}",
+        prefix,
         std::process::id(),
         COUNTER.fetch_add(1, Ordering::Relaxed),
         extension
@@ -558,6 +574,20 @@ pub fn run_pandoc_export(
         output_path: output_path.to_string(),
         message: format!("Successfully exported to {}", output_path),
     })
+}
+
+/// Hidden temp-file prefix for exports to `destination`: short (any file name
+/// still fits) and stable, so temps left by an abandoned export can be found.
+fn export_temp_prefix(destination: &Path) -> String {
+    let name = destination
+        .file_name()
+        .unwrap_or_default()
+        .as_encoded_bytes();
+    // FNV-1a: stable across Rust releases, unlike DefaultHasher.
+    let hash = name.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!(".leaf-export-{:016x}-", hash)
 }
 
 fn run_pandoc(
@@ -721,7 +751,6 @@ pub fn export_document(
     config: Option<ExportConfig>,
 ) -> Result<ExportResult, String> {
     let _destination = ExportDestination::claim(&output_path)?;
-    let _in_flight = super::InFlightIo::begin();
 
     // Locate Pandoc
     let pandoc_path = find_pandoc_path().ok_or_else(|| {
@@ -1101,6 +1130,104 @@ mod tests {
     /// Helper: return pandoc path or skip test gracefully.
     fn pandoc_or_skip() -> Option<String> {
         find_pandoc_path()
+    }
+
+    /// A fake `pandoc` running `body` (a shell snippet; `$out` is the -o path).
+    fn fake_pandoc(dir: &std::path::Path, body: &str) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let fake = dir.join("pandoc");
+        let script = format!(
+            "#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = -o ] && out=\"$2\"; shift; done\ncat > /dev/null\n{}\n",
+            body
+        );
+        fs::write(&fake, script).unwrap();
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+        fake.to_string_lossy().to_string()
+    }
+
+    fn html_export(pandoc: &str, output: &std::path::Path) -> Result<ExportResult, String> {
+        let config = ExportConfig::default_for(&ExportFormat::Html);
+        run_pandoc_export(
+            pandoc,
+            &config,
+            "# Doc",
+            &output.to_string_lossy(),
+            None,
+            None,
+        )
+    }
+
+    #[test]
+    fn test_a_new_export_removes_temps_abandoned_for_the_same_destination() {
+        let bin = tempfile::tempdir().unwrap();
+        let pandoc = fake_pandoc(bin.path(), "printf done > \"$out\"");
+        let out_dir = tempfile::tempdir().unwrap();
+        let output = out_dir.path().join("report.html");
+        // Left behind by an export abandoned on quit (or a crash) in another run.
+        let stale = out_dir
+            .path()
+            .join(format!("{}4242-0.html", export_temp_prefix(&output)));
+        let other = out_dir.path().join(format!(
+            "{}4242-0.html",
+            export_temp_prefix(&out_dir.path().join("other.html"))
+        ));
+        fs::write(&stale, "partial").unwrap();
+        fs::write(&other, "someone else's").unwrap();
+
+        html_export(&pandoc, &output).unwrap();
+
+        assert_eq!(fs::read_to_string(&output).unwrap(), "done");
+        assert!(
+            !stale.exists(),
+            "abandoned temp for this destination was kept"
+        );
+        assert!(
+            other.exists(),
+            "temp for a different destination was removed"
+        );
+    }
+
+    #[test]
+    fn test_an_abandoned_export_never_touches_the_destination() {
+        // Quitting during an export abandons it: Pandoc only ever writes to the
+        // hidden temp path, and only Leaf renames it, after Pandoc succeeds.
+        let bin = tempfile::tempdir().unwrap();
+        let go = bin.path().join("go");
+        let pandoc = fake_pandoc(
+            bin.path(),
+            &format!(
+                "printf partial > \"$out\"\nwhile [ ! -f '{}' ]; do sleep 0.02; done\nexit 1",
+                go.display()
+            ),
+        );
+        let out_dir = tempfile::tempdir().unwrap();
+        let output = out_dir.path().join("report.html");
+        fs::write(&output, "previous").unwrap();
+
+        let running = {
+            let (pandoc, output) = (pandoc.clone(), output.clone());
+            std::thread::spawn(move || html_export(&pandoc, &output))
+        };
+        let prefix = export_temp_prefix(&output);
+        let temp_written = || {
+            fs::read_dir(out_dir.path()).unwrap().flatten().any(|e| {
+                e.file_name().to_string_lossy().starts_with(&prefix)
+                    && fs::read_to_string(e.path()).unwrap_or_default() == "partial"
+            })
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !temp_written() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "fake pandoc never ran"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(fs::read_to_string(&output).unwrap(), "previous");
+
+        fs::write(&go, "").unwrap();
+        assert!(running.join().unwrap().is_err());
+        assert_eq!(fs::read_to_string(&output).unwrap(), "previous");
     }
 
     #[test]
