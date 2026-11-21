@@ -53,6 +53,8 @@ const settingsCompartment = new Compartment()
 // The tab represented by this mounted editor. activeTabId can move before
 // Vue unmounts the editor when switching to an image tab.
 let renderedTabId: string | null = null
+// The tab a switch is about to load; a later switch supersedes it.
+let pendingTabId: string | null = null
 
 // Outline headings are re-scanned once edits settle, not on every keystroke.
 const OUTLINE_REFRESH_MS = 150
@@ -63,6 +65,12 @@ function refreshOutline(): void {
   outlineTimer = null
   const view = cmView.value
   if (!view) return
+  // No outline for a source-only tab: the heading scan parses the whole document
+  // as markdown, which is quadratic on some input (62 s for 1 MB).
+  if (tabsStore.tabs.find((tab) => tab.id === renderedTabId)?.sourceOnly) {
+    outlineStore.clearHeadings()
+    return
+  }
   outlineStore.updateFromMarkdown(view.state.doc.toString())
   outlineStore.setActiveHeading(view.state.selection.main.head)
 }
@@ -272,10 +280,10 @@ function restoreContent(tab: Tab, content: string) {
   refreshOutline()
 }
 
-/** The parts of `content` this tab stores; a plain-text tab keeps a leading `---` block as content. */
+/** The parts of `content` this tab stores; a source-only tab is stored whole. */
 function splitTabContent(tabId: string, content: string) {
   const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
-  return splitDocument(content, tab?.sourceOnly === 'plain-text')
+  return splitDocument(content, Boolean(tab?.sourceOnly))
 }
 
 /** Capture raw content and navigation state before a tab or mode change. */
@@ -360,15 +368,19 @@ watch(
       // onBeforeUnmount captures it: adopting the new tab would write this
       // editor's text into it.
       if (tab && !tab.isImage && !editorModeStore.isWysiwyg) {
-        renderedTabId = newTabId
+        // The editor still holds the outgoing document until restoreTab() runs,
+        // so renderedTabId stays on it until then: a capture in between must
+        // save that document to its own tab, never to the incoming one.
+        pendingTabId = newTabId
         nextTick(() => {
           if (
-            renderedTabId !== newTabId ||
+            pendingTabId !== newTabId ||
             tabsStore.activeTabId !== newTabId ||
             editorModeStore.isWysiwyg
           ) {
             return
           }
+          renderedTabId = newTabId
           restoreTab(tab)
           if (mathPreviewVisible.value) {
             updateMathPreview(cmView.value?.state.doc.toString() || '')

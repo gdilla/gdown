@@ -142,6 +142,20 @@ title: From disk
     )
   })
 
+  it('recovers a dirty document with oversized front matter as source-only', async () => {
+    const session = useSessionStore()
+    const state = sessionState({
+      isModified: true,
+      markdown: '# Tiny body',
+      frontmatter: 'k: v\n'.repeat(50000),
+    })
+    mockedInvoke.mockResolvedValueOnce(JSON.stringify(state))
+
+    await expect(session.restoreSession()).resolves.toBe(true)
+
+    expect(useTabsStore().tabs[0]?.sourceOnly).toBe('too-large')
+  })
+
   it('keeps an explicitly dirty blank untitled document for recovery', async () => {
     const session = useSessionStore()
     const state = sessionState({

@@ -5,7 +5,12 @@ import type { Tab, EditorState } from '../types/tab'
 import { createDefaultEditorState } from '../types/tab'
 import { splitDocument } from '../utils/frontmatter'
 import { flushLiveEditorState } from '../utils/flushEditorState'
-import { MAX_OPEN_BYTES, MAX_RICH_CHARS, sourceOnlyReason } from '../utils/documentLimits'
+import {
+  MAX_OPEN_BYTES,
+  MAX_RICH_CHARS,
+  sourceOnlyReason,
+  tabSourceOnlyReason,
+} from '../utils/documentLimits'
 
 export type CloseDecision = 'save' | 'discard' | 'cancel'
 export type CloseDecisionHandler = (tab: Tab) => Promise<CloseDecision>
@@ -243,8 +248,14 @@ export const useTabsStore = defineStore('tabs', () => {
       tab.title = fileNameFromPath(filePath)
       tab.isUntitled = false
       // Save As can change the file type (notes saved as .csv, and back).
-      tab.sourceOnly = sourceOnlyReason(filePath, tab.editorState.markdown.length)
+      tab.sourceOnly = tabSourceOnlyReason(tab)
     }
+  }
+
+  /** Re-decide `sourceOnly` after a tab's content was set outside `openFile` (session recovery). */
+  function reclassify(tabId: string): void {
+    const tab = tabs.value.find((t) => t.id === tabId)
+    if (tab && !tab.isImage) tab.sourceOnly = tabSourceOnlyReason(tab)
   }
 
   /** Register the UI's Save / Don't Save / Cancel prompt for dirty closes. */
@@ -436,14 +447,18 @@ export const useTabsStore = defineStore('tabs', () => {
         return existingAfterRead
       }
 
-      // Separate YAML front-matter from the body (a plain-text file is kept whole).
-      const plainText = sourceOnlyReason(filePath, content.length) === 'plain-text'
-      const { markdown, frontmatter, frontmatterAttributes } = splitDocument(content, plainText)
+      // Decide from the whole file, then separate YAML front-matter from the
+      // body — unless the tab is source-only, which is stored whole.
+      const sourceOnly = sourceOnlyReason(filePath, content.length)
+      const { markdown, frontmatter, frontmatterAttributes } = splitDocument(
+        content,
+        sourceOnly !== null,
+      )
 
-      // Create tab with body-only markdown (front-matter is stored separately)
       const tab = createTab(filePath, markdown)
       tab.editorState.frontmatter = frontmatter
       tab.editorState.frontmatterAttributes = frontmatterAttributes
+      tab.sourceOnly = sourceOnly
 
       // Track the file's modified time for conflict detection (lazy import to avoid circular deps)
       import('./autoSave')
@@ -533,6 +548,7 @@ export const useTabsStore = defineStore('tabs', () => {
     setModified,
     updateTabTitle,
     setFilePath,
+    reclassify,
     findTabByPath,
     reorderTab,
     moveTab,

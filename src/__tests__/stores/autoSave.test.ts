@@ -379,6 +379,25 @@ describe('useAutoSaveStore', () => {
       )
     })
 
+    it('decides a reloaded document the way opening it does: front matter counts', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const tab = tabsStore.createTab('/tmp/notes.md', 'short')
+      autoSaveStore.knownModifiedTimes['/tmp/notes.md'] = 100
+      const disk = mockDisk(200)
+      // The body alone is at the limit; front matter takes the document over it.
+      disk.content = `---\ntitle: ${'t'.repeat(1000)}\n---\n${'x'.repeat(MAX_RICH_CHARS)}`
+
+      await autoSaveStore.checkForExternalChanges()
+      expect(tab.sourceOnly).toBe('too-large')
+      expect(autoSaveStore.serializeTabToFile(tab)).toBe(disk.content)
+
+      // Opening the same content gives the same answer.
+      const opened = await tabsStore.openFile('/tmp/notes-copy.md')
+      expect(opened?.sourceOnly).toBe('too-large')
+    })
+
     it('reloads a plain-text file that starts with --- without treating it as front matter', async () => {
       const tabsStore = useTabsStore()
       const autoSaveStore = useAutoSaveStore()

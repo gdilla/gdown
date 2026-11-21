@@ -16,7 +16,11 @@
 A tab with `tab.sourceOnly` set (not a markdown file, or over the rich-editor size limit — see
 `src/utils/documentLimits.ts`) is always shown here, whatever the mode preference. `buildExtensions(true)`
 leaves out the markdown language and the math/front-matter highlighters for it: the markdown parser is
-quadratic on text with no blank lines and froze the editor on multi-megabyte CSVs.
+quadratic on text with no blank lines and froze the editor on multi-megabyte CSVs. Such a tab also gets no
+outline and is stored whole (no front-matter split).
+
+`renderedTabId` must always name the tab whose text is in the editor: on a tab switch it changes only
+when `restoreTab()` loads the new tab, never before.
 
 ## CodeMirror Extensions
 Custom extensions are in `src/codemirror/`:

@@ -44,4 +44,20 @@ describe('useWordCountStore', () => {
     // Was 3.6 s at 200 KB (and four times that per doubling); this is 440 KB.
     expect(elapsed).toBeLessThan(1000)
   })
+
+  it('reports every statistic for a source-only tab from one pass over the text', () => {
+    // Two blocks separated by a blank line; CJK characters each count as a word.
+    useTabsStore().createTab('/tmp/data.csv', 'a b\tc\n日本 d\n\n  \ne,f\n')
+    const store = useWordCountStore()
+
+    store.updateStats()
+
+    expect(store.stats).toEqual({
+      words: 7, // a, b, c, 日, 本, d, "e,f"
+      characters: 19,
+      charactersNoSpaces: 9,
+      lines: 6,
+      paragraphs: 2,
+    })
+  })
 })

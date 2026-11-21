@@ -124,6 +124,19 @@ describe('useEditorModeStore', () => {
       expect(store.mode).toBe('wysiwyg')
     })
 
+    it('refuses rich mode for a document that grew past the limit in the source editor', () => {
+      const tabs = useTabsStore()
+      const note = tabs.createTab('/tmp/note.md', '# Small')
+      const store = useEditorModeStore()
+      store.setMode('source')
+
+      tabs.saveEditorState(note.id, { markdown: 'a'.repeat(200 * 1024 + 1) })
+      store.setMode('wysiwyg')
+
+      expect(note.sourceOnly).toBe('too-large')
+      expect(store.mode).toBe('source')
+    })
+
     it('never re-decides a plain-text file by size', () => {
       const tabs = useTabsStore()
       const csv = tabs.createTab('/tmp/data.csv', 'a,b')

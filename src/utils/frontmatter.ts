@@ -193,15 +193,17 @@ export function extractTitle(attributes: Record<string, string>): string | null 
 }
 
 /**
- * Split file content into the parts a tab stores. A plain-text file is kept
- * whole: a leading `---` block there is content (multi-document YAML, say),
- * and re-assembling it as front matter would rewrite lines the user never touched.
+ * Split file content into the parts a tab stores. A source-only tab is kept
+ * whole. In a plain-text file a leading `---` block is content (multi-document
+ * YAML, say), and re-assembling it as front matter would rewrite lines the user
+ * never touched; in a large markdown file, re-parsing megabytes of front matter
+ * on every keystroke is work the source editor has no use for.
  */
 export function splitDocument(
   content: string,
-  plainText: boolean,
+  whole: boolean,
 ): { markdown: string; frontmatter: string | null; frontmatterAttributes: Record<string, string> } {
-  if (plainText) return { markdown: content, frontmatter: null, frontmatterAttributes: {} }
+  if (whole) return { markdown: content, frontmatter: null, frontmatterAttributes: {} }
   const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
   return {
     markdown: body,

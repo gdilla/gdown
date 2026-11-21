@@ -151,16 +151,17 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
 
   function parseDiskContent(tabId: string, content: string) {
     const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
-    return splitDocument(content, tab?.sourceOnly === 'plain-text')
+    return splitDocument(content, Boolean(tab?.sourceOnly))
   }
 
   function applyDiskContent(tabId: string, content: string): void {
     const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
     if (!tab) return
+    // Decide first, as opening does: the file may have grown past (or shrunk
+    // back under) the rich editor's limit, and a source-only tab is stored whole.
+    tab.sourceOnly = sourceOnlyReason(tab.filePath, content.length)
     tabsStore.saveEditorState(tabId, { ...parseDiskContent(tabId, content), doc: null })
     tabsStore.setModified(tabId, false)
-    // The file may have grown past (or shrunk back under) the rich editor's limit.
-    tab.sourceOnly = sourceOnlyReason(tab.filePath, content.length)
   }
 
   async function checkConflictBeforeSave(

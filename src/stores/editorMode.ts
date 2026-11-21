@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useTabsStore } from './tabs'
 import { useAutoSaveStore } from './autoSave'
-import { sourceOnlyNotice, sourceOnlyReason } from '../utils/documentLimits'
+import { sourceOnlyNotice, tabSourceOnlyReason } from '../utils/documentLimits'
 
 export type EditorMode = 'wysiwyg' | 'source'
 
@@ -30,10 +30,10 @@ export const useEditorModeStore = defineStore('editorMode', () => {
   /** Set the preferred mode. Rich mode is refused, with a notice, on a source-only tab. */
   function setMode(newMode: EditorMode) {
     const tab = useTabsStore().activeTab
-    // A large document may have been trimmed since it was opened; a plain-text
-    // file never becomes rich by size.
-    if (newMode === 'wysiwyg' && tab?.sourceOnly === 'too-large') {
-      tab.sourceOnly = sourceOnlyReason(tab.filePath, tab.editorState.markdown.length)
+    // Re-decide on request: the document may have been trimmed under the limit,
+    // or have grown past it in the source editor, since the tab was created.
+    if (newMode === 'wysiwyg' && tab && !tab.isImage) {
+      tab.sourceOnly = tabSourceOnlyReason(tab)
     }
     if (newMode === 'wysiwyg' && tab?.sourceOnly) {
       useAutoSaveStore().showNotification(sourceOnlyNotice(tab.title, tab.sourceOnly), 'warning')

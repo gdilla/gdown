@@ -148,12 +148,18 @@ behind them):
   otherwise the user's preference. `setMode('wysiwyg')` is refused with a notice on a source-only tab.
   Switching between a rich tab and a source-only tab therefore swaps Editor/SourceEditor through the
   `v-if`, like an image tab does — not through the handoff protocol above.
-- Size only bounds work that is linear in the document. Quadratic work is kept away from source-only
-  tabs altogether: SourceEditor loads them as plain text (the markdown parser takes 67 s on a 4 MB CSV),
-  and `wordCount` counts them by whitespace (its markdown-stripping patterns take 33 s on a 440 KB CSV of
-  `<LOD` values).
-- A `'plain-text'` tab is stored whole (`splitDocument(content, true)`): a leading `---` block is content
-  there, not front matter, so saving cannot rewrite it.
+- Size only bounds work that is linear in the document. Work that can be quadratic is kept away from
+  source-only tabs altogether: SourceEditor loads them as plain text (the markdown parser takes 67 s on a
+  4 MB CSV) and builds no outline for them (the heading scan takes 62 s on 1 MB that opens with an unclosed
+  link-reference title), and `wordCount` counts them in one plain pass (its markdown-stripping patterns
+  take 33 s on a 440 KB CSV of `<LOD` values).
+- A source-only tab is stored whole (`splitDocument(content, true)`: `frontmatter` is null and `markdown`
+  is the entire file). In a plain-text file a leading `---` block is content, not front matter, so saving
+  cannot rewrite it; in a large markdown file it avoids re-parsing the front matter on every keystroke.
+  Front matter counts towards the 200 KB limit (`tabSourceOnlyReason`).
+- SourceEditor's `renderedTabId` is the tab whose text is in the editor. On a tab switch it moves only
+  when the new tab is loaded (`pendingTabId` covers the gap): a `gdown:capture-state` in between must
+  save the outgoing document to its own tab. Moving it early wrote one tab's text into another.
 - `read_file` takes the open-size limit (`MAX_OPEN_BYTES`, 4 MB) on every call — opening, the
   external-change reload and the save-conflict check — and refuses a larger file before reading it; when
   opening, its error text is shown to the user. A reload re-decides `sourceOnly` (`applyDiskContent`).

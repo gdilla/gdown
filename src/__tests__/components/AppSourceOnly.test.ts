@@ -7,6 +7,7 @@ import App from '../../App.vue'
 import { useTabsStore } from '../../stores/tabs'
 import { useEditorModeStore } from '../../stores/editorMode'
 import { useAutoSaveStore } from '../../stores/autoSave'
+import { useOutlineStore } from '../../stores/outline'
 import { invoke } from '@tauri-apps/api/core'
 import * as converter from '../../utils/markdownConverter'
 import { MAX_RICH_CHARS } from '../../utils/documentLimits'
@@ -169,6 +170,67 @@ describe('App with source-only tabs', () => {
 
     expect(note.editorState.markdown).toBe('# Note')
     expect(csv.editorState.markdown).toBe(CSV)
+  })
+
+  // Present on main for any two tabs in source mode: a `gdown:capture-state`
+  // that arrives after this editor has moved on to the new tab, but before it
+  // has loaded it, saved the old document into the new tab. Two CSV tabs are
+  // always in the source editor, so it is reachable in the default mode now.
+  it.each([0, 250])(
+    'never writes an edited tab into the tab switched to (%i ms after the edit)',
+    async (pause) => {
+      const tabs = useTabsStore()
+      const first = tabs.createTab('/tmp/first.csv', 'first,1\n')
+      const second = tabs.createTab('/tmp/second.csv', 'second,2\n')
+      wrapper = mount(App, { global: { stubs } })
+      await flushPromises()
+      await sourceShown(wrapper)
+
+      const view = EditorView.findFromDOM(wrapper.find('.cm-editor').element as HTMLElement)!
+      view.dispatch({ changes: { from: 0, insert: 'edited,' } })
+      await new Promise((resolve) => setTimeout(resolve, pause))
+      tabs.setActiveTab(first.id)
+      // A capture in the window between the switch and the new tab being loaded.
+      window.dispatchEvent(new Event('gdown:capture-state'))
+      await flushPromises()
+
+      expect(first.editorState.markdown).toBe('first,1\n')
+      expect(second.editorState.markdown).toBe('edited,second,2\n')
+      await vi.waitFor(() => expect(view.state.doc.toString()).toBe('first,1\n'))
+
+      // And typing in the tab switched to lands in that tab only.
+      view.dispatch({ changes: { from: 0, insert: 'x' } })
+      expect(first.editorState.markdown).toBe('xfirst,1\n')
+      expect(second.editorState.markdown).toBe('edited,second,2\n')
+    },
+  )
+
+  // The heading scan parses the whole document as markdown and is quadratic on
+  // some input (62 s for 1 MB that opens with an unclosed link-reference title).
+  it('builds no outline for a source-only tab', async () => {
+    const tabs = useTabsStore()
+    const note = tabs.createTab('/tmp/note.md', '# Real heading')
+    const csv = tabs.createTab('/tmp/data.csv', '# looks like a heading\na,b\n')
+    const outline = useOutlineStore()
+    useEditorModeStore().setMode('source')
+
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    await sourceShown(wrapper)
+    expect(outline.headings).toEqual([])
+
+    const view = EditorView.findFromDOM(wrapper.find('.cm-editor').element as HTMLElement)!
+    view.dispatch({ changes: { from: 0, insert: '# another\n' } })
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    expect(outline.headings).toEqual([])
+
+    tabs.setActiveTab(note.id)
+    await flushPromises()
+    await vi.waitFor(() => expect(outline.headings.map((h) => h.text)).toEqual(['Real heading']))
+
+    tabs.setActiveTab(csv.id)
+    await flushPromises()
+    await vi.waitFor(() => expect(outline.headings).toEqual([]))
   })
 
   it('saves an edited plain-text file that starts with --- exactly as typed', async () => {

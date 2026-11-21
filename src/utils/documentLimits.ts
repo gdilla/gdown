@@ -7,14 +7,15 @@
  *
  *   Rich editor, per edit (editor HTML -> markdown, Chrome):
  *     100 KB 51 ms · 250 KB 132 ms · 500 KB 342 ms · 1 MB 1.0 s · 4 MB 11 s
- *   Source editor, per pause in typing (outline scan, the largest cost that is
- *   linear in the document):
- *     1 MB 13 ms · 2 MB 17 ms · 5 MB 49 ms · 10 MB 77 ms · 20 MB 184 ms
+ *   Source-only tab, per pause in typing (the statistics pass in wordCount.ts,
+ *   the same for one value per line, list items and blank-line-separated blocks):
+ *     1 MB 8 ms · 4 MB 32 ms
  *
- * Size only bounds work that is linear. Anything quadratic has to be kept away
- * from source-only tabs altogether: the markdown language in CodeMirror (67 s
- * for a 4 MB CSV) and the markdown-stripping word count (33 s for a 440 KB CSV
- * of `<LOD` values) are both skipped for them.
+ * Size only bounds work that is linear. Anything that can be quadratic is kept
+ * away from source-only tabs altogether: the markdown language in CodeMirror
+ * (67 s for a 4 MB CSV), the markdown-stripping word count (33 s for a 440 KB
+ * CSV of `<LOD` values) and the outline's heading scan (62 s for 1 MB that
+ * opens with an unclosed link-reference title).
  */
 
 /** Why a tab can only be shown in the source editor. */
@@ -49,6 +50,15 @@ export function sourceOnlyReason(
     if (!RICH_EXTENSIONS.has(extension)) return 'plain-text'
   }
   return contentLength > MAX_RICH_CHARS ? 'too-large' : null
+}
+
+/** The same decision for an existing tab. Front matter counts: the rich editor loads and converts it too. */
+export function tabSourceOnlyReason(tab: {
+  filePath: string | null
+  editorState: { markdown: string; frontmatter: string | null }
+}): SourceOnlyReason | null {
+  const { markdown, frontmatter } = tab.editorState
+  return sourceOnlyReason(tab.filePath, markdown.length + (frontmatter?.length ?? 0))
 }
 
 /** What to tell the user when rich mode is asked for on a source-only tab. */

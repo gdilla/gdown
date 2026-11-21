@@ -58,11 +58,6 @@ function countWords(text: string): number {
     // Remove YAML front matter
     .replace(/^---[\s\S]*?---\n?/m, '')
 
-  return countPlainWords(cleaned)
-}
-
-/** Count words in text as written: CJK characters singly, everything else by whitespace. */
-function countPlainWords(cleaned: string): number {
   // CJK character regex range
   const cjkRegex =
     /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g
@@ -85,6 +80,76 @@ function countParagraphs(text: string): number {
   // A paragraph is a non-empty block of text separated by blank lines
   const blocks = text.split(/\n\s*\n/)
   return blocks.filter((block) => block.trim().length > 0).length
+}
+
+/** Whether a UTF-16 code unit is whitespace, as `\s` defines it. */
+function isSpace(code: number): boolean {
+  return (
+    code === 32 ||
+    (code >= 9 && code <= 13) ||
+    code === 0xa0 ||
+    code === 0x1680 ||
+    (code >= 0x2000 && code <= 0x200a) ||
+    code === 0x2028 ||
+    code === 0x2029 ||
+    code === 0x202f ||
+    code === 0x205f ||
+    code === 0x3000 ||
+    code === 0xfeff
+  )
+}
+
+/** Whether a code unit is a CJK character, which counts as a word on its own. */
+function isCjk(code: number): boolean {
+  return (
+    (code >= 0x4e00 && code <= 0x9fff) ||
+    (code >= 0x3400 && code <= 0x4dbf) ||
+    (code >= 0xf900 && code <= 0xfaff) ||
+    (code >= 0x3040 && code <= 0x30ff) ||
+    (code >= 0xac00 && code <= 0xd7af)
+  )
+}
+
+/**
+ * Statistics for text counted as written, with no markdown handling: one pass,
+ * no allocation, so the cost is the same for every shape of file.
+ */
+function plainStats(text: string): WordCountStats {
+  let words = 0
+  let charactersNoSpaces = 0
+  let lines = text ? 1 : 0
+  let paragraphs = 0
+  let inWord = false
+  let lineHasText = false
+  let inParagraph = false
+
+  for (let i = 0; i <= text.length; i++) {
+    // One step past the end closes the last line.
+    const code = i < text.length ? text.charCodeAt(i) : 10
+    if (code === 10) {
+      if (i < text.length) lines += 1
+      if (lineHasText && !inParagraph) paragraphs += 1
+      inParagraph = lineHasText
+      lineHasText = false
+      inWord = false
+      continue
+    }
+    if (isSpace(code)) {
+      inWord = false
+      continue
+    }
+    charactersNoSpaces += 1
+    lineHasText = true
+    if (isCjk(code)) {
+      words += 1
+      inWord = false
+    } else if (!inWord) {
+      words += 1
+      inWord = true
+    }
+  }
+
+  return { words, characters: text.length, charactersNoSpaces, lines, paragraphs }
 }
 
 export const useWordCountStore = defineStore('wordCount', () => {
@@ -129,11 +194,16 @@ export const useWordCountStore = defineStore('wordCount', () => {
 
     const text = tab.editorState.markdown || ''
 
+    // A source-only tab may be megabytes of text that is not markdown: the
+    // markdown-stripping patterns in countWords are quadratic on some of it
+    // (33 s for a 440 KB CSV of `<LOD` values).
+    if (tab.sourceOnly) {
+      stats.value = plainStats(text)
+      return
+    }
+
     stats.value = {
-      // The markdown-stripping patterns in countWords are quadratic on some
-      // text (33 s for a 440 KB CSV of `<LOD` values), and a source-only tab
-      // may be megabytes of exactly that.
-      words: tab.sourceOnly ? countPlainWords(text) : countWords(text),
+      words: countWords(text),
       characters: text.length,
       charactersNoSpaces: text.replace(/\s/g, '').length,
       lines: text ? text.split('\n').length : 0,

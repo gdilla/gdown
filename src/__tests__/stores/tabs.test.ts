@@ -571,6 +571,20 @@ title: Recent
       expect(useAutoSaveStore().serializeTabToFile(tab!)).toBe(yaml)
     })
 
+    it('counts front matter towards the rich limit, and keeps such a document whole', async () => {
+      const store = useTabsStore()
+      // A small body under megabytes of front matter must not reach the rich editor.
+      const content = `---\n${'key: value\n'.repeat(MAX_RICH_CHARS / 10)}---\n# Tiny body\n`
+      mockedInvoke.mockResolvedValueOnce(content)
+
+      const tab = await store.openFile('/tmp/meta.md')
+
+      expect(tab?.sourceOnly).toBe('too-large')
+      // Stored whole, so typing does not re-parse the front matter on every key.
+      expect(tab?.editorState.frontmatter).toBeNull()
+      expect(tab?.editorState.markdown).toBe(content)
+    })
+
     it('opens markdown over the rich limit source-only and says so', async () => {
       const store = useTabsStore()
       mockedInvoke.mockResolvedValueOnce('a'.repeat(MAX_RICH_CHARS + 1))
@@ -606,6 +620,17 @@ title: Recent
       expect(store.createTab('/tmp/a.csv', 'a,b').sourceOnly).toBe('plain-text')
       expect(store.createTab(null, 'a'.repeat(MAX_RICH_CHARS + 1)).sourceOnly).toBe('too-large')
       expect(store.openImageFile('/tmp/a.png').sourceOnly).toBeNull()
+    })
+
+    it('re-decides a recovered tab once its front matter is restored', () => {
+      const store = useTabsStore()
+      const tab = store.createTab('/tmp/meta.md', '# Tiny body')
+      expect(tab.sourceOnly).toBeNull()
+
+      store.saveEditorState(tab.id, { frontmatter: 'k: v\n'.repeat(MAX_RICH_CHARS / 5) })
+      store.reclassify(tab.id)
+
+      expect(tab.sourceOnly).toBe('too-large')
     })
 
     it('re-decides when Save As changes the file type', () => {
