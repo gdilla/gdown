@@ -1,4 +1,5 @@
 import type { JSONContent } from '@tiptap/core'
+import type { SourceOnlyReason } from '../utils/documentLimits'
 
 export interface EditorState {
   /** TipTap JSON document content */
@@ -28,6 +29,11 @@ export interface Tab {
   isUntitled: boolean
   /** Whether this tab displays an image file (not a text editor) */
   isImage: boolean
+  /**
+   * Set when the rich editor must never load this tab (see documentLimits.ts);
+   * the tab is then shown in the source editor whatever the mode preference.
+   */
+  sourceOnly: SourceOnlyReason | null
   /** Monotonic revision for content changes used by the save owner. */
   contentRevision: number
   /** Persisted editor state for this tab */

@@ -12,6 +12,12 @@
 - **Find:** source mode uses `@codemirror/search` (exposed `openFind()`); App.vue routes Cmd+F/H there instead of `findReplaceStore`. Keys owned by window handlers are filtered out of the CodeMirror keymap (`APP_OWNED_KEYS`); add to it when a new app shortcut collides.
 - **Outline:** SourceEditor owns the outline while mounted (debounced `updateFromMarkdown` on edits, immediate refresh in `restoreContent()` since `setState` skips update listeners, `navigateToHeading(offset)`), and clears it on unmount — offsets are into front matter + body.
 
+## Source-only tabs
+A tab with `tab.sourceOnly` set (not a markdown file, or over the rich-editor size limit — see
+`src/utils/documentLimits.ts`) is always shown here, whatever the mode preference. `buildExtensions(true)`
+leaves out the markdown language and the math/front-matter highlighters for it: the markdown parser is
+quadratic on text with no blank lines and froze the editor on multi-megabyte CSVs.
+
 ## CodeMirror Extensions
 Custom extensions are in `src/codemirror/`:
 - Math highlight and preview

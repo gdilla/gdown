@@ -5,6 +5,7 @@ import type { Tab, EditorState } from '../types/tab'
 import { createDefaultEditorState } from '../types/tab'
 import { parseFrontMatter } from '../utils/frontmatter'
 import { flushLiveEditorState } from '../utils/flushEditorState'
+import { MAX_OPEN_BYTES, MAX_RICH_CHARS, sourceOnlyReason } from '../utils/documentLimits'
 
 export type CloseDecision = 'save' | 'discard' | 'cancel'
 export type CloseDecisionHandler = (tab: Tab) => Promise<CloseDecision>
@@ -58,6 +59,7 @@ export const useTabsStore = defineStore('tabs', () => {
       isModified: false,
       isUntitled,
       isImage: false,
+      sourceOnly: sourceOnlyReason(filePath, content.length),
       contentRevision: 0,
       editorState: createDefaultEditorState(content),
     }
@@ -240,6 +242,8 @@ export const useTabsStore = defineStore('tabs', () => {
       tab.filePath = filePath
       tab.title = fileNameFromPath(filePath)
       tab.isUntitled = false
+      // Save As can change the file type (notes saved as .csv, and back).
+      tab.sourceOnly = sourceOnlyReason(filePath, tab.editorState.markdown.length)
     }
   }
 
@@ -418,7 +422,11 @@ export const useTabsStore = defineStore('tabs', () => {
     }
 
     try {
-      const content = await invoke<string>('read_file', { path: filePath })
+      // read_file refuses a larger file with a message for the user.
+      const content = await invoke<string>('read_file', {
+        path: filePath,
+        maxBytes: MAX_OPEN_BYTES,
+      })
 
       // Another open request may have completed while the disk read was in
       // flight. Never replace that tab's current state with the older read.
@@ -448,11 +456,26 @@ export const useTabsStore = defineStore('tabs', () => {
         })
         .catch(() => {})
 
+      if (tab.sourceOnly === 'too-large') {
+        notify(
+          `${tab.title} opened as plain text in source mode: rich editing and highlighting are off for documents over ${MAX_RICH_CHARS / 1024} KB.`,
+          'warning',
+        )
+      }
+
       return tab
     } catch (err) {
       console.error(`Failed to open file '${filePath}':`, err)
+      notify(err instanceof Error ? err.message : String(err), 'error')
       return null
     }
+  }
+
+  /** Show a notification (lazy import: autoSave imports this store). */
+  function notify(message: string, type: 'error' | 'warning'): void {
+    import('./autoSave')
+      .then(({ useAutoSaveStore }) => useAutoSaveStore().showNotification(message, type))
+      .catch(() => {})
   }
 
   /**
@@ -473,6 +496,7 @@ export const useTabsStore = defineStore('tabs', () => {
       isModified: false,
       isUntitled: false,
       isImage: true,
+      sourceOnly: null,
       contentRevision: 0,
       editorState: createDefaultEditorState(),
     }

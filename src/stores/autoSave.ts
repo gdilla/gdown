@@ -5,6 +5,7 @@ import { usePreferencesStore } from './preferences'
 import { useTabsStore } from './tabs'
 import { parseFrontMatter, assembleFrontMatter } from '../utils/frontmatter'
 import { flushLiveEditorState } from '../utils/flushEditorState'
+import { MAX_OPEN_BYTES, sourceOnlyReason } from '../utils/documentLimits'
 import type { Tab } from '../types/tab'
 
 export type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'error'
@@ -162,6 +163,8 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
     if (!tab) return
     tabsStore.saveEditorState(tabId, { ...parseDiskContent(content), doc: null })
     tabsStore.setModified(tabId, false)
+    // The file may have grown past (or shrunk back under) the rich editor's limit.
+    tab.sourceOnly = sourceOnlyReason(tab.filePath, content.length)
   }
 
   async function checkConflictBeforeSave(
@@ -180,7 +183,10 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         return 'overwrite'
       }
 
-      const diskContent = await invoke<string>('read_file', { path: filePath })
+      const diskContent = await invoke<string>('read_file', {
+        path: filePath,
+        maxBytes: MAX_OPEN_BYTES,
+      })
       conflictDialog.value = { tabId, filePath, diskContent, modifiedTime: currentModTime }
       return await new Promise<'overwrite' | 'cancel'>((resolve) => {
         conflictResolver = resolve
@@ -498,7 +504,10 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         })
         if (currentModTime === knownModTime) continue
 
-        const diskContent = await invoke<string>('read_file', { path: filePath })
+        const diskContent = await invoke<string>('read_file', {
+          path: filePath,
+          maxBytes: MAX_OPEN_BYTES,
+        })
         const currentTab = tabsStore.tabs.find((candidate) => candidate.id === tab.id)
         if (!currentTab || currentTab.filePath !== filePath || inFlightSaves.has(tab.id)) continue
 
@@ -609,6 +618,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
     errorMessage,
     conflictDialog,
     saveNotification,
+    showNotification,
     knownModifiedTimes,
     statusText,
     statusIcon,

@@ -138,6 +138,22 @@ The WYSIWYG/source switch uses `v-if` in App.vue — **two separate components**
    history — Editor.vue `resetUndoHistory()`, SourceEditor.vue `restoreContent()` → `view.setState()`.
    Never load a document with a plain `setContent`/`dispatch({ changes })` alone (Undo would cross tabs).
 
+**Source-only tabs and size limits** (`src/utils/documentLimits.ts` holds the limits and the measurements
+behind them):
+- `Tab.sourceOnly` is set when a tab is created: `'plain-text'` for any file that is not markdown
+  (`.md .markdown .mdown .mkd .txt .text`), `'too-large'` for a document over `MAX_RICH_CHARS` (200 KB).
+  The rich editor rewrites what it loads as markdown (a CSV comes back with rows joined), and converts
+  the whole document on every edit, so it must never load such a tab.
+- `editorModeStore.mode` is the mode **in effect**: `'source'` whenever the active tab is source-only,
+  otherwise the user's preference. `setMode('wysiwyg')` is refused with a notice on a source-only tab.
+  Switching between a rich tab and a source-only tab therefore swaps Editor/SourceEditor through the
+  `v-if`, like an image tab does — not through the handoff protocol above.
+- SourceEditor loads a source-only tab as plain text (no markdown language): the markdown parser is
+  quadratic on a file with no blank lines (67 s for a 4 MB CSV).
+- `read_file` takes the open-size limit (`MAX_OPEN_BYTES`, 4 MB) on every call — opening, the
+  external-change reload and the save-conflict check — and refuses a larger file before reading it; when
+  opening, its error text is shown to the user. A reload re-decides `sourceOnly` (`applyDiskContent`).
+
 **Keyboard shortcut rule:** Cmd+/ is handled by:
 - `Editor.vue` window listener → wysiwyg→source (calls `handleToggleMode`)
 - `source/SourceEditor.vue` window listener → source→wysiwyg (calls `setMode('wysiwyg')`)
@@ -229,5 +245,7 @@ Exported HTML copies only `.gdown-editor` rules, so content tokens also get ligh
 - **Cargo lib name** is `leaf_lib` (not `gdown_lib`) — main.rs calls `leaf_lib::run()`.
 - Mermaid and MathJax are **lazy-loaded** — do not add top-level imports of these packages.
 - The source editor is `src/components/source/SourceEditor.vue`; it is mounted only when source mode is active.
+- **DO NOT** load a tab into the rich editor without checking `tab.sourceOnly`, and do not add per-edit
+  work that scans the whole document without checking it against the limits in `documentLimits.ts`.
 - **Test files use `.test.ts`** extension (not `.spec.ts`). Tests live in `src/__tests__/` mirroring `src/` structure.
 - **Worktree pnpm setup:** `pnpm-workspace.yaml` intentionally denies esbuild build scripts. Do not symlink binaries, approve dependency scripts ad hoc, or bypass hooks with `--no-verify`. Report missing build outputs as a setup/config failure and handle policy changes separately.

@@ -5,6 +5,7 @@ import { useAutoSaveStore } from '../../stores/autoSave'
 import { usePreferencesStore } from '../../stores/preferences'
 import { useTabsStore } from '../../stores/tabs'
 import { assembleFrontMatter } from '../../utils/frontmatter'
+import { MAX_OPEN_BYTES, MAX_RICH_CHARS } from '../../utils/documentLimits'
 
 const mockedInvoke = vi.mocked(invoke)
 
@@ -339,6 +340,59 @@ describe('useAutoSaveStore', () => {
       await autoSaveStore.checkForExternalChanges()
       expect(tabsStore.tabs[0]?.editorState.markdown).toBe('# External')
       expect(autoSaveStore.knownModifiedTimes['/tmp/note.md']).toBe(160)
+    })
+
+    it('never re-reads an open file without the open-size limit', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const clean = tabsStore.createTab('/tmp/clean.md', '# Clean')
+      const dirty = tabsStore.createTab('/tmp/dirty.md', '# Dirty')
+      tabsStore.setModified(dirty.id, true)
+      autoSaveStore.knownModifiedTimes['/tmp/clean.md'] = 100
+      autoSaveStore.knownModifiedTimes['/tmp/dirty.md'] = 100
+      const reads: unknown[] = []
+      mockedInvoke.mockImplementation(async (command, args) => {
+        if (command === 'get_file_modified_time') return 200
+        if (command === 'read_file') {
+          reads.push(args)
+          // A file that outgrew the limit while open is refused, not loaded.
+          throw "'x' is too large to open (900.0 MB; Leaf opens text files up to 4.0 MB)."
+        }
+        return undefined
+      })
+
+      // External-change scan (clean tab) and the pre-save conflict check (dirty tab).
+      await autoSaveStore.checkForExternalChanges()
+      await expect(autoSaveStore.saveTab(dirty.id)).resolves.toBe(false)
+
+      expect(reads).toEqual([
+        { path: '/tmp/clean.md', maxBytes: MAX_OPEN_BYTES },
+        { path: '/tmp/dirty.md', maxBytes: MAX_OPEN_BYTES },
+        { path: '/tmp/dirty.md', maxBytes: MAX_OPEN_BYTES },
+      ])
+      expect(clean.editorState.markdown).toBe('# Clean')
+      expect(dirty.editorState.markdown).toBe('# Dirty')
+    })
+
+    it('makes a tab source-only when its file outgrows the rich editor on disk', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const tab = tabsStore.createTab('/tmp/log.txt', 'short')
+      autoSaveStore.knownModifiedTimes['/tmp/log.txt'] = 100
+      const disk = mockDisk(200)
+      disk.content = 'x'.repeat(MAX_RICH_CHARS + 1)
+
+      await autoSaveStore.checkForExternalChanges()
+      expect(tab.editorState.markdown).toBe(disk.content)
+      expect(tab.sourceOnly).toBe('too-large')
+
+      // And rich editing comes back when it shrinks again.
+      disk.time = 300
+      disk.content = 'short again'
+      await autoSaveStore.checkForExternalChanges()
+      expect(tab.sourceOnly).toBeNull()
     })
 
     it('reloads a clean tab when the disk mtime moves backwards', async () => {

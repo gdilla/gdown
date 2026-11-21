@@ -525,10 +525,11 @@ watch(
     // Restore state for the newly active tab
     if (newTabId) {
       const tab = tabsStore.tabs.find((t) => t.id === newTabId)
-      // Image tabs (and a null active tab) unmount this component. Keep the
-      // rendered id until onBeforeUnmount captures it, since activeTabId has
-      // already moved by then.
-      if (tab && !tab.isImage) {
+      // Image tabs, source-only tabs (and a null active tab) unmount this
+      // component. Keep the rendered id until onBeforeUnmount captures it, since
+      // activeTabId has already moved by then. A source-only tab must never be
+      // loaded here: converting it is what the source-only rule exists to avoid.
+      if (tab && !tab.isImage && !tab.sourceOnly) {
         renderedTabId = newTabId
         restoreState(tab.editorState)
       }
@@ -542,6 +543,9 @@ function handleFileReloaded(e: Event) {
   if (tabId !== renderedTabId || !editor.value) return
   cancelSnapshot()
   const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+  // The reloaded file has outgrown the rich editor: SourceEditor takes over on
+  // the next render, and this editor must not convert the document meanwhile.
+  if (tab?.sourceOnly) return
   const fullMarkdown = assembleFrontMatter(tab?.editorState.frontmatter ?? null, markdown)
   const html = mdToHtml(fullMarkdown, tab?.filePath ?? null)
   isRestoringContent = true

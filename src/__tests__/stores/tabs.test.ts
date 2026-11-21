@@ -4,6 +4,7 @@ import { useTabsStore, type CloseDecision } from '../../stores/tabs'
 import { invoke } from '@tauri-apps/api/core'
 import { useAutoSaveStore } from '../../stores/autoSave'
 import { usePreferencesStore } from '../../stores/preferences'
+import { MAX_OPEN_BYTES, MAX_RICH_CHARS } from '../../utils/documentLimits'
 
 const mockedInvoke = vi.mocked(invoke)
 
@@ -514,7 +515,10 @@ title: Recent
 
       expect(tab?.editorState.markdown).toBe('# From disk')
       expect(tab?.editorState.frontmatter).toBe('title: Recent')
-      expect(mockedInvoke).toHaveBeenCalledWith('read_file', { path: '/tmp/recent.md' })
+      expect(mockedInvoke).toHaveBeenCalledWith('read_file', {
+        path: '/tmp/recent.md',
+        maxBytes: MAX_OPEN_BYTES,
+      })
     })
 
     it('does not create a tab when the recent file cannot be read', async () => {
@@ -523,6 +527,83 @@ title: Recent
 
       await expect(store.openFile('/tmp/missing.md')).resolves.toBeNull()
       expect(store.tabs).toHaveLength(0)
+    })
+
+    it('reports why a file could not be opened instead of failing silently', async () => {
+      const store = useTabsStore()
+      // read_file refuses anything over maxBytes with a message for the user.
+      mockedInvoke.mockRejectedValueOnce(
+        "'huge.csv' is too large to open (21.7 MB; Leaf opens text files up to 4.0 MB).",
+      )
+
+      await expect(store.openFile('/tmp/huge.csv')).resolves.toBeNull()
+
+      expect(store.tabs).toHaveLength(0)
+      await vi.waitFor(() =>
+        expect(useAutoSaveStore().saveNotification).toEqual({
+          message: "'huge.csv' is too large to open (21.7 MB; Leaf opens text files up to 4.0 MB).",
+          type: 'error',
+        }),
+      )
+    })
+
+    it('opens a CSV as plain text: source-only, content untouched', async () => {
+      const store = useTabsStore()
+      const csv = 'id,name\n1,with_underscores_\n2,"a *note*"\n'
+      mockedInvoke.mockResolvedValueOnce(csv)
+
+      const tab = await store.openFile('/tmp/data.csv')
+
+      expect(tab?.sourceOnly).toBe('plain-text')
+      expect(tab?.editorState.markdown).toBe(csv)
+    })
+
+    it('opens markdown over the rich limit source-only and says so', async () => {
+      const store = useTabsStore()
+      mockedInvoke.mockResolvedValueOnce('a'.repeat(MAX_RICH_CHARS + 1))
+
+      const tab = await store.openFile('/tmp/book.md')
+
+      expect(tab?.sourceOnly).toBe('too-large')
+      await vi.waitFor(() =>
+        expect(useAutoSaveStore().saveNotification?.message).toMatch(
+          /book\.md.*source mode.*200 KB/,
+        ),
+      )
+    })
+
+    it('opens ordinary markdown with rich editing available', async () => {
+      const store = useTabsStore()
+      mockedInvoke.mockResolvedValueOnce('# Hello')
+
+      const tab = await store.openFile('/tmp/note.md')
+
+      expect(tab?.sourceOnly).toBeNull()
+      expect(useAutoSaveStore().saveNotification).toBeNull()
+    })
+  })
+
+  describe('source-only tabs', () => {
+    it('decides at creation, for every way a tab is made', () => {
+      const store = useTabsStore()
+
+      expect(store.createTab().sourceOnly).toBeNull()
+      expect(store.createTab('/tmp/a.md', '# A').sourceOnly).toBeNull()
+      // Session recovery of a dirty tab goes through createTab too.
+      expect(store.createTab('/tmp/a.csv', 'a,b').sourceOnly).toBe('plain-text')
+      expect(store.createTab(null, 'a'.repeat(MAX_RICH_CHARS + 1)).sourceOnly).toBe('too-large')
+      expect(store.openImageFile('/tmp/a.png').sourceOnly).toBeNull()
+    })
+
+    it('re-decides when Save As changes the file type', () => {
+      const store = useTabsStore()
+      const tab = store.createTab(null, 'a,b')
+
+      store.setFilePath(tab.id, '/tmp/export.csv')
+      expect(tab.sourceOnly).toBe('plain-text')
+
+      store.setFilePath(tab.id, '/tmp/notes.md')
+      expect(tab.sourceOnly).toBeNull()
     })
   })
 

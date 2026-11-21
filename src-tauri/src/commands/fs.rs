@@ -10,11 +10,14 @@ use std::time::SystemTime;
 ///
 /// # Arguments
 /// * `path` - The absolute path of the file to read.
+/// * `max_bytes` - A larger file is refused before it is read, with a message
+///   meant for the user. The frontend passes the editor's open-size limit, both
+///   when opening a document and when re-reading one that changed on disk.
 ///
 /// # Returns
 /// The file contents as a String.
 #[tauri::command]
-pub fn read_file(path: String) -> Result<String, String> {
+pub fn read_file(path: String, max_bytes: u64) -> Result<String, String> {
     let file_path = Path::new(&path);
 
     if !file_path.exists() {
@@ -23,6 +26,19 @@ pub fn read_file(path: String) -> Result<String, String> {
 
     if !file_path.is_file() {
         return Err(format!("Path '{}' is not a file", path));
+    }
+
+    let size = fs::metadata(file_path)
+        .map_err(|e| format!("Failed to read file '{}': {}", path, e))?
+        .len();
+    if size > max_bytes {
+        let megabytes = |bytes: u64| format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0));
+        return Err(format!(
+            "'{}' is too large to open ({}; Leaf opens text files up to {}).",
+            file_path.file_name().unwrap_or_default().to_string_lossy(),
+            megabytes(size),
+            megabytes(max_bytes)
+        ));
     }
 
     fs::read_to_string(file_path).map_err(|e| format!("Failed to read file '{}': {}", path, e))
@@ -588,6 +604,28 @@ mod tests {
 
     fn s(path: &Path) -> String {
         path.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn test_read_file_refuses_a_file_over_the_limit_without_reading_it() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("data.csv");
+        fs::write(&file, "0123456789").unwrap();
+
+        // At the limit the file is read.
+        assert_eq!(read_file(s(&file), 10).unwrap(), "0123456789");
+        assert!(read_file(s(&file), 9).is_err());
+
+        // Over it, the user-facing message names the file and both sizes.
+        let big = dir.path().join("big.csv");
+        fs::File::create(&big)
+            .unwrap()
+            .set_len(22 * 1024 * 1024 + 700 * 1024)
+            .unwrap();
+        assert_eq!(
+            read_file(s(&big), 4 * 1024 * 1024).unwrap_err(),
+            "'big.csv' is too large to open (22.7 MB; Leaf opens text files up to 4.0 MB)."
+        );
     }
 
     fn dir_names(dir: &Path) -> Vec<String> {

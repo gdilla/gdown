@@ -83,9 +83,11 @@ const sourceKeymap = [...searchKeymap, ...defaultKeymap, ...historyKeymap, inden
   .map((binding) => (binding.key === 'Mod-g' ? { ...binding, shift: undefined } : binding))
 
 /**
- * Build the full set of CodeMirror extensions
+ * Build the full set of CodeMirror extensions. A source-only tab is edited as
+ * plain text: the markdown parser reads a CSV as one paragraph and is quadratic
+ * in its length (0.9 s at 500 KB, 67 s at 4 MB), which would freeze the editor.
  */
-function buildExtensions(): Extension[] {
+function buildExtensions(plainText: boolean): Extension[] {
   return [
     settingsCompartment.of(
       buildSourceEditorSettings({
@@ -106,13 +108,17 @@ function buildExtensions(): Extension[] {
     bracketMatching(),
     indentOnInput(),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-    markdown({
-      base: markdownLanguage,
-      codeLanguages: languages,
-    }),
-    mathHighlightPlugin,
-    frontmatterHighlightPlugin,
-    frontmatterHighlightTheme,
+    ...(plainText
+      ? []
+      : [
+          markdown({
+            base: markdownLanguage,
+            codeLanguages: languages,
+          }),
+          mathHighlightPlugin,
+          frontmatterHighlightPlugin,
+          frontmatterHighlightTheme,
+        ]),
     search({ top: true }),
     keymap.of(sourceKeymap),
     EditorView.updateListener.of((update) => {
@@ -249,7 +255,7 @@ function initEditor() {
 
   const state = EditorState.create({
     doc: content,
-    extensions: buildExtensions(),
+    extensions: buildExtensions(Boolean(tabsStore.activeTab?.sourceOnly)),
   })
 
   cmView.value = new EditorView({
@@ -264,9 +270,11 @@ function initEditor() {
  * document: a change with addToHistory false still lets older history entries
  * replay into the new one. setState also skips the update listener.
  */
-function restoreContent(content: string) {
+function restoreContent(tab: Tab, content: string) {
   if (!cmView.value) return
-  cmView.value.setState(EditorState.create({ doc: content, extensions: buildExtensions() }))
+  cmView.value.setState(
+    EditorState.create({ doc: content, extensions: buildExtensions(Boolean(tab.sourceOnly)) }),
+  )
   refreshOutline()
 }
 
@@ -296,7 +304,10 @@ function restoreNavigation(tab: Tab): void {
 }
 
 function restoreTab(tab: Tab): void {
-  restoreContent(assembleFrontMatter(tab.editorState.frontmatter, tab.editorState.markdown || ''))
+  restoreContent(
+    tab,
+    assembleFrontMatter(tab.editorState.frontmatter, tab.editorState.markdown || ''),
+  )
   nextTick(() => {
     if (renderedTabId !== tab.id || tabsStore.activeTabId !== tab.id || editorModeStore.isWysiwyg) {
       return
@@ -347,9 +358,11 @@ watch(
     if (renderedTabId) captureEditorState(renderedTabId)
     if (newTabId) {
       const tab = tabsStore.tabs.find((t) => t.id === newTabId)
-      // Image tabs (and a null active tab) unmount this editor. Keep the
-      // rendered id until onBeforeUnmount captures it.
-      if (tab && !tab.isImage) {
+      // Image tabs (and a null active tab) unmount this editor, and so does a
+      // rich-mode tab reached from a source-only one. Keep the rendered id until
+      // onBeforeUnmount captures it: adopting the new tab would write this
+      // editor's text into it.
+      if (tab && !tab.isImage && !editorModeStore.isWysiwyg) {
         renderedTabId = newTabId
         nextTick(() => {
           if (
@@ -402,7 +415,7 @@ function handleFileReloaded(e: Event) {
   const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
   if (!tab) return
   const fullContent = assembleFrontMatter(tab.editorState.frontmatter, markdown)
-  restoreContent(fullContent)
+  restoreContent(tab, fullContent)
   nextTick(() => {
     if (renderedTabId === tabId && tabsStore.activeTabId === tabId) restoreNavigation(tab)
   })
