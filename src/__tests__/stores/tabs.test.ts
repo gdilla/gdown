@@ -558,6 +558,19 @@ title: Recent
       expect(tab?.editorState.markdown).toBe(csv)
     })
 
+    it('keeps a plain-text file that starts with --- byte for byte', async () => {
+      const store = useTabsStore()
+      // Multi-document YAML: markdown front-matter handling would drop the blank line.
+      const yaml = '---\na: 1\n---\n\nb: 2\n'
+      mockedInvoke.mockResolvedValueOnce(yaml)
+
+      const tab = await store.openFile('/tmp/k8s.yaml')
+
+      expect(tab?.editorState.frontmatter).toBeNull()
+      expect(tab?.editorState.markdown).toBe(yaml)
+      expect(useAutoSaveStore().serializeTabToFile(tab!)).toBe(yaml)
+    })
+
     it('opens markdown over the rich limit source-only and says so', async () => {
       const store = useTabsStore()
       mockedInvoke.mockResolvedValueOnce('a'.repeat(MAX_RICH_CHARS + 1))

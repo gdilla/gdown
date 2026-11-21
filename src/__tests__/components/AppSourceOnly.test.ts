@@ -171,6 +171,25 @@ describe('App with source-only tabs', () => {
     expect(csv.editorState.markdown).toBe(CSV)
   })
 
+  it('saves an edited plain-text file that starts with --- exactly as typed', async () => {
+    const yaml = '---\na: 1\n---\n\nb: 2\n'
+    const tabs = useTabsStore()
+    const tab = tabs.createTab('/tmp/k8s.yaml', yaml)
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    await sourceShown(wrapper)
+
+    const view = EditorView.findFromDOM(wrapper.find('.cm-editor').element as HTMLElement)!
+    expect(view.state.doc.toString()).toBe(yaml)
+    view.dispatch({ changes: { from: view.state.doc.length, insert: 'c: 3\n' } })
+
+    expect(tab.editorState.frontmatter).toBeNull()
+    expect(useAutoSaveStore().serializeTabToFile(tab)).toBe(yaml + 'c: 3\n')
+
+    window.dispatchEvent(new Event('gdown:capture-state'))
+    expect(useAutoSaveStore().serializeTabToFile(tab)).toBe(yaml + 'c: 3\n')
+  })
+
   it('hands a file that outgrew the rich limit on disk to the source editor', async () => {
     const tabs = useTabsStore()
     const log = tabs.createTab('/tmp/log.txt', 'short')

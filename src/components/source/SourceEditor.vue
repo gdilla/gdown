@@ -31,7 +31,7 @@ import {
   frontmatterHighlightPlugin,
   frontmatterHighlightTheme,
 } from '../../codemirror/frontmatter-highlight'
-import { parseFrontMatter, assembleFrontMatter } from '../../utils/frontmatter'
+import { assembleFrontMatter, splitDocument } from '../../utils/frontmatter'
 import { useTabsStore } from '../../stores/tabs'
 import { useEditorModeStore } from '../../stores/editorMode'
 import { useEditorSettingsStore } from '../../stores/editorSettings'
@@ -130,15 +130,9 @@ function buildExtensions(plainText: boolean): Extension[] {
         const tabId = renderedTabId
         if (tabId) {
           const content = update.state.doc.toString()
-          // Parse front-matter out so body and front-matter are stored separately
-          const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
           tabsStore.setModified(tabId, true)
-          tabsStore.saveEditorState(tabId, {
-            markdown: body,
-            doc: null, // source mode works with raw markdown
-            frontmatter: hasFrontMatter ? rawYaml : null,
-            frontmatterAttributes: hasFrontMatter ? attributes : {},
-          })
+          // Body and front-matter are stored separately; source mode works with raw markdown.
+          tabsStore.saveEditorState(tabId, { ...splitTabContent(tabId, content), doc: null })
           // Update math preview if visible
           if (mathPreviewVisible.value) {
             updateMathPreview(content)
@@ -278,17 +272,20 @@ function restoreContent(tab: Tab, content: string) {
   refreshOutline()
 }
 
+/** The parts of `content` this tab stores; a plain-text tab keeps a leading `---` block as content. */
+function splitTabContent(tabId: string, content: string) {
+  const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+  return splitDocument(content, tab?.sourceOnly === 'plain-text')
+}
+
 /** Capture raw content and navigation state before a tab or mode change. */
 function captureEditorState(tabId: string): void {
   if (!cmView.value) return
   const content = cmView.value.state.doc.toString()
-  const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
   const { from, to } = cmView.value.state.selection.main
   tabsStore.saveEditorState(tabId, {
-    markdown: body,
+    ...splitTabContent(tabId, content),
     doc: null,
-    frontmatter: hasFrontMatter ? rawYaml : null,
-    frontmatterAttributes: hasFrontMatter ? attributes : {},
     scrollTop: cmView.value.scrollDOM.scrollTop,
     selection: { from, to },
   })

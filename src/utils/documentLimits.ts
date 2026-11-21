@@ -7,14 +7,20 @@
  *
  *   Rich editor, per edit (editor HTML -> markdown, Chrome):
  *     100 KB 51 ms · 250 KB 132 ms · 500 KB 342 ms · 1 MB 1.0 s · 4 MB 11 s
- *   Source editor, per pause in typing (word count, the largest cost):
- *     1 MB 31 ms · 2 MB 35 ms · 5 MB 107 ms · 10 MB 249 ms · 20 MB 539 ms
+ *   Source editor, per pause in typing (outline scan, the largest cost that is
+ *   linear in the document):
+ *     1 MB 13 ms · 2 MB 17 ms · 5 MB 49 ms · 10 MB 77 ms · 20 MB 184 ms
+ *
+ * Size only bounds work that is linear. Anything quadratic has to be kept away
+ * from source-only tabs altogether: the markdown language in CodeMirror (67 s
+ * for a 4 MB CSV) and the markdown-stripping word count (33 s for a 440 KB CSV
+ * of `<LOD` values) are both skipped for them.
  */
 
 /** Why a tab can only be shown in the source editor. */
 export type SourceOnlyReason = 'plain-text' | 'too-large'
 
-/** Larger files are not opened at all (enforced by the `read_file` command). */
+/** Larger files are not opened at all (`read_file` refuses them, given this limit). */
 // ponytail: a hard cap; a read-only viewer is the upgrade path for bigger files.
 export const MAX_OPEN_BYTES = 4 * 1024 * 1024
 
@@ -28,7 +34,8 @@ export const MAX_RICH_CHARS = 200 * 1024
  * comes back with its rows joined and its underscores escaped — so every other
  * file is edited as plain text.
  */
-const RICH_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd', 'txt', 'text'])
+// Keep in step with SUPPORTED_EXTENSIONS in src-tauri/src/lib.rs (a test checks it).
+const RICH_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd', 'mdwn', 'mdtxt', 'txt', 'text'])
 
 /** Why a document must stay in the source editor, or null when rich editing is available. */
 export function sourceOnlyReason(

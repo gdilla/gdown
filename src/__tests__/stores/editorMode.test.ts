@@ -111,6 +111,30 @@ describe('useEditorModeStore', () => {
       )
     })
 
+    it('allows rich mode again once a large document has been trimmed under the limit', () => {
+      const tabs = useTabsStore()
+      const book = tabs.createTab('/tmp/book.md', 'a'.repeat(200 * 1024 + 1))
+      const store = useEditorModeStore()
+      expect(store.mode).toBe('source')
+
+      tabs.saveEditorState(book.id, { markdown: '# Short now' })
+      store.setMode('wysiwyg')
+
+      expect(book.sourceOnly).toBeNull()
+      expect(store.mode).toBe('wysiwyg')
+    })
+
+    it('never re-decides a plain-text file by size', () => {
+      const tabs = useTabsStore()
+      const csv = tabs.createTab('/tmp/data.csv', 'a,b')
+      const store = useEditorModeStore()
+
+      store.setMode('wysiwyg')
+
+      expect(csv.sourceOnly).toBe('plain-text')
+      expect(store.mode).toBe('source')
+    })
+
     it('still switches modes freely on an ordinary tab', () => {
       useTabsStore().createTab('/tmp/note.md', '# Note')
       const store = useEditorModeStore()

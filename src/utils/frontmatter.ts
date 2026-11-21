@@ -191,3 +191,21 @@ function parseSimpleYaml(yaml: string): Record<string, string> {
 export function extractTitle(attributes: Record<string, string>): string | null {
   return attributes['title'] || attributes['Title'] || attributes['TITLE'] || null
 }
+
+/**
+ * Split file content into the parts a tab stores. A plain-text file is kept
+ * whole: a leading `---` block there is content (multi-document YAML, say),
+ * and re-assembling it as front matter would rewrite lines the user never touched.
+ */
+export function splitDocument(
+  content: string,
+  plainText: boolean,
+): { markdown: string; frontmatter: string | null; frontmatterAttributes: Record<string, string> } {
+  if (plainText) return { markdown: content, frontmatter: null, frontmatterAttributes: {} }
+  const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
+  return {
+    markdown: body,
+    frontmatter: hasFrontMatter ? rawYaml : null,
+    frontmatterAttributes: hasFrontMatter ? attributes : {},
+  }
+}

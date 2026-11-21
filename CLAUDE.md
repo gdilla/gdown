@@ -148,8 +148,12 @@ behind them):
   otherwise the user's preference. `setMode('wysiwyg')` is refused with a notice on a source-only tab.
   Switching between a rich tab and a source-only tab therefore swaps Editor/SourceEditor through the
   `v-if`, like an image tab does — not through the handoff protocol above.
-- SourceEditor loads a source-only tab as plain text (no markdown language): the markdown parser is
-  quadratic on a file with no blank lines (67 s for a 4 MB CSV).
+- Size only bounds work that is linear in the document. Quadratic work is kept away from source-only
+  tabs altogether: SourceEditor loads them as plain text (the markdown parser takes 67 s on a 4 MB CSV),
+  and `wordCount` counts them by whitespace (its markdown-stripping patterns take 33 s on a 440 KB CSV of
+  `<LOD` values).
+- A `'plain-text'` tab is stored whole (`splitDocument(content, true)`): a leading `---` block is content
+  there, not front matter, so saving cannot rewrite it.
 - `read_file` takes the open-size limit (`MAX_OPEN_BYTES`, 4 MB) on every call — opening, the
   external-change reload and the save-conflict check — and refuses a larger file before reading it; when
   opening, its error text is shown to the user. A reload re-decides `sourceOnly` (`applyDiskContent`).

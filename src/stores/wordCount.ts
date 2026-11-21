@@ -58,6 +58,11 @@ function countWords(text: string): number {
     // Remove YAML front matter
     .replace(/^---[\s\S]*?---\n?/m, '')
 
+  return countPlainWords(cleaned)
+}
+
+/** Count words in text as written: CJK characters singly, everything else by whitespace. */
+function countPlainWords(cleaned: string): number {
   // CJK character regex range
   const cjkRegex =
     /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g
@@ -125,7 +130,10 @@ export const useWordCountStore = defineStore('wordCount', () => {
     const text = tab.editorState.markdown || ''
 
     stats.value = {
-      words: countWords(text),
+      // The markdown-stripping patterns in countWords are quadratic on some
+      // text (33 s for a 440 KB CSV of `<LOD` values), and a source-only tab
+      // may be megabytes of exactly that.
+      words: tab.sourceOnly ? countPlainWords(text) : countWords(text),
       characters: text.length,
       charactersNoSpaces: text.replace(/\s/g, '').length,
       lines: text ? text.split('\n').length : 0,

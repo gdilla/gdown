@@ -373,6 +373,26 @@ describe('useAutoSaveStore', () => {
       ])
       expect(clean.editorState.markdown).toBe('# Clean')
       expect(dirty.editorState.markdown).toBe('# Dirty')
+      // The blocked save names the real reason.
+      expect(autoSaveStore.saveNotification?.message).toBe(
+        "Could not verify /tmp/dirty.md ('x' is too large to open (900.0 MB; Leaf opens text files up to 4.0 MB).); use Save As to choose a destination.",
+      )
+    })
+
+    it('reloads a plain-text file that starts with --- without treating it as front matter', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const tab = tabsStore.createTab('/tmp/k8s.yaml', 'a: 0\n')
+      autoSaveStore.knownModifiedTimes['/tmp/k8s.yaml'] = 100
+      const disk = mockDisk(200)
+      disk.content = '---\na: 1\n---\n\nb: 2\n'
+
+      await autoSaveStore.checkForExternalChanges()
+
+      expect(tab.editorState.frontmatter).toBeNull()
+      expect(tab.editorState.markdown).toBe(disk.content)
+      expect(autoSaveStore.serializeTabToFile(tab)).toBe(disk.content)
     })
 
     it('makes a tab source-only when its file outgrows the rich editor on disk', async () => {

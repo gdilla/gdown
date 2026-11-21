@@ -8,6 +8,8 @@ describe('sourceOnlyReason', () => {
     '/notes/a.markdown',
     '/notes/a.mdown',
     '/notes/a.mkd',
+    '/notes/a.mdwn',
+    '/notes/a.mdtxt',
     '/notes/a.txt',
     '/notes/a.text',
   ])('allows rich editing for the markdown file %s', (path) => {
@@ -45,5 +47,21 @@ describe('sourceOnlyReason', () => {
 
   it('keeps the rich limit below the open limit', () => {
     expect(MAX_RICH_CHARS).toBeLessThan(MAX_OPEN_BYTES)
+  })
+
+  it('allows rich editing for every extension Leaf registers as a markdown/text document', () => {
+    const fs = (
+      globalThis as unknown as {
+        process: { getBuiltinModule(id: 'node:fs'): { readFileSync(p: string, e: 'utf8'): string } }
+      }
+    ).process.getBuiltinModule('node:fs')
+    const source = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
+    const list = /const SUPPORTED_EXTENSIONS: &\[&str\] = &\[([^\]]+)\]/.exec(source)?.[1] ?? ''
+    const extensions = Array.from(list.matchAll(/"([a-z]+)"/g), (match) => match[1]!)
+
+    expect(extensions).toContain('md')
+    for (const extension of extensions) {
+      expect(sourceOnlyReason(`/notes/a.${extension}`, 10), extension).toBeNull()
+    }
   })
 })

@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { usePreferencesStore } from './preferences'
 import { useTabsStore } from './tabs'
-import { parseFrontMatter, assembleFrontMatter } from '../utils/frontmatter'
+import { assembleFrontMatter, splitDocument } from '../utils/frontmatter'
 import { flushLiveEditorState } from '../utils/flushEditorState'
 import { MAX_OPEN_BYTES, sourceOnlyReason } from '../utils/documentLimits'
 import type { Tab } from '../types/tab'
@@ -23,15 +23,6 @@ export interface ConflictInfo {
 /** The one full-file serialization contract used by every disk write. */
 export function serializeTabToFile(tab: Tab): string {
   return assembleFrontMatter(tab.editorState.frontmatter, tab.editorState.markdown ?? '')
-}
-
-function parseDiskContent(content: string) {
-  const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
-  return {
-    markdown: body,
-    frontmatter: hasFrontMatter ? rawYaml : null,
-    frontmatterAttributes: hasFrontMatter ? attributes : {},
-  }
 }
 
 export const useAutoSaveStore = defineStore('autoSave', () => {
@@ -158,10 +149,15 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
     recoveryTabsNeedingConflict.add(tabId)
   }
 
+  function parseDiskContent(tabId: string, content: string) {
+    const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+    return splitDocument(content, tab?.sourceOnly === 'plain-text')
+  }
+
   function applyDiskContent(tabId: string, content: string): void {
     const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
     if (!tab) return
-    tabsStore.saveEditorState(tabId, { ...parseDiskContent(content), doc: null })
+    tabsStore.saveEditorState(tabId, { ...parseDiskContent(tabId, content), doc: null })
     tabsStore.setModified(tabId, false)
     // The file may have grown past (or shrunk back under) the rich editor's limit.
     tab.sourceOnly = sourceOnlyReason(tab.filePath, content.length)
@@ -191,12 +187,14 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
       return await new Promise<'overwrite' | 'cancel'>((resolve) => {
         conflictResolver = resolve
       })
-    } catch {
+    } catch (err) {
       // A recovered document has no trusted baseline. Refuse a blind write if
       // metadata or disk content cannot be read; the user can use Save As.
       if (needsRecoveryConflict || knownModTime !== undefined) {
+        // read_file's own message says why, e.g. the file outgrew the open limit.
+        const reason = typeof err === 'string' ? ` (${err})` : ''
         showNotification(
-          `Could not verify ${filePath}; use Save As to choose a destination.`,
+          `Could not verify ${filePath}${reason}; use Save As to choose a destination.`,
           'warning',
         )
         return 'cancel'
@@ -228,7 +226,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         new CustomEvent('gdown:file-reloaded', {
           detail: {
             tabId: conflict.tabId,
-            markdown: parseDiskContent(conflict.diskContent).markdown,
+            markdown: parseDiskContent(conflict.tabId, conflict.diskContent).markdown,
           },
         }),
       )
@@ -533,7 +531,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         } else {
           applyDiskContent(currentTab.id, diskContent)
           knownModifiedTimes.value[filePath] = currentModTime
-          const markdown = parseDiskContent(diskContent).markdown
+          const markdown = parseDiskContent(currentTab.id, diskContent).markdown
           window.dispatchEvent(
             new CustomEvent('gdown:file-reloaded', {
               detail: { tabId: currentTab.id, markdown },

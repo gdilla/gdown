@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { Tab, EditorState } from '../types/tab'
 import { createDefaultEditorState } from '../types/tab'
-import { parseFrontMatter } from '../utils/frontmatter'
+import { splitDocument } from '../utils/frontmatter'
 import { flushLiveEditorState } from '../utils/flushEditorState'
 import { MAX_OPEN_BYTES, MAX_RICH_CHARS, sourceOnlyReason } from '../utils/documentLimits'
 
@@ -436,17 +436,14 @@ export const useTabsStore = defineStore('tabs', () => {
         return existingAfterRead
       }
 
-      // Parse YAML front-matter: separate metadata from body content
-      const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
+      // Separate YAML front-matter from the body (a plain-text file is kept whole).
+      const plainText = sourceOnlyReason(filePath, content.length) === 'plain-text'
+      const { markdown, frontmatter, frontmatterAttributes } = splitDocument(content, plainText)
 
       // Create tab with body-only markdown (front-matter is stored separately)
-      const tab = createTab(filePath, body)
-
-      // Store front-matter in the tab's editor state
-      if (hasFrontMatter) {
-        tab.editorState.frontmatter = rawYaml
-        tab.editorState.frontmatterAttributes = attributes
-      }
+      const tab = createTab(filePath, markdown)
+      tab.editorState.frontmatter = frontmatter
+      tab.editorState.frontmatterAttributes = frontmatterAttributes
 
       // Track the file's modified time for conflict detection (lazy import to avoid circular deps)
       import('./autoSave')
