@@ -962,6 +962,22 @@ html, body, #app {
     border: 0;
     background: none;
   }
+
+  /* Backgrounds are not printed, so draw the rule as a border. */
+  #print-root hr {
+    height: 0;
+    border-top: 1px solid var(--border-strong);
+  }
+
+  /* Front matter is metadata, not part of the printed document. */
+  #print-root [data-type='frontmatter'] {
+    display: none;
+  }
+}
+
+/* The native print operation sets no margins of its own. */
+@page {
+  margin: 18mm 16mm;
 }
 
 /* ---- Editor CSS variable defaults ---- */

@@ -67,10 +67,7 @@ export async function buildRenderedBody(rawHtml: string): Promise<string> {
   }
 
   // Render mermaid diagrams (lazy-loaded)
-  // The editor serialises diagrams as <pre class="mermaid-block">.
-  const mermaidBlocks = doc.querySelectorAll(
-    'pre.mermaid, pre.mermaid-block, [data-type="mermaid"]',
-  )
+  const mermaidBlocks = doc.querySelectorAll('pre.mermaid, [data-type="mermaid"]')
   if (mermaidBlocks.length > 0) {
     try {
       const { default: mermaid } = await import('mermaid')
@@ -263,6 +260,9 @@ const PRINT_ROOT_ID = 'print-root'
 /** Longest the print waits for the document's images to load. */
 const IMAGE_WAIT_MS = 3000
 
+/** Held here, not looked up by id: document content can carry any id into the page. */
+let printRoot: HTMLElement | null = null
+
 /**
  * Print the document through the native print sheet (user picks Save as PDF).
  *
@@ -277,30 +277,32 @@ const IMAGE_WAIT_MS = 3000
 export async function printDocument(content: PrintContent): Promise<void> {
   // ponytail: the hidden copy stays in the page until the next print — the native
   // sheet reads it after window.print() returns and WebKit sends no afterprint.
-  let root = document.getElementById(PRINT_ROOT_ID)
-  if (!root) {
-    root = document.createElement('div')
-    root.id = PRINT_ROOT_ID
-    root.className = 'gdown-editor content'
-    document.body.appendChild(root)
+  if (!printRoot?.isConnected) {
+    printRoot = document.createElement('div')
+    printRoot.id = PRINT_ROOT_ID
+    printRoot.className = 'gdown-editor content'
+    document.body.appendChild(printRoot)
   }
+  const root = printRoot
 
   if ('html' in content) {
     root.innerHTML = await buildRenderedBody(content.html)
-    // An image that has not loaded yet would be missing from the printout. Wait on
-    // load/error: WebKit never settles decode() for an image that is not displayed.
+    // An image that has not loaded yet would be missing from the printout. The
+    // editor serialises images as loading="lazy", which never loads in this
+    // hidden root, so load them eagerly, then wait on load/error (WebKit never
+    // settles decode() for an image that is not displayed).
     const imagesLoaded = Promise.all(
-      Array.from(root.querySelectorAll('img'), (img) =>
-        img.complete
+      Array.from(root.querySelectorAll('img'), (img) => {
+        img.setAttribute('loading', 'eager')
+        return img.complete
           ? null
           : new Promise((resolve) => {
               img.addEventListener('load', resolve, { once: true })
               img.addEventListener('error', resolve, { once: true })
-            }),
-      ),
+            })
+      }),
     )
-    // ponytail: capped wait — WebKit can hold load events back (seen with the window
-    // in the background), and a print that never opens is worse than a missing image.
+    // ponytail: capped wait — a print that never opens is worse than a missing image.
     await Promise.race([imagesLoaded, new Promise((resolve) => setTimeout(resolve, IMAGE_WAIT_MS))])
   } else {
     const source = document.createElement('pre')

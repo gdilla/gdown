@@ -225,7 +225,7 @@ describe('useExportStore configuration', () => {
     })
 
     it('exports through Pandoc with the LaTeX engine that was found', async () => {
-      const store = setUpPdfExport('lualatex')
+      const store = setUpPdfExport('tectonic')
       const onPrint = vi.fn()
       window.addEventListener('gdown:print', onPrint)
       try {
@@ -235,7 +235,7 @@ describe('useExportStore configuration', () => {
       }
 
       expect(onPrint).not.toHaveBeenCalled()
-      expect(exportedConfig()?.pdf_engine).toBe('lualatex')
+      expect(exportedConfig()?.pdf_engine).toBe('tectonic')
     })
 
     it.each(['--pdf-engine=weasyprint', '--pdf-engine weasyprint'])(
@@ -255,6 +255,21 @@ describe('useExportStore configuration', () => {
         expect(exportedConfig()?.pdf_engine).toBe('xelatex')
       },
     )
+
+    it('still falls back when the flags only pass options to the engine', async () => {
+      const store = setUpPdfExport(null)
+      store.extraFlags = '--pdf-engine-opt=-shell-escape'
+      const onPrint = vi.fn()
+      window.addEventListener('gdown:print', onPrint)
+      try {
+        await expect(store.performExport()).resolves.toBe(true)
+      } finally {
+        window.removeEventListener('gdown:print', onPrint)
+      }
+
+      expect(onPrint).toHaveBeenCalledTimes(1)
+      expect(exportedConfig()).toBeUndefined()
+    })
 
     it('does not use the print sheet for other formats', async () => {
       const store = setUpPdfExport(null)

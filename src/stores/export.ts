@@ -355,7 +355,9 @@ export const useExportStore = defineStore('export', () => {
     // Pandoc needs a LaTeX engine for PDF. Without one (and with none chosen in
     // the flags) the webview prints the document instead; App.vue owns the editor.
     const pdfEngine = pandocInfo.value?.pdf_engine ?? null
-    const engineInFlags = extraArguments.some((argument) => argument.startsWith('--pdf-engine'))
+    const engineInFlags = extraArguments.some(
+      (argument) => argument === '--pdf-engine' || argument.startsWith('--pdf-engine='),
+    )
     if (formatId === 'pdf' && !pdfEngine && !engineInFlags) {
       window.dispatchEvent(new Event('gdown:print'))
       status.value = 'success'

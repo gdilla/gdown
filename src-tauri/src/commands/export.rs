@@ -513,8 +513,10 @@ fn extended_path() -> String {
     )
 }
 
-/// LaTeX engines Pandoc can drive for PDF, in order of preference.
-const PDF_ENGINES: &[&str] = &["xelatex", "lualatex", "tectonic", "pdflatex"];
+/// LaTeX engines Pandoc can drive for PDF, in order of preference. LuaTeX is
+/// left out on purpose: document math reaches the engine as raw TeX, and
+/// `\directlua` would run Lua from an untrusted document.
+const PDF_ENGINES: &[&str] = &["xelatex", "tectonic", "pdflatex"];
 
 /// First of `PDF_ENGINES` that is an executable file in a directory of `path`.
 fn find_pdf_engine(path: &str) -> Option<String> {
@@ -899,15 +901,19 @@ mod tests {
 
         // Not executable, or a directory: not an engine.
         install("xelatex", 0o644);
-        fs::create_dir(bin.path().join("lualatex")).unwrap();
+        fs::create_dir(bin.path().join("tectonic")).unwrap();
+        assert_eq!(find_pdf_engine(&path), None);
+
+        // LuaTeX runs Lua from the document (\directlua), so it is never picked.
+        install("lualatex", 0o755);
         assert_eq!(find_pdf_engine(&path), None);
 
         install("pdflatex", 0o755);
         assert_eq!(find_pdf_engine(&path), Some("pdflatex".to_string()));
 
-        // tectonic outranks pdflatex.
-        install("tectonic", 0o755);
-        assert_eq!(find_pdf_engine(&path), Some("tectonic".to_string()));
+        // xelatex outranks pdflatex.
+        install("xelatex", 0o755);
+        assert_eq!(find_pdf_engine(&path), Some("xelatex".to_string()));
     }
 
     #[test]

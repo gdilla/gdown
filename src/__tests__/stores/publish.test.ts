@@ -102,4 +102,26 @@ describe('usePublishStore', () => {
     expect(store.status).toBe('error')
     expect(store.statusMessage).toBe('Print failed: webview.print not allowed')
   })
+
+  it('printToPdf ignores a second request while one is being prepared', async () => {
+    let finish!: () => void
+    vi.mocked(printDocument).mockClear()
+    vi.mocked(printDocument).mockReturnValue(
+      new Promise<void>((resolve) => {
+        finish = resolve
+      }),
+    )
+    const store = usePublishStore()
+
+    const first = store.printToPdf({ html: '<p>One</p>' })
+    await vi.waitFor(() => expect(printDocument).toHaveBeenCalledTimes(1))
+    await store.printToPdf({ html: '<p>Two</p>' })
+    expect(printDocument).toHaveBeenCalledTimes(1)
+
+    finish()
+    await first
+    vi.mocked(printDocument).mockResolvedValue()
+    await store.printToPdf({ html: '<p>Three</p>' })
+    expect(printDocument).toHaveBeenCalledTimes(2)
+  })
 })

@@ -110,14 +110,17 @@ describe('publishDocument', () => {
       })
     })
 
-    it('renders the markup the editor serialises diagrams as', async () => {
-      const html = await buildRenderedBody(
+    // Characterises reachability: the editor serialises diagrams as
+    // <pre class="mermaid-block">, which the export selector does not match.
+    it('does not render the editor mermaid-block markup (export path is unreachable today)', async () => {
+      const { default: mermaid } = await import('mermaid')
+      const init = vi.spyOn(mermaid, 'initialize')
+
+      await buildRenderedBody(
         `<pre class="mermaid-block" data-language="mermaid"><code class="language-mermaid">${PIE}</code></pre>`,
       )
 
-      const doc = new DOMParser().parseFromString(html, 'text/html')
-      expect(doc.querySelector('pre.mermaid-block.mermaid-rendered')).not.toBeNull()
-      expect(doc.querySelector('code.language-mermaid')).toBeNull()
+      expect(init).not.toHaveBeenCalled()
     })
   })
 
@@ -159,7 +162,9 @@ describe('publishDocument', () => {
 
     afterEach(() => {
       printSpy.mockRestore()
-      document.getElementById('print-root')?.remove()
+      Array.from(document.body.children)
+        .filter((el) => el.id === 'print-root')
+        .forEach((el) => el.remove())
     })
 
     it('renders the document into the print root, then prints', async () => {
@@ -234,6 +239,32 @@ describe('publishDocument', () => {
       } finally {
         vi.useRealTimers()
         complete.mockRestore()
+      }
+    })
+
+    // The editor serialises images as loading="lazy", and a lazy image in the
+    // hidden print root never starts loading.
+    it('loads the printed copy of every image eagerly', async () => {
+      await printDocument({ html: '<p><img loading="lazy" src="a.png"><img src="b.png"></p>' })
+
+      const images = Array.from(document.querySelectorAll('#print-root img'))
+      expect(images.map((img) => img.getAttribute('loading'))).toEqual(['eager', 'eager'])
+    })
+
+    it('uses its own print root, not a document element that claims the id', async () => {
+      // A diagram label can carry id="print-root" into the editor DOM.
+      const decoy = document.createElement('span')
+      decoy.id = 'print-root'
+      document.body.prepend(decoy)
+      try {
+        await printDocument({ html: '<p>Mine</p>' })
+
+        expect(decoy.innerHTML).toBe('')
+        // Not looked up by id here either: with two, an id lookup finds the decoy.
+        const roots = Array.from(document.body.children).filter((el) => el.tagName === 'DIV')
+        expect(roots.map((el) => el.innerHTML)).toContain('<p>Mine</p>')
+      } finally {
+        decoy.remove()
       }
     })
 
