@@ -257,5 +257,9 @@ Exported HTML copies only `.gdown-editor` rules, so content tokens also get ligh
 - The source editor is `src/components/source/SourceEditor.vue`; it is mounted only when source mode is active.
 - **DO NOT** load a tab into the rich editor without checking `tab.sourceOnly`, and do not add per-edit
   work that scans the whole document without checking it against the limits in `documentLimits.ts`.
+- **Printing:** on macOS `window.print()` is a Tauri IPC call that needs `core:webview:allow-print` and
+  rejects without it. Print through `publishDocument.printDocument()`, which renders the document into
+  `#print-root` (shown only by the `@media print` rules in `style.css`). Do not `await img.decode()` on
+  an image that is not displayed — WebKit never settles it.
 - **Test files use `.test.ts`** extension (not `.spec.ts`). Tests live in `src/__tests__/` mirroring `src/` structure.
 - **Worktree pnpm setup:** `pnpm-workspace.yaml` intentionally denies esbuild build scripts. Do not symlink binaries, approve dependency scripts ad hoc, or bypass hooks with `--no-verify`. Report missing build outputs as a setup/config failure and handle policy changes separately.

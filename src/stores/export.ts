@@ -19,6 +19,8 @@ export interface ExportFormatInfo {
 export interface PandocInfo {
   path: string
   version: string
+  /** First LaTeX engine found for PDF export, null when none is installed. */
+  pdf_engine: string | null
 }
 
 /** Result of an export operation */
@@ -350,6 +352,17 @@ export const useExportStore = defineStore('export', () => {
       return false
     }
 
+    // Pandoc needs a LaTeX engine for PDF. Without one (and with none chosen in
+    // the flags) the webview prints the document instead; App.vue owns the editor.
+    const pdfEngine = pandocInfo.value?.pdf_engine ?? null
+    const engineInFlags = extraArguments.some((argument) => argument.startsWith('--pdf-engine'))
+    if (formatId === 'pdf' && !pdfEngine && !engineInFlags) {
+      window.dispatchEvent(new Event('gdown:print'))
+      status.value = 'success'
+      statusMessage.value = 'No LaTeX engine found. Choose "Save as PDF" in the print dialog.'
+      return true
+    }
+
     // Hold the guard across native dialogs and config loading so a second
     // click cannot export a different snapshot while the first is waiting.
     status.value = 'exporting'
@@ -393,6 +406,7 @@ export const useExportStore = defineStore('export', () => {
     config.standalone = standaloneOption
     config.template = templateOption
     config.extra_args = extraArguments
+    if (formatId === 'pdf' && pdfEngine) config.pdf_engine = pdfEngine
 
     statusMessage.value = `Exporting to ${formatLabel}...`
 

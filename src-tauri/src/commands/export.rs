@@ -444,6 +444,9 @@ impl ExportConfig {
 pub struct PandocInfo {
     pub path: String,
     pub version: String,
+    /// First LaTeX engine found for PDF export; None when none is installed
+    /// (the frontend then prints through the webview instead).
+    pub pdf_engine: Option<String>,
 }
 
 /// Result of an export operation.
@@ -508,6 +511,23 @@ fn extended_path() -> String {
         "{}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/Library/TeX/texbin:/usr/local/texlive/2024/bin/universal-darwin",
         current
     )
+}
+
+/// LaTeX engines Pandoc can drive for PDF, in order of preference.
+const PDF_ENGINES: &[&str] = &["xelatex", "lualatex", "tectonic", "pdflatex"];
+
+/// First of `PDF_ENGINES` that is an executable file in a directory of `path`.
+fn find_pdf_engine(path: &str) -> Option<String> {
+    use std::os::unix::fs::PermissionsExt;
+    PDF_ENGINES
+        .iter()
+        .find(|engine| {
+            std::env::split_paths(path).any(|dir| {
+                std::fs::metadata(dir.join(engine))
+                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            })
+        })
+        .map(|engine| engine.to_string())
 }
 
 /// Execute Pandoc with the given config, markdown input, and output path.
@@ -713,6 +733,7 @@ pub fn check_pandoc() -> Result<PandocInfo, String> {
     Ok(PandocInfo {
         path: pandoc_path,
         version,
+        pdf_engine: find_pdf_engine(&extended_path()),
     })
 }
 
@@ -861,6 +882,33 @@ mod tests {
     use std::fs;
 
     // ─── Unit Tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_find_pdf_engine_takes_the_preferred_executable_on_the_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let empty = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let path = format!("{}:{}", empty.path().display(), bin.path().display());
+        let install = |name: &str, mode: u32| {
+            let file = bin.path().join(name);
+            fs::write(&file, "").unwrap();
+            fs::set_permissions(&file, fs::Permissions::from_mode(mode)).unwrap();
+        };
+
+        assert_eq!(find_pdf_engine(&path), None);
+
+        // Not executable, or a directory: not an engine.
+        install("xelatex", 0o644);
+        fs::create_dir(bin.path().join("lualatex")).unwrap();
+        assert_eq!(find_pdf_engine(&path), None);
+
+        install("pdflatex", 0o755);
+        assert_eq!(find_pdf_engine(&path), Some("pdflatex".to_string()));
+
+        // tectonic outranks pdflatex.
+        install("tectonic", 0o755);
+        assert_eq!(find_pdf_engine(&path), Some("tectonic".to_string()));
+    }
 
     #[test]
     fn test_export_format_pandoc_format() {

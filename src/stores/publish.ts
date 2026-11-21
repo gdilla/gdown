@@ -7,6 +7,7 @@
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import type { PrintContent } from '../utils/publishDocument'
 
 export type PublishStatus = 'idle' | 'working' | 'success' | 'error'
 
@@ -78,14 +79,14 @@ export const usePublishStore = defineStore('publish', () => {
   }
 
   /**
-   * Trigger native print dialog (Save as PDF on macOS).
+   * Print the document through the native print sheet (Save as PDF on macOS).
    */
-  async function printToPdf(): Promise<void> {
+  async function printToPdf(content: PrintContent): Promise<void> {
     try {
-      const { triggerPrint } = await import('../utils/publishDocument')
-      triggerPrint()
+      const { printDocument } = await import('../utils/publishDocument')
+      await printDocument(content)
     } catch (err) {
-      setStatus('error', err instanceof Error ? err.message : String(err))
+      setStatus('error', `Print failed: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 

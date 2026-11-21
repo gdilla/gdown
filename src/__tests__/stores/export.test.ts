@@ -52,7 +52,7 @@ describe('useExportStore configuration', () => {
     mockedInvoke.mockReset()
     mockedInvoke.mockImplementation(async (command) => {
       if (command === 'check_pandoc') {
-        return { path: '/usr/bin/pandoc', version: '3.7' } as never
+        return { path: '/usr/bin/pandoc', version: '3.7', pdf_engine: null } as never
       }
       return null as never
     })
@@ -97,7 +97,7 @@ describe('useExportStore configuration', () => {
     mockedGetExportConfig.mockResolvedValue({ ...defaultConfig })
     mockedInvoke.mockImplementation(async (command) => {
       if (command === 'check_pandoc') {
-        return { path: '/usr/bin/pandoc', version: '3.7' } as never
+        return { path: '/usr/bin/pandoc', version: '3.7', pdf_engine: null } as never
       }
       if (command === 'export_document') {
         return {
@@ -119,7 +119,7 @@ describe('useExportStore configuration', () => {
 
     const store = useExportStore()
     store.formats = [{ id: 'html', label: 'HTML', extension: 'html' }]
-    store.pandocInfo = { path: '/usr/bin/pandoc', version: '3.7' }
+    store.pandocInfo = { path: '/usr/bin/pandoc', version: '3.7', pdf_engine: null }
     store.selectedFormatId = 'html'
     store.includeToc = true
     store.extraFlags = settings.settings.extraPandocArgs
@@ -150,7 +150,7 @@ describe('useExportStore configuration', () => {
     mockedGetExportConfig.mockResolvedValue({ extra_args: [] } as unknown as ExportConfig)
     mockedInvoke.mockImplementation(async (command) => {
       if (command === 'check_pandoc') {
-        return { path: '/usr/bin/pandoc', version: '3.7' } as never
+        return { path: '/usr/bin/pandoc', version: '3.7', pdf_engine: null } as never
       }
       if (command === 'export_document') {
         exportCalls += 1
@@ -164,7 +164,7 @@ describe('useExportStore configuration', () => {
     useTabsStore().createTab('/tmp/notes.md', '# Hello')
     const store = useExportStore()
     store.formats = [{ id: 'html', label: 'HTML', extension: 'html' }]
-    store.pandocInfo = { path: '/usr/bin/pandoc', version: '3.7' }
+    store.pandocInfo = { path: '/usr/bin/pandoc', version: '3.7', pdf_engine: null }
     store.selectedFormatId = 'html'
     store.customOutputPath = '/tmp/notes.html'
 
@@ -180,5 +180,96 @@ describe('useExportStore configuration', () => {
     finishExport({ success: true, output_path: '/tmp/notes.html', message: 'Exported' })
     await expect(first).resolves.toBe(true)
     expect(store.isExporting).toBe(false)
+  })
+
+  describe('PDF export', () => {
+    function setUpPdfExport(pdfEngine: string | null) {
+      mockedGetExportConfig.mockResolvedValue({
+        pdf_engine: 'xelatex',
+        extra_args: [],
+      } as unknown as ExportConfig)
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'export_document') {
+          return { success: true, output_path: '/tmp/notes.pdf', message: 'Exported' } as never
+        }
+        return null as never
+      })
+      useTabsStore().createTab('/tmp/notes.md', '# Hello')
+      const store = useExportStore()
+      store.formats = [{ id: 'pdf', label: 'PDF', extension: 'pdf' }]
+      store.pandocInfo = { path: '/usr/bin/pandoc', version: '3.7', pdf_engine: pdfEngine }
+      store.selectedFormatId = 'pdf'
+      store.customOutputPath = '/tmp/notes.pdf'
+      return store
+    }
+
+    function exportedConfig(): ExportConfig | undefined {
+      const call = mockedInvoke.mock.calls.find(([command]) => command === 'export_document')
+      return (call?.[1] as { config: ExportConfig } | undefined)?.config
+    }
+
+    it('falls back to the native print sheet when no LaTeX engine is installed', async () => {
+      const store = setUpPdfExport(null)
+      const onPrint = vi.fn()
+      window.addEventListener('gdown:print', onPrint)
+      try {
+        await expect(store.performExport()).resolves.toBe(true)
+      } finally {
+        window.removeEventListener('gdown:print', onPrint)
+      }
+
+      expect(onPrint).toHaveBeenCalledTimes(1)
+      expect(exportedConfig()).toBeUndefined()
+      expect(store.status).toBe('success')
+      expect(store.statusMessage).toContain('Save as PDF')
+    })
+
+    it('exports through Pandoc with the LaTeX engine that was found', async () => {
+      const store = setUpPdfExport('lualatex')
+      const onPrint = vi.fn()
+      window.addEventListener('gdown:print', onPrint)
+      try {
+        await expect(store.performExport()).resolves.toBe(true)
+      } finally {
+        window.removeEventListener('gdown:print', onPrint)
+      }
+
+      expect(onPrint).not.toHaveBeenCalled()
+      expect(exportedConfig()?.pdf_engine).toBe('lualatex')
+    })
+
+    it.each(['--pdf-engine=weasyprint', '--pdf-engine weasyprint'])(
+      'leaves an engine chosen in the Pandoc flags (%s) to Pandoc',
+      async (flags) => {
+        const store = setUpPdfExport(null)
+        store.extraFlags = flags
+        const onPrint = vi.fn()
+        window.addEventListener('gdown:print', onPrint)
+        try {
+          await expect(store.performExport()).resolves.toBe(true)
+        } finally {
+          window.removeEventListener('gdown:print', onPrint)
+        }
+
+        expect(onPrint).not.toHaveBeenCalled()
+        expect(exportedConfig()?.pdf_engine).toBe('xelatex')
+      },
+    )
+
+    it('does not use the print sheet for other formats', async () => {
+      const store = setUpPdfExport(null)
+      store.formats = [{ id: 'html', label: 'HTML', extension: 'html' }]
+      store.selectedFormatId = 'html'
+      const onPrint = vi.fn()
+      window.addEventListener('gdown:print', onPrint)
+      try {
+        await expect(store.performExport()).resolves.toBe(true)
+      } finally {
+        window.removeEventListener('gdown:print', onPrint)
+      }
+
+      expect(onPrint).not.toHaveBeenCalled()
+      expect(exportedConfig()).toBeDefined()
+    })
   })
 })

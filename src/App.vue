@@ -100,6 +100,8 @@ import { useEditorSettingsStore } from './stores/editorSettings'
 import { useExportStore } from './stores/export'
 import { usePublishStore } from './stores/publish'
 import type { CloseDecision } from './stores/tabs'
+import { assembleFullMarkdown } from './utils/copyMarkdown'
+import { flushLiveEditorState } from './utils/flushEditorState'
 import type { Tab } from './types/tab'
 
 const tabsStore = useTabsStore()
@@ -178,6 +180,25 @@ function handleClosePromptKeydown(event: KeyboardEvent): void {
 
 function appActionsBlocked(): boolean {
   return closePrompt.value !== null || exitInProgress || preferencesStore.visible
+}
+
+/**
+ * Print the active document: rendered from the rich editor, or the source text
+ * as shown when the source editor is active (its markdown is not rendered).
+ */
+function printActiveDocument(): void {
+  if (appActionsBlocked()) return
+  const tab = tabsStore.activeTab
+  if (!tab || tab.isImage) return
+  const editor = editorRef.value?.getEditor()
+  if (editor) {
+    void publishStore.printToPdf({ html: editor.getHTML() })
+    return
+  }
+  flushLiveEditorState()
+  void publishStore.printToPdf({
+    text: assembleFullMarkdown(tab.editorState.markdown, tab.editorState.frontmatter),
+  })
 }
 
 // Files opened from Finder while a modal blocks app actions wait here
@@ -455,6 +476,8 @@ onMounted(async () => {
   window.addEventListener('keydown', handleKeydown)
   // Register beforeunload handler to save session on app close
   window.addEventListener('beforeunload', handleBeforeUnload)
+  // Export dialog > PDF without a LaTeX engine (stores/export.ts)
+  window.addEventListener('gdown:print', printActiveDocument)
 
   // Listen for menu events from Tauri backend
   try {
@@ -582,10 +605,7 @@ onMounted(async () => {
     })
 
     // File > Print / Export PDF (Cmd+P)
-    unlistenPrintPdf = await listen('menu-print-pdf', () => {
-      if (appActionsBlocked()) return
-      publishStore.printToPdf()
-    })
+    unlistenPrintPdf = await listen('menu-print-pdf', printActiveDocument)
 
     // Clear recent files
     unlistenClearRecent = await listen('menu-clear-recent', () => {
@@ -676,6 +696,7 @@ onUnmounted(() => {
   if (!exitApproved) window.dispatchEvent(new Event('gdown:capture-state'))
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  window.removeEventListener('gdown:print', printActiveDocument)
   tabsStore.setCloseDecisionHandler(null)
   autoSaveStore.cleanup()
   if (!exitApproved) void sessionStore.teardown()

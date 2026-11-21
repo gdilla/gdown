@@ -67,7 +67,10 @@ export async function buildRenderedBody(rawHtml: string): Promise<string> {
   }
 
   // Render mermaid diagrams (lazy-loaded)
-  const mermaidBlocks = doc.querySelectorAll('pre.mermaid, [data-type="mermaid"]')
+  // The editor serialises diagrams as <pre class="mermaid-block">.
+  const mermaidBlocks = doc.querySelectorAll(
+    'pre.mermaid, pre.mermaid-block, [data-type="mermaid"]',
+  )
   if (mermaidBlocks.length > 0) {
     try {
       const { default: mermaid } = await import('mermaid')
@@ -253,10 +256,58 @@ export async function copyAsRichText(rawHtml: string, title: string): Promise<vo
   await navigator.clipboard.write([item])
 }
 
+/** What to print: schema-serialised editor HTML, or source text printed literally. */
+export type PrintContent = { html: string } | { text: string }
+
+const PRINT_ROOT_ID = 'print-root'
+/** Longest the print waits for the document's images to load. */
+const IMAGE_WAIT_MS = 3000
+
 /**
- * Trigger native macOS print sheet (user picks Save as PDF).
- * Tauri 2 on macOS maps window.print() to the native print dialog.
+ * Print the document through the native print sheet (user picks Save as PDF).
+ *
+ * The webview prints the whole page, so the document is rendered into a
+ * `#print-root` element that the print stylesheet (style.css) shows in place of
+ * the app. `html` must come from the editor (`editor.getHTML()`): it is inserted
+ * as markup. Source text is inserted as text, so raw HTML in it stays inert.
+ *
+ * On macOS Tauri replaces `window.print()` with an IPC call that needs the
+ * `core:webview:allow-print` capability and rejects without it.
  */
-export function triggerPrint(): void {
-  window.print()
+export async function printDocument(content: PrintContent): Promise<void> {
+  // ponytail: the hidden copy stays in the page until the next print — the native
+  // sheet reads it after window.print() returns and WebKit sends no afterprint.
+  let root = document.getElementById(PRINT_ROOT_ID)
+  if (!root) {
+    root = document.createElement('div')
+    root.id = PRINT_ROOT_ID
+    root.className = 'gdown-editor content'
+    document.body.appendChild(root)
+  }
+
+  if ('html' in content) {
+    root.innerHTML = await buildRenderedBody(content.html)
+    // An image that has not loaded yet would be missing from the printout. Wait on
+    // load/error: WebKit never settles decode() for an image that is not displayed.
+    const imagesLoaded = Promise.all(
+      Array.from(root.querySelectorAll('img'), (img) =>
+        img.complete
+          ? null
+          : new Promise((resolve) => {
+              img.addEventListener('load', resolve, { once: true })
+              img.addEventListener('error', resolve, { once: true })
+            }),
+      ),
+    )
+    // ponytail: capped wait — WebKit can hold load events back (seen with the window
+    // in the background), and a print that never opens is worse than a missing image.
+    await Promise.race([imagesLoaded, new Promise((resolve) => setTimeout(resolve, IMAGE_WAIT_MS))])
+  } else {
+    const source = document.createElement('pre')
+    source.className = 'print-source'
+    source.textContent = content.text
+    root.replaceChildren(source)
+  }
+
+  await (window.print() as void | Promise<void>)
 }

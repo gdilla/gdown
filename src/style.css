@@ -923,6 +923,47 @@ html, body, #app {
   --search-current-ring: rgba(255, 152, 0, 0.5);
 }
 
+/* ---- Printing (Print / Export PDF) ----
+ * The webview prints the whole page. publishDocument.printDocument() renders the
+ * document into #print-root (a `.gdown-editor.content`, so it gets the light
+ * content palette above on every theme); print shows it in place of the app. */
+#print-root {
+  display: none;
+}
+
+@media print {
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+    background: none;
+  }
+
+  body > :not(#print-root) {
+    display: none !important;
+  }
+
+  #print-root {
+    display: block;
+    --text-primary: #333;
+    --bg-primary: #ffffff;
+  }
+
+  /* Paper cannot scroll: wrap long code lines instead of clipping them. */
+  #print-root pre {
+    overflow: visible;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  #print-root > .print-source {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+}
+
 /* ---- Editor CSS variable defaults ---- */
 
 :root {
