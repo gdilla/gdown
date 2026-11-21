@@ -83,8 +83,10 @@ describe('App print / export PDF', () => {
     await flushPromises()
     await vi.waitFor(() => expect(wrapper!.find('.cm-content').exists()).toBe(true))
 
-    // The export dialog's PDF fallback (stores/export.ts) asks for a print this way.
-    window.dispatchEvent(new Event('gdown:print'))
+    // The export dialog's PDF fallback (stores/export.ts) asks for a print this
+    // way, and learns that it started from the event being cancelled.
+    const request = new Event('gdown:print', { cancelable: true })
+    expect(window.dispatchEvent(request)).toBe(false)
 
     expect(await printed()).toEqual({
       text: '---\ntitle: Notes\n---\n\n# Title\n\n<img src=x onerror="alert(1)">',
@@ -98,7 +100,8 @@ describe('App print / export PDF', () => {
     usePreferencesStore().open()
 
     listeners.get('menu-print-pdf')!()
-    window.dispatchEvent(new Event('gdown:print'))
+    // Not cancelled: the requester is told that no print started.
+    expect(window.dispatchEvent(new Event('gdown:print', { cancelable: true }))).toBe(true)
     await flushPromises()
 
     expect(mockedPrint).not.toHaveBeenCalled()

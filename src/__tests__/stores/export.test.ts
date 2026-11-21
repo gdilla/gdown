@@ -203,6 +203,9 @@ describe('useExportStore configuration', () => {
       return store
     }
 
+    /** What App.vue does when it starts the print: cancel the request event. */
+    const acceptPrint = (event: Event) => event.preventDefault()
+
     function exportedConfig(): ExportConfig | undefined {
       const call = mockedInvoke.mock.calls.find(([command]) => command === 'export_document')
       return (call?.[1] as { config: ExportConfig } | undefined)?.config
@@ -210,7 +213,7 @@ describe('useExportStore configuration', () => {
 
     it('falls back to the native print sheet when no LaTeX engine is installed', async () => {
       const store = setUpPdfExport(null)
-      const onPrint = vi.fn()
+      const onPrint = vi.fn(acceptPrint)
       window.addEventListener('gdown:print', onPrint)
       try {
         await expect(store.performExport()).resolves.toBe(true)
@@ -225,8 +228,8 @@ describe('useExportStore configuration', () => {
     })
 
     it('exports through Pandoc with the LaTeX engine that was found', async () => {
-      const store = setUpPdfExport('tectonic')
-      const onPrint = vi.fn()
+      const store = setUpPdfExport('xelatex')
+      const onPrint = vi.fn(acceptPrint)
       window.addEventListener('gdown:print', onPrint)
       try {
         await expect(store.performExport()).resolves.toBe(true)
@@ -235,7 +238,7 @@ describe('useExportStore configuration', () => {
       }
 
       expect(onPrint).not.toHaveBeenCalled()
-      expect(exportedConfig()?.pdf_engine).toBe('tectonic')
+      expect(exportedConfig()?.pdf_engine).toBe('xelatex')
     })
 
     it.each(['--pdf-engine=weasyprint', '--pdf-engine weasyprint'])(
@@ -243,7 +246,7 @@ describe('useExportStore configuration', () => {
       async (flags) => {
         const store = setUpPdfExport(null)
         store.extraFlags = flags
-        const onPrint = vi.fn()
+        const onPrint = vi.fn(acceptPrint)
         window.addEventListener('gdown:print', onPrint)
         try {
           await expect(store.performExport()).resolves.toBe(true)
@@ -256,10 +259,20 @@ describe('useExportStore configuration', () => {
       },
     )
 
+    it('reports an error when nothing takes the print request', async () => {
+      const store = setUpPdfExport(null)
+      // No listener cancels the event: a modal is blocking app actions, say.
+      await expect(store.performExport()).resolves.toBe(false)
+
+      expect(store.status).toBe('error')
+      expect(store.statusMessage).toContain('File > Print / Export PDF')
+      expect(exportedConfig()).toBeUndefined()
+    })
+
     it('still falls back when the flags only pass options to the engine', async () => {
       const store = setUpPdfExport(null)
       store.extraFlags = '--pdf-engine-opt=-shell-escape'
-      const onPrint = vi.fn()
+      const onPrint = vi.fn(acceptPrint)
       window.addEventListener('gdown:print', onPrint)
       try {
         await expect(store.performExport()).resolves.toBe(true)
@@ -275,7 +288,7 @@ describe('useExportStore configuration', () => {
       const store = setUpPdfExport(null)
       store.formats = [{ id: 'html', label: 'HTML', extension: 'html' }]
       store.selectedFormatId = 'html'
-      const onPrint = vi.fn()
+      const onPrint = vi.fn(acceptPrint)
       window.addEventListener('gdown:print', onPrint)
       try {
         await expect(store.performExport()).resolves.toBe(true)

@@ -185,20 +185,27 @@ function appActionsBlocked(): boolean {
 /**
  * Print the active document: rendered from the rich editor, or the source text
  * as shown when the source editor is active (its markdown is not rendered).
+ * Returns whether a print was started.
  */
-function printActiveDocument(): void {
-  if (appActionsBlocked()) return
+function printActiveDocument(): boolean {
+  if (appActionsBlocked()) return false
   const tab = tabsStore.activeTab
-  if (!tab || tab.isImage) return
+  if (!tab || tab.isImage) return false
   const editor = editorRef.value?.getEditor()
   if (editor) {
     void publishStore.printToPdf({ html: editor.getHTML() })
-    return
+    return true
   }
   flushLiveEditorState()
   void publishStore.printToPdf({
     text: assembleFullMarkdown(tab.editorState.markdown, tab.editorState.frontmatter),
   })
+  return true
+}
+
+/** Export dialog > PDF without a LaTeX engine (stores/export.ts): cancelling the event tells it the print started. */
+function handlePrintRequest(event: Event): void {
+  if (printActiveDocument()) event.preventDefault()
 }
 
 // Files opened from Finder while a modal blocks app actions wait here
@@ -476,8 +483,7 @@ onMounted(async () => {
   window.addEventListener('keydown', handleKeydown)
   // Register beforeunload handler to save session on app close
   window.addEventListener('beforeunload', handleBeforeUnload)
-  // Export dialog > PDF without a LaTeX engine (stores/export.ts)
-  window.addEventListener('gdown:print', printActiveDocument)
+  window.addEventListener('gdown:print', handlePrintRequest)
 
   // Listen for menu events from Tauri backend
   try {
@@ -605,7 +611,9 @@ onMounted(async () => {
     })
 
     // File > Print / Export PDF (Cmd+P)
-    unlistenPrintPdf = await listen('menu-print-pdf', printActiveDocument)
+    unlistenPrintPdf = await listen('menu-print-pdf', () => {
+      printActiveDocument()
+    })
 
     // Clear recent files
     unlistenClearRecent = await listen('menu-clear-recent', () => {
@@ -696,7 +704,7 @@ onUnmounted(() => {
   if (!exitApproved) window.dispatchEvent(new Event('gdown:capture-state'))
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('beforeunload', handleBeforeUnload)
-  window.removeEventListener('gdown:print', printActiveDocument)
+  window.removeEventListener('gdown:print', handlePrintRequest)
   tabsStore.setCloseDecisionHandler(null)
   autoSaveStore.cleanup()
   if (!exitApproved) void sessionStore.teardown()

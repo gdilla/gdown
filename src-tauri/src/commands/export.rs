@@ -444,8 +444,8 @@ impl ExportConfig {
 pub struct PandocInfo {
     pub path: String,
     pub version: String,
-    /// First LaTeX engine found for PDF export; None when none is installed
-    /// (the frontend then prints through the webview instead).
+    /// The LaTeX engine PDF export uses, when it is installed; None when it is
+    /// not (the frontend then prints through the webview instead).
     pub pdf_engine: Option<String>,
 }
 
@@ -513,23 +513,20 @@ fn extended_path() -> String {
     )
 }
 
-/// LaTeX engines Pandoc can drive for PDF, in order of preference. LuaTeX is
-/// left out on purpose: document math reaches the engine as raw TeX, and
-/// `\directlua` would run Lua from an untrusted document.
-const PDF_ENGINES: &[&str] = &["xelatex", "tectonic", "pdflatex"];
+/// The LaTeX engine PDF export runs (the default in `ExportConfig`). No other
+/// engine is picked automatically: document math reaches the engine as raw TeX,
+/// and only xelatex ran before this check existed.
+const PDF_ENGINE: &str = "xelatex";
 
-/// First of `PDF_ENGINES` that is an executable file in a directory of `path`.
+/// `PDF_ENGINE` when it is an executable file in a directory of `path`.
 fn find_pdf_engine(path: &str) -> Option<String> {
     use std::os::unix::fs::PermissionsExt;
-    PDF_ENGINES
-        .iter()
-        .find(|engine| {
-            std::env::split_paths(path).any(|dir| {
-                std::fs::metadata(dir.join(engine))
-                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-            })
+    std::env::split_paths(path)
+        .any(|dir| {
+            std::fs::metadata(dir.join(PDF_ENGINE))
+                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
         })
-        .map(|engine| engine.to_string())
+        .then(|| PDF_ENGINE.to_string())
 }
 
 /// Execute Pandoc with the given config, markdown input, and output path.
@@ -886,7 +883,7 @@ mod tests {
     // ─── Unit Tests ────────────────────────────────────────────────────
 
     #[test]
-    fn test_find_pdf_engine_takes_the_preferred_executable_on_the_path() {
+    fn test_find_pdf_engine_only_accepts_an_executable_xelatex() {
         use std::os::unix::fs::PermissionsExt;
         let empty = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
@@ -899,19 +896,17 @@ mod tests {
 
         assert_eq!(find_pdf_engine(&path), None);
 
-        // Not executable, or a directory: not an engine.
+        // Other engines are never picked: only xelatex ran before this check
+        // existed, and document math reaches the engine as raw TeX.
+        for engine in ["lualatex", "tectonic", "pdflatex"] {
+            install(engine, 0o755);
+        }
+        assert_eq!(find_pdf_engine(&path), None);
+
+        // Not executable: not an engine.
         install("xelatex", 0o644);
-        fs::create_dir(bin.path().join("tectonic")).unwrap();
         assert_eq!(find_pdf_engine(&path), None);
 
-        // LuaTeX runs Lua from the document (\directlua), so it is never picked.
-        install("lualatex", 0o755);
-        assert_eq!(find_pdf_engine(&path), None);
-
-        install("pdflatex", 0o755);
-        assert_eq!(find_pdf_engine(&path), Some("pdflatex".to_string()));
-
-        // xelatex outranks pdflatex.
         install("xelatex", 0o755);
         assert_eq!(find_pdf_engine(&path), Some("xelatex".to_string()));
     }

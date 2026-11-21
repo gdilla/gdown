@@ -949,11 +949,16 @@ html, body, #app {
     --bg-primary: #ffffff;
   }
 
-  /* Paper cannot scroll: wrap long code lines instead of clipping them. */
+  /* Paper cannot scroll: wrap long code lines instead of clipping them, and
+   * let a wide equation run on rather than be cut off. */
   #print-root pre {
     overflow: visible;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+
+  #print-root .math-block {
+    overflow: visible;
   }
 
   #print-root > .print-source {

@@ -19,7 +19,7 @@ export interface ExportFormatInfo {
 export interface PandocInfo {
   path: string
   version: string
-  /** First LaTeX engine found for PDF export, null when none is installed. */
+  /** The LaTeX engine PDF export uses, when it is installed; null when it is not. */
   pdf_engine: string | null
 }
 
@@ -359,7 +359,13 @@ export const useExportStore = defineStore('export', () => {
       (argument) => argument === '--pdf-engine' || argument.startsWith('--pdf-engine='),
     )
     if (formatId === 'pdf' && !pdfEngine && !engineInFlags) {
-      window.dispatchEvent(new Event('gdown:print'))
+      // App.vue cancels the event when it starts the print; otherwise nothing did.
+      if (window.dispatchEvent(new Event('gdown:print', { cancelable: true }))) {
+        status.value = 'error'
+        statusMessage.value =
+          'Could not open the print dialog. Close this dialog and use File > Print / Export PDF.'
+        return false
+      }
       status.value = 'success'
       statusMessage.value = 'No LaTeX engine found. Choose "Save as PDF" in the print dialog.'
       return true
@@ -408,7 +414,6 @@ export const useExportStore = defineStore('export', () => {
     config.standalone = standaloneOption
     config.template = templateOption
     config.extra_args = extraArguments
-    if (formatId === 'pdf' && pdfEngine) config.pdf_engine = pdfEngine
 
     statusMessage.value = `Exporting to ${formatLabel}...`
 
