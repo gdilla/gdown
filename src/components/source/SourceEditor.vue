@@ -74,8 +74,8 @@ function renderedTab(): Tab | undefined {
 // as every file was before. Markdown tabs are too: their front matter is
 // re-assembled with LF.
 function editorText(state: EditorState): string {
-  const text = state.doc.toString()
-  return renderedCrlf ? text.replace(/\n/g, '\r\n') : text
+  // One pass either way: CodeMirror joins its lines with the separator given.
+  return renderedCrlf ? state.doc.sliceString(0, state.doc.length, '\r\n') : state.doc.toString()
 }
 
 function hasOnlyCrlfLineEndings(content: string): boolean {

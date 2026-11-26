@@ -369,7 +369,9 @@ describe('useExportStore configuration', () => {
       expect(store.pdfViaPrint).toBe(false)
     })
 
-    it('waits for a pending engine re-check before choosing between Pandoc and Print', async () => {
+    // The button shows what the last check found ("Print…"); what a click would
+    // do is only known when the re-check lands, so nothing may run before then.
+    it('does not export while an engine re-check is pending, then takes the route it found', async () => {
       const store = setUpPdfExport(null)
       store.pandocChecked = true
       let found!: (info: unknown) => void
@@ -388,18 +390,24 @@ describe('useExportStore configuration', () => {
         await vi.waitFor(() => expect(found).toBeDefined())
         store.selectedFormatId = 'pdf'
         store.customOutputPath = '/tmp/notes.pdf'
-        const exporting = store.performExport()
+        expect(store.canExport).toBe(false)
+        await expect(store.performExport()).resolves.toBe(false)
+        expect(onPrint).not.toHaveBeenCalled()
+        expect(exportedConfig()).toBeUndefined()
+
         found({ path: '/usr/bin/pandoc', version: '3.7', pdf_engine: 'xelatex' })
         await opening
         store.selectedFormatId = 'pdf'
-        await expect(exporting).resolves.toBe(true)
+        store.customOutputPath = '/tmp/notes.pdf'
+        expect(store.canExport).toBe(true)
+        expect(store.pdfViaPrint).toBe(false)
+        await expect(store.performExport()).resolves.toBe(true)
       } finally {
         window.removeEventListener('gdown:print', onPrint)
       }
 
       expect(onPrint).not.toHaveBeenCalled()
       expect(exportedConfig()?.pdf_engine).toBe('xelatex')
-      expect(store.status).toBe('success')
     })
 
     it('does not use the print sheet for other formats', async () => {

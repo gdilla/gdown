@@ -184,18 +184,29 @@ export const useExportStore = defineStore('export', () => {
 
   const canExport = computed(() => {
     const tabsStore = useTabsStore()
-    return isPandocAvailable.value && tabsStore.activeTab !== null && !isExporting.value
+    return (
+      isPandocAvailable.value &&
+      tabsStore.activeTab !== null &&
+      !isExporting.value &&
+      !checkingPandoc.value
+    )
   })
 
   /**
    * Check if Pandoc is installed and get its version info.
    */
-  /** The check in flight, if any: concurrent callers share it, and an export waits for it. */
+  /** The check in flight, if any: concurrent callers share it. */
   let pandocCheck: Promise<boolean> | null = null
+  // While a check is pending nothing can be exported: its result decides
+  // whether PDF goes to Pandoc or to Print, and the dialog still shows the
+  // action the previous result implied.
+  const checkingPandoc = ref(false)
 
   function checkPandoc(): Promise<boolean> {
+    checkingPandoc.value = true
     pandocCheck ??= runPandocCheck().finally(() => {
       pandocCheck = null
+      checkingPandoc.value = false
     })
     return pandocCheck
   }
@@ -335,12 +346,9 @@ export const useExportStore = defineStore('export', () => {
    * Execute the export operation.
    */
   async function performExport(): Promise<boolean> {
-    if (exportInFlight.value) return false
+    if (exportInFlight.value || checkingPandoc.value) return false
     exportInFlight.value = true
     try {
-      // A re-check started when the dialog opened decides whether PDF goes to
-      // Pandoc or to Print, and resets the status when it lands.
-      await pandocCheck
       return await runExport()
     } finally {
       exportInFlight.value = false
