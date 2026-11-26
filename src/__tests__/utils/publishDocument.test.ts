@@ -71,6 +71,24 @@ describe('publishDocument', () => {
       }
     })
 
+    // The editor (ProseMirror) shows runs of spaces as typed; the print root is
+    // not inside it, so it needs the same rule or the PDF collapses them.
+    it('keeps repeated spaces in printed prose, as the editor shows them', () => {
+      const fs = (
+        globalThis as unknown as {
+          process: {
+            getBuiltinModule(id: 'node:fs'): { readFileSync(p: string, e: 'utf8'): string }
+          }
+        }
+      ).process.getBuiltinModule('node:fs')
+      const css = fs.readFileSync('src/style.css', 'utf8')
+      const printBlock = css.slice(css.indexOf('@media print {'), css.indexOf('@page {'))
+
+      expect(printBlock).toMatch(
+        /body > #print-root :is\(p, h1, h2, h3, h4, h5, h6\) \{\s*white-space: break-spaces;/,
+      )
+    })
+
     // The collector copies any rule that mentions an editor class, and the app's
     // `@media print` block does. In an exported file there is no #print-root, so
     // its "hide everything else" rule would print a blank page.

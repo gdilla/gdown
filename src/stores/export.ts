@@ -256,11 +256,9 @@ export const useExportStore = defineStore('export', () => {
     extraFlags.value = exportSettingsStore.settings.extraPandocArgs
     includeToc.value = exportSettingsStore.settings.addTableOfContents
 
-    // Check Pandoc if not already checked, and again while no LaTeX engine (or
-    // no Pandoc) has been found: either may have been installed since.
-    if (!pandocChecked.value || !pandocInfo.value?.pdf_engine) {
-      await checkPandoc()
-    }
+    // Check Pandoc on every opening: it, or the LaTeX engine, may have been
+    // installed or removed since, and the result decides what Export does.
+    await checkPandoc()
 
     // Load formats if not already loaded
     if (formats.value.length === 0) {

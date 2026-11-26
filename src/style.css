@@ -961,6 +961,11 @@ body > #print-root {
     overflow: visible;
   }
 
+  /* The editor (ProseMirror) shows runs of spaces as typed. */
+  body > #print-root :is(p, h1, h2, h3, h4, h5, h6) {
+    white-space: break-spaces;
+  }
+
   body > #print-root > .print-source {
     margin: 0;
     padding: 0;

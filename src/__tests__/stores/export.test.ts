@@ -360,29 +360,31 @@ describe('useExportStore configuration', () => {
       expect(exportedConfig()).toBeUndefined()
     })
 
-    // xelatex (or Pandoc itself) may have been installed since the dialog was last open.
-    it.each<[string, string | null, number]>([
-      ['no LaTeX engine was found last time', null, 1],
-      ['an engine is already known', 'xelatex', 0],
-    ])('reopening the dialog re-checks Pandoc when %s', async (_, engine, checks) => {
-      const store = setUpPdfExport(engine)
+    // xelatex may have been installed, or removed, since the dialog was last
+    // open: every opening checks again, whatever the last check found.
+    it.each<[string, string | null, string | null, boolean]>([
+      ['an engine was installed since', null, 'xelatex', false],
+      ['the engine was removed since', 'xelatex', null, true],
+      ['nothing changed', 'xelatex', 'xelatex', false],
+    ])('reopening the dialog re-checks Pandoc: %s', async (_, before, after, viaPrint) => {
+      const store = setUpPdfExport(before)
       store.pandocChecked = true
       mockedInvoke.mockImplementation(async (command) => {
         if (command === 'check_pandoc') {
-          return { path: '/usr/bin/pandoc', version: '3.7', pdf_engine: 'xelatex' } as never
+          return { path: '/usr/bin/pandoc', version: '3.7', pdf_engine: after } as never
         }
         return null as never
       })
-
       mockedInvoke.mockClear()
 
       await store.openDialog()
+      store.selectedFormatId = 'pdf'
 
       expect(
         mockedInvoke.mock.calls.filter(([command]) => command === 'check_pandoc'),
-      ).toHaveLength(checks)
-      expect(store.pandocInfo?.pdf_engine).toBe('xelatex')
-      expect(store.pdfViaPrint).toBe(false)
+      ).toHaveLength(1)
+      expect(store.pandocInfo?.pdf_engine).toBe(after)
+      expect(store.pdfViaPrint).toBe(viaPrint)
     })
 
     // The button shows what the last check found ("Print…"); what a click would
