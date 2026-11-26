@@ -372,6 +372,28 @@ export const useExportStore = defineStore('export', () => {
       return false
     }
 
+    // Pandoc needs a LaTeX engine for PDF. Without one (and with none chosen in
+    // the flags) the webview prints the document instead; App.vue owns the
+    // editor. This is the test the dialog showed "Print…" for, and it comes
+    // before the Pandoc-only checks: a print shows what the editor shows.
+    if (pdfViaPrint.value) {
+      // App.vue answers with how the print went: refused, busy with another
+      // print and failed all mean no print sheet opened for this export.
+      const request = new CustomEvent<{ started?: Promise<boolean> }>('gdown:print', { detail: {} })
+      window.dispatchEvent(request)
+      status.value = 'exporting'
+      statusMessage.value = 'Opening the print dialog...'
+      if (!(await request.detail.started)) {
+        status.value = 'error'
+        statusMessage.value =
+          'Could not open the print dialog. Close this dialog and use File > Print / Export PDF.'
+        return false
+      }
+      status.value = 'success'
+      statusMessage.value = 'No LaTeX engine found. Choose "Save as PDF" in the print dialog.'
+      return true
+    }
+
     // Snapshot the document and options before any native dialog or backend
     // request can yield to another tab/format selection.
     const bodyMarkdown = activeTab.editorState.markdown
@@ -399,26 +421,6 @@ export const useExportStore = defineStore('export', () => {
       status.value = 'error'
       statusMessage.value = `Invalid Pandoc flags: ${err instanceof Error ? err.message : String(err)}`
       return false
-    }
-
-    // Pandoc needs a LaTeX engine for PDF. Without one (and with none chosen in
-    // the flags) the webview prints the document instead; App.vue owns the editor.
-    if (formatId === 'pdf' && !pandocInfo.value?.pdf_engine && !namesPdfEngine(extraArguments)) {
-      // App.vue answers with how the print went: refused, busy with another
-      // print and failed all mean no print sheet opened for this export.
-      const request = new CustomEvent<{ started?: Promise<boolean> }>('gdown:print', { detail: {} })
-      window.dispatchEvent(request)
-      status.value = 'exporting'
-      statusMessage.value = 'Opening the print dialog...'
-      if (!(await request.detail.started)) {
-        status.value = 'error'
-        statusMessage.value =
-          'Could not open the print dialog. Close this dialog and use File > Print / Export PDF.'
-        return false
-      }
-      status.value = 'success'
-      statusMessage.value = 'No LaTeX engine found. Choose "Save as PDF" in the print dialog.'
-      return true
     }
 
     // Hold the guard across native dialogs and config loading so a second

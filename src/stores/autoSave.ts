@@ -130,6 +130,13 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
     }
   }
 
+  /**
+   * Files last written over the open limit: the warning is given once per
+   * crossing. Cleared when the file is written or re-read within the limit, and
+   * when its tab closes.
+   */
+  const writtenOverOpenLimit = new Set<string>()
+
   async function trackFileModifiedTime(filePath: string): Promise<void> {
     try {
       knownModifiedTimes.value[filePath] = await invoke<number>('get_file_modified_time', {
@@ -142,6 +149,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
 
   function untrackFile(filePath: string): void {
     delete knownModifiedTimes.value[filePath]
+    writtenOverOpenLimit.delete(filePath)
   }
 
   /** Mark a recovered dirty file for an explicit disk conflict decision. */
@@ -162,6 +170,8 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
     tab.sourceOnly = sourceOnlyReason(tab.filePath, content.length)
     tabsStore.saveEditorState(tabId, { ...parseDiskContent(tabId, content), doc: null })
     tabsStore.setModified(tabId, false)
+    // What was read is within the open limit: a later save over it is a new crossing.
+    if (tab.filePath) writtenOverOpenLimit.delete(tab.filePath)
   }
 
   async function checkConflictBeforeSave(
@@ -245,9 +255,6 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
     conflictResolver = null
     if (action === 'cancel') setActiveStatus('unsaved', conflict.tabId)
   }
-
-  /** Files last written over the open limit: the warning is given once per crossing. */
-  const writtenOverOpenLimit = new Set<string>()
 
   async function writeFileToDisk(filePath: string, content: string): Promise<void> {
     // write_file returns the mtime of the file it wrote. A separate stat could

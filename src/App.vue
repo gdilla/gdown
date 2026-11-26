@@ -90,6 +90,7 @@ import { useSidebarStore } from './stores/sidebar'
 import { useRecentFilesStore } from './stores/recentFiles'
 import { useEditorModeStore } from './stores/editorMode'
 import { useAutoSaveStore } from './stores/autoSave'
+import { sourceOnlyNotice } from './utils/documentLimits'
 import { useOutlineStore, type OutlineHeading } from './stores/outline'
 import { useSessionStore } from './stores/session'
 import { useFocusModeStore } from './stores/focusMode'
@@ -194,6 +195,25 @@ function printActiveDocument(): Promise<boolean> {
   // The source editor's own text, so the printout matches the screen exactly.
   const source = sourceEditorRef.value
   return source ? publishStore.printToPdf({ text: source.getText() }) : Promise.resolve(false)
+}
+
+/**
+ * The rich editor, for a command that publishes its rendered HTML. In source
+ * mode there is none: say why, since a source-only tab cannot switch to it.
+ */
+function richEditorFor(command: string, sourceOnlyAlternative = '') {
+  const editor = editorRef.value?.getEditor()
+  const tab = tabsStore.activeTab
+  if (!editor && tab && !tab.isImage) {
+    autoSaveStore.showNotification(
+      `${command} needs the rich editor. ` +
+        (tab.sourceOnly
+          ? sourceOnlyNotice(tab.title, tab.sourceOnly) + sourceOnlyAlternative
+          : 'Switch to it with Cmd+/ first.'),
+      'warning',
+    )
+  }
+  return editor ?? null
 }
 
 /** Export dialog > PDF without a LaTeX engine (stores/export.ts) is answered with how the print went. */
@@ -585,7 +605,7 @@ onMounted(async () => {
     // File > Export as HTML (Cmd+Shift+H)
     unlistenExportHtml = await listen('menu-export-html', () => {
       if (appActionsBlocked()) return
-      const editor = editorRef.value?.getEditor()
+      const editor = richEditorFor('Export as HTML', ' File > Export… can make HTML from it.')
       if (!editor) return
       const tab = tabsStore.activeTab
       const title = tab?.title?.replace(/\.[^.]+$/, '') ?? 'Untitled'
@@ -596,7 +616,7 @@ onMounted(async () => {
     // Edit > Copy as Rich Text (Cmd+Shift+C)
     unlistenCopyRichText = await listen('menu-copy-rich-text', () => {
       if (appActionsBlocked()) return
-      const editor = editorRef.value?.getEditor()
+      const editor = richEditorFor('Copy as Rich Text')
       if (!editor) return
       const tab = tabsStore.activeTab
       const title = tab?.title?.replace(/\.[^.]+$/, '') ?? 'Untitled'

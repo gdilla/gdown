@@ -267,6 +267,8 @@ Exported HTML copies only `.gdown-editor` rules, so content tokens also get ligh
 - **Cargo lib name** is `leaf_lib` (not `gdown_lib`) — main.rs calls `leaf_lib::run()`.
 - Mermaid and MathJax are **lazy-loaded** — do not add top-level imports of these packages.
 - The source editor is `src/components/source/SourceEditor.vue`; it is mounted only when source mode is active.
+- Commands that publish the rich editor's HTML (Export as HTML, Copy as Rich Text) go through
+  `richEditorFor()` in App.vue, which says why nothing happened when the source editor is showing.
 - **DO NOT** load a tab into the rich editor without checking `tab.sourceOnly`, and do not add per-edit
   work that scans the whole document without checking it against the limits in `documentLimits.ts`.
 - **Printing:** on macOS `window.print()` is a Tauri IPC call that needs `core:webview:allow-print` and
@@ -280,7 +282,8 @@ Exported HTML copies only `.gdown-editor` rules, so content tokens also get ligh
   requested from outside App.vue with a `gdown:print` CustomEvent; App.vue sets `detail.started`, a
   promise of whether the print sheet was reached. Source mode prints the editor's own text
   (`SourceEditor.getText()`), not a re-assembly of tab state. `exportStore.pdfViaPrint` is the one
-  test of "this PDF export will be a print"; the export dialog reads it to say so beforehand. Flags
+  test of "this PDF export will be a print": the export dialog reads it to say so beforehand, and
+  `runExport` acts on it before any Pandoc-only check (an empty body still prints its front matter). Flags
   that choose the engine themselves (`--pdf-engine`, `--defaults`/`-d`) always go to Pandoc.
 - **Test files use `.test.ts`** extension (not `.spec.ts`). Tests live in `src/__tests__/` mirroring `src/` structure.
 - **Worktree pnpm setup:** `pnpm-workspace.yaml` intentionally denies esbuild build scripts. Do not symlink binaries, approve dependency scripts ad hoc, or bypass hooks with `--no-verify`. Report missing build outputs as a setup/config failure and handle policy changes separately.

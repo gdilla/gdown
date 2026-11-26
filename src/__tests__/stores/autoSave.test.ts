@@ -416,6 +416,42 @@ describe('useAutoSaveStore', () => {
       expect(autoSaveStore.saveNotification).toBeNull()
       await saveEdited(overLimit)
       expect(autoSaveStore.saveNotification).toEqual(warning)
+
+      // Shrunk by another program and reloaded, then grown past it here again.
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'get_file_modified_time') return 200
+        if (command === 'read_file') return 'shrunk elsewhere'
+        return command === 'write_file' ? 200 : undefined
+      })
+      await autoSaveStore.checkForExternalChanges()
+      expect(tab.editorState.markdown).toBe('shrunk elsewhere')
+      await saveEdited(overLimit)
+      expect(autoSaveStore.saveNotification).toEqual(warning)
+    })
+
+    it('warns again when an over-limit file is closed and written from a new tab', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const overLimit = '日'.repeat(1.5 * 1024 * 1024)
+      mockedInvoke.mockImplementation(async (command) =>
+        command === 'write_file' || command === 'get_file_modified_time' ? 100 : undefined,
+      )
+      const saveOverLimit = async () => {
+        const tab = tabsStore.createTab('/tmp/big.csv', overLimit)
+        tabsStore.setModified(tab.id, true)
+        autoSaveStore.saveNotification = null
+        await expect(autoSaveStore.saveTab(tab.id)).resolves.toBe(true)
+        return tab
+      }
+
+      const first = await saveOverLimit()
+      expect(autoSaveStore.saveNotification?.message).toContain('cannot reopen')
+      await tabsStore.closeTab(first.id)
+      // Closing untracks the file through a lazy import of this store.
+      await vi.dynamicImportSettled()
+      await saveOverLimit()
+      expect(autoSaveStore.saveNotification?.message).toContain('cannot reopen')
     })
 
     // The copy on screen is stale and still marked saved; that must not be silent.

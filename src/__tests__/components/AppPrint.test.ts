@@ -5,6 +5,7 @@ import App from '../../App.vue'
 import { useTabsStore } from '../../stores/tabs'
 import { useEditorSettingsStore } from '../../stores/editorSettings'
 import { usePreferencesStore } from '../../stores/preferences'
+import { useAutoSaveStore } from '../../stores/autoSave'
 import { printDocument, type PrintContent } from '../../utils/publishDocument'
 
 const { listeners } = vi.hoisted(() => ({ listeners: new Map<string, () => void>() }))
@@ -125,5 +126,41 @@ describe('App print / export PDF', () => {
     window.dispatchEvent(request)
 
     await expect(request.detail.started).resolves.toBe(false)
+  })
+
+  // Export as HTML and Copy as Rich Text take the rich editor's HTML. Without
+  // it they did nothing at all, and a source-only tab can never switch to it.
+  it.each([
+    ['menu-export-html', 'Export as HTML'],
+    ['menu-copy-rich-text', 'Copy as Rich Text'],
+  ])('%s says why it is unavailable on a source-only tab', async (menuEvent, command) => {
+    useTabsStore().createTab('/tmp/data.csv', 'a,b\n1,2\n')
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper!.find('.cm-content').exists()).toBe(true))
+
+    listeners.get(menuEvent)!()
+
+    expect(useAutoSaveStore().saveNotification).toEqual({
+      message:
+        `${command} needs the rich editor. data.csv is a plain-text file, so it stays in source mode.` +
+        (command === 'Export as HTML' ? ' File > Export… can make HTML from it.' : ''),
+      type: 'warning',
+    })
+  })
+
+  it('tells an ordinary source-mode tab to switch to the rich editor first', async () => {
+    useEditorSettingsStore().defaultMode = 'source'
+    useTabsStore().createTab('/tmp/note.md', '# Title')
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper!.find('.cm-content').exists()).toBe(true))
+
+    listeners.get('menu-copy-rich-text')!()
+
+    expect(useAutoSaveStore().saveNotification).toEqual({
+      message: 'Copy as Rich Text needs the rich editor. Switch to it with Cmd+/ first.',
+      type: 'warning',
+    })
   })
 })

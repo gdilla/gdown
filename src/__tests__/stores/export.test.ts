@@ -410,6 +410,35 @@ describe('useExportStore configuration', () => {
       expect(exportedConfig()?.pdf_engine).toBe('xelatex')
     })
 
+    // Print shows what the editor shows; Pandoc's "nothing to export" check is
+    // about the markdown body and must not block a front-matter-only document.
+    it('prints a document whose body is empty instead of calling it empty', async () => {
+      const store = setUpPdfExport(null)
+      const tab = useTabsStore().activeTab!
+      useTabsStore().saveEditorState(tab.id, { markdown: '', frontmatter: 'title: Notes' })
+      const onPrint = vi.fn(acceptPrint)
+      window.addEventListener('gdown:print', onPrint)
+      try {
+        await expect(store.performExport()).resolves.toBe(true)
+      } finally {
+        window.removeEventListener('gdown:print', onPrint)
+      }
+
+      expect(onPrint).toHaveBeenCalledTimes(1)
+      expect(store.status).toBe('success')
+    })
+
+    it('still refuses to send an empty body to Pandoc', async () => {
+      const store = setUpPdfExport('xelatex')
+      const tab = useTabsStore().activeTab!
+      useTabsStore().saveEditorState(tab.id, { markdown: '', frontmatter: 'title: Notes' })
+
+      await expect(store.performExport()).resolves.toBe(false)
+
+      expect(store.statusMessage).toContain('Document is empty')
+      expect(exportedConfig()).toBeUndefined()
+    })
+
     it('does not use the print sheet for other formats', async () => {
       const store = setUpPdfExport(null)
       store.formats = [{ id: 'html', label: 'HTML', extension: 'html' }]
