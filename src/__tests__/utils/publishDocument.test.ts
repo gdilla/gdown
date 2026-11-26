@@ -301,6 +301,13 @@ describe('publishDocument', () => {
       expect(printSpy).toHaveBeenCalledTimes(1)
     })
 
+    it('prints source text with the tab width the editor shows it at', async () => {
+      await printDocument({ text: 'a\tb', tabSize: 2 })
+
+      const pre = document.body.querySelector<HTMLElement>('#print-root > pre.print-source')
+      expect(pre?.style.tabSize).toBe('2')
+    })
+
     it('replaces the previous document instead of stacking print roots', async () => {
       await printDocument({ html: '<p>First</p>' })
       await printDocument({ html: '<p>Second</p>' })

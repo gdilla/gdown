@@ -407,13 +407,14 @@ function navigateToHeading(pos: number): void {
   view.focus()
 }
 
-/** The text on screen, for printing it as shown. */
-function getText(): string {
-  return cmView.value?.state.doc.toString() ?? ''
+/** The text on screen and its tab width, for printing it as shown. */
+function getPrintContent(): { text: string; tabSize: number } | null {
+  const state = cmView.value?.state
+  return state ? { text: state.doc.toString(), tabSize: state.tabSize } : null
 }
 
 // Expose for parent components
-defineExpose({ toggleMathPreview, openFind, navigateToHeading, getText })
+defineExpose({ toggleMathPreview, openFind, navigateToHeading, getPrintContent })
 
 // Watch for active tab changes
 watch(

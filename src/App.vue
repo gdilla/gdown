@@ -123,7 +123,7 @@ const editorRef = ref<InstanceType<typeof Editor> | null>(null)
 const sourceEditorRef = ref<{
   openFind: () => void
   navigateToHeading: (pos: number) => void
-  getText: () => string
+  getPrintContent: () => { text: string; tabSize: number } | null
 } | null>(null)
 
 interface ClosePrompt {
@@ -197,8 +197,8 @@ function printActiveDocument(): Promise<boolean> {
   const editor = editorRef.value?.getEditor()
   if (editor) return publishStore.printToPdf({ html: editor.getHTML() })
   // The source editor's own text, so the printout matches the screen exactly.
-  const source = sourceEditorRef.value
-  return source ? publishStore.printToPdf({ text: source.getText() }) : Promise.resolve(false)
+  const source = sourceEditorRef.value?.getPrintContent()
+  return source ? publishStore.printToPdf(source) : Promise.resolve(false)
 }
 
 /**

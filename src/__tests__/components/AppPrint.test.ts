@@ -82,6 +82,7 @@ describe('App print / export PDF', () => {
 
   it('prints the source text, front matter included, when the source editor is active', async () => {
     useEditorSettingsStore().defaultMode = 'source'
+    useEditorSettingsStore().indentSize = 2
     const tab = useTabsStore().createTab(null, '# Title\n\n<img src=x onerror="alert(1)">')
     tab.editorState.frontmatter = 'title: Notes'
     wrapper = mount(App, { global: { stubs } })
@@ -98,6 +99,8 @@ describe('App print / export PDF', () => {
     expect(wrapper.find('.cm-content').exists()).toBe(true)
     expect(await printed()).toEqual({
       text: '---\ntitle: Notes\n---\n# Title\n\n<img src=x onerror="alert(1)">',
+      // The editor's tab width, so tab-aligned text keeps its columns on paper.
+      tabSize: 2,
     })
   })
 

@@ -281,7 +281,7 @@ Exported HTML copies only `.gdown-editor` rules, so content tokens also get ligh
   `#print-root`: in an exported file they would hide the whole document when it is printed. A print is
   requested from outside App.vue with a `gdown:print` CustomEvent; App.vue sets `detail.started`, a
   promise of whether the print sheet was reached. Source mode prints the editor's own text
-  (`SourceEditor.getText()`), not a re-assembly of tab state. `exportStore.pdfViaPrint` is the one
+  (`SourceEditor.getPrintContent()`, with its tab width), not a re-assembly of tab state. `exportStore.pdfViaPrint` is the one
   test of "this PDF export will be a print": the export dialog reads it to say so beforehand, and
   `runExport` acts on it before any Pandoc-only check (an empty body still prints its front matter). It is true
   only for PDF with no LaTeX engine found **and no Pandoc flags set**: any flags mean "run Pandoc as

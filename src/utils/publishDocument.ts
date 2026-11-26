@@ -267,7 +267,8 @@ export async function copyAsRichText(rawHtml: string, title: string): Promise<vo
 }
 
 /** What to print: schema-serialised editor HTML, or source text printed literally. */
-export type PrintContent = { html: string } | { text: string }
+/** Rendered HTML, or literal source text with the tab width it is shown at. */
+export type PrintContent = { html: string } | { text: string; tabSize?: number }
 
 const PRINT_ROOT_ID = 'print-root'
 /** Longest the print waits for the document's images to load. */
@@ -326,6 +327,7 @@ export async function printDocument(content: PrintContent): Promise<void> {
     const source = document.createElement('pre')
     source.className = 'print-source'
     source.textContent = content.text
+    if (content.tabSize) source.style.tabSize = String(content.tabSize)
     root.replaceChildren(source)
   }
 

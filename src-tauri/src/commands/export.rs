@@ -518,13 +518,22 @@ fn extended_path() -> String {
 /// and only xelatex ran before this check existed.
 const PDF_ENGINE: &str = "xelatex";
 
-/// `PDF_ENGINE` when it is an executable file in a directory of `path`.
+/// `PDF_ENGINE` when a directory of `path` holds one this process can run.
+/// Running it is the test: mode bits say that someone may execute the file,
+/// not that the user running Leaf (and so Pandoc) may.
 fn find_pdf_engine(path: &str) -> Option<String> {
-    use std::os::unix::fs::PermissionsExt;
+    use std::process::Stdio;
     std::env::split_paths(path)
         .any(|dir| {
-            std::fs::metadata(dir.join(PDF_ENGINE))
-                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            let candidate = dir.join(PDF_ENGINE);
+            candidate.is_file()
+                && Command::new(&candidate)
+                    .arg("--version")
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_ok()
         })
         .then(|| PDF_ENGINE.to_string())
 }
@@ -930,7 +939,9 @@ mod tests {
         let path = format!("{}:{}", empty.path().display(), bin.path().display());
         let install = |name: &str, mode: u32| {
             let file = bin.path().join(name);
-            fs::write(&file, "").unwrap();
+            // Replace, not overwrite: an earlier mode may not allow writing.
+            let _ = fs::remove_file(&file);
+            fs::write(&file, "#!/bin/sh\nexit 0\n").unwrap();
             fs::set_permissions(&file, fs::Permissions::from_mode(mode)).unwrap();
         };
 
@@ -945,6 +956,11 @@ mod tests {
 
         // Not executable: not an engine.
         install("xelatex", 0o644);
+        assert_eq!(find_pdf_engine(&path), None);
+
+        // Executable for someone, but not for the user running Leaf (the owner
+        // class applies to this file): Pandoc could not run it either.
+        install("xelatex", 0o411);
         assert_eq!(find_pdf_engine(&path), None);
 
         install("xelatex", 0o755);

@@ -258,7 +258,9 @@ export const useExportStore = defineStore('export', () => {
 
     // Check Pandoc on every opening: it, or the LaTeX engine, may have been
     // installed or removed since, and the result decides what Export does.
-    await checkPandoc()
+    // Not while an export is running (Cmd+Shift+E reopens the dialog then):
+    // the check ends by resetting the status the export is about to report in.
+    if (!exportInFlight.value) await checkPandoc()
 
     // Load formats if not already loaded
     if (formats.value.length === 0) {

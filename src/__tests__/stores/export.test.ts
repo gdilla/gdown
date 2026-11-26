@@ -387,6 +387,33 @@ describe('useExportStore configuration', () => {
       expect(store.pdfViaPrint).toBe(viaPrint)
     })
 
+    // Cmd+Shift+E during an export reopens the dialog. A re-check started then
+    // would finish after the export and reset its result to idle.
+    it('does not re-check Pandoc, or lose the result, when reopened during an export', async () => {
+      const store = setUpPdfExport('xelatex')
+      let failExport!: (reason: string) => void
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'export_document') {
+          return new Promise((_, reject) => (failExport = reject)) as never
+        }
+        if (command === 'check_pandoc') {
+          return { path: '/usr/bin/pandoc', version: '3.7', pdf_engine: 'xelatex' } as never
+        }
+        return null as never
+      })
+      mockedInvoke.mockClear()
+
+      const exporting = store.performExport()
+      await vi.waitFor(() => expect(failExport).toBeDefined())
+      await store.openDialog()
+      expect(mockedInvoke.mock.calls.some(([command]) => command === 'check_pandoc')).toBe(false)
+
+      failExport('xelatex: undefined control sequence')
+      await expect(exporting).resolves.toBe(false)
+      expect(store.status).toBe('error')
+      expect(store.statusMessage).toContain('undefined control sequence')
+    })
+
     // The button shows what the last check found ("Print…"); what a click would
     // do is only known when the re-check lands, so nothing may run before then.
     it('does not export while an engine re-check is pending, then takes the route it found', async () => {
