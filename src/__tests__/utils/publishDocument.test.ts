@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { invoke } from '@tauri-apps/api/core'
 import {
   buildStandaloneHtml,
   collectThemeCss,
@@ -243,6 +244,22 @@ describe('publishDocument', () => {
       Array.from(document.body.children)
         .filter((el) => el.id === 'print-root')
         .forEach((el) => el.remove())
+    })
+
+    // Before macOS 11 the webview has no print operation and the print command
+    // does nothing without reporting it (wry checks, then silently skips).
+    it('fails instead of printing nothing where the webview cannot print', async () => {
+      vi.mocked(invoke).mockImplementation(async (command) =>
+        command === 'print_supported' ? false : undefined,
+      )
+      try {
+        await expect(printDocument({ html: '<p>Body</p>' })).rejects.toThrow(
+          'Printing needs macOS 11 or later.',
+        )
+        expect(printSpy).not.toHaveBeenCalled()
+      } finally {
+        vi.mocked(invoke).mockReset()
+      }
     })
 
     it('renders the document into the print root, then prints', async () => {

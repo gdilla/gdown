@@ -283,7 +283,10 @@ Exported HTML copies only `.gdown-editor` rules, so content tokens also get ligh
   promise of whether the print sheet was reached. Source mode prints the editor's own text
   (`SourceEditor.getText()`), not a re-assembly of tab state. `exportStore.pdfViaPrint` is the one
   test of "this PDF export will be a print": the export dialog reads it to say so beforehand, and
-  `runExport` acts on it before any Pandoc-only check (an empty body still prints its front matter). Flags
-  that choose the engine themselves (`--pdf-engine`, `--defaults`/`-d`) always go to Pandoc.
+  `runExport` acts on it before any Pandoc-only check (an empty body still prints its front matter). It is true
+  only for PDF with no LaTeX engine found **and no Pandoc flags set**: any flags mean "run Pandoc as
+  configured" — do not add heuristics for which flags choose an engine (two review rounds each found
+  one the heuristic missed). `printDocument()` first asks the `print_supported` command, because before macOS 11 the
+  webview's print command does nothing without reporting it.
 - **Test files use `.test.ts`** extension (not `.spec.ts`). Tests live in `src/__tests__/` mirroring `src/` structure.
 - **Worktree pnpm setup:** `pnpm-workspace.yaml` intentionally denies esbuild build scripts. Do not symlink binaries, approve dependency scripts ad hoc, or bypass hooks with `--no-verify`. Report missing build outputs as a setup/config failure and handle policy changes separately.

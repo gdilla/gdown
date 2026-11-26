@@ -112,16 +112,6 @@ export function parsePandocArgs(value: string): string[] {
   return args
 }
 
-/**
- * Whether the Pandoc flags decide the PDF engine themselves: `--pdf-engine`, or
- * a defaults file (`--defaults`, `-d`), which can name one (`pdf-engine: tectonic`).
- */
-function namesPdfEngine(pandocArguments: string[]): boolean {
-  return pandocArguments.some((argument) =>
-    /^(--pdf-engine|--defaults)(=|$)|^-d[^-]?/.test(argument),
-  )
-}
-
 export const useExportStore = defineStore('export', () => {
   const exportSettingsStore = useExportSettingsStore()
 
@@ -165,28 +155,27 @@ export const useExportStore = defineStore('export', () => {
   const exportInFlight = ref(false)
   const isExporting = computed(() => exportInFlight.value)
 
+  /** PDF is selected and Pandoc has no LaTeX engine (xelatex) to make it with. */
+  const pdfEngineMissing = computed(
+    () =>
+      selectedFormatId.value === 'pdf' && pandocInfo.value !== null && !pandocInfo.value.pdf_engine,
+  )
+
   /**
    * Whether Export will print instead of running Pandoc: PDF with no LaTeX
-   * engine found and none chosen by the flags. The dialog says so up front,
-   * because the output path, table of contents and other flags do not apply.
+   * engine and no Pandoc flags. Any flags mean "run Pandoc as configured";
+   * Leaf does not guess which of them choose an engine. The dialog says which
+   * of the two will happen before the user configures anything.
    */
-  const pdfViaPrint = computed(() => {
-    if (selectedFormatId.value !== 'pdf' || !pandocInfo.value || pandocInfo.value.pdf_engine) {
-      return false
-    }
-    try {
-      return !namesPdfEngine(parsePandocArgs(extraFlags.value))
-    } catch {
-      // Flags that do not parse fail the export with their own message.
-      return false
-    }
-  })
+  const pdfViaPrint = computed(() => pdfEngineMissing.value && extraFlags.value.trim() === '')
 
   const canExport = computed(() => {
     const tabsStore = useTabsStore()
+    const tab = tabsStore.activeTab
     return (
       isPandocAvailable.value &&
-      tabsStore.activeTab !== null &&
+      tab !== null &&
+      !tab.isImage &&
       !isExporting.value &&
       !checkingPandoc.value
     )
@@ -366,14 +355,20 @@ export const useExportStore = defineStore('export', () => {
       return false
     }
 
+    if (activeTab.isImage) {
+      status.value = 'error'
+      statusMessage.value = 'An image cannot be exported.'
+      return false
+    }
+
     if (!isPandocAvailable.value) {
       status.value = 'error'
       statusMessage.value = 'Pandoc is not installed.'
       return false
     }
 
-    // Pandoc needs a LaTeX engine for PDF. Without one (and with none chosen in
-    // the flags) the webview prints the document instead; App.vue owns the
+    // Pandoc needs a LaTeX engine for PDF. Without one (and with no Pandoc
+    // flags set) the webview prints the document instead; App.vue owns the
     // editor. This is the test the dialog showed "Print…" for, and it comes
     // before the Pandoc-only checks: a print shows what the editor shows.
     if (pdfViaPrint.value) {
@@ -385,8 +380,7 @@ export const useExportStore = defineStore('export', () => {
       statusMessage.value = 'Opening the print dialog...'
       if (!(await request.detail.started)) {
         status.value = 'error'
-        statusMessage.value =
-          'Could not open the print dialog. Close this dialog and use File > Print / Export PDF.'
+        statusMessage.value = 'The print dialog could not be opened.'
         return false
       }
       status.value = 'success'
@@ -529,6 +523,7 @@ export const useExportStore = defineStore('export', () => {
     isPandocAvailable,
     isExporting,
     canExport,
+    pdfEngineMissing,
     pdfViaPrint,
 
     // Actions

@@ -244,15 +244,18 @@ describe('useExportStore configuration', () => {
       expect(exportedConfig()?.pdf_engine).toBe('xelatex')
     })
 
-    // A defaults file can name the engine too (`pdf-engine: tectonic`).
+    // Any flags at all mean "run Pandoc as I configured it": Leaf does not guess
+    // which ones choose an engine (a defaults file, bundled short options like
+    // `-sd`, and engine options all can, directly or not).
     it.each([
       '--pdf-engine=weasyprint',
       '--pdf-engine weasyprint',
       '--defaults=report.yaml',
-      '--defaults report.yaml',
       '-d report.yaml',
-      '-dreport.yaml',
-    ])('leaves an engine chosen in the Pandoc flags (%s) to Pandoc', async (flags) => {
+      '-sd report.yaml',
+      '--pdf-engine-opt=-shell-escape',
+      '--lua-filter=drafts.lua',
+    ])('leaves an export with Pandoc flags (%s) to Pandoc', async (flags) => {
       const store = setUpPdfExport(null)
       store.extraFlags = flags
       const onPrint = vi.fn(acceptPrint)
@@ -272,7 +275,7 @@ describe('useExportStore configuration', () => {
       await expect(store.performExport()).resolves.toBe(false)
 
       expect(store.status).toBe('error')
-      expect(store.statusMessage).toContain('File > Print / Export PDF')
+      expect(store.statusMessage).toBe('The print dialog could not be opened.')
       expect(exportedConfig()).toBeUndefined()
     })
 
@@ -289,7 +292,7 @@ describe('useExportStore configuration', () => {
       }
 
       expect(store.status).toBe('error')
-      expect(store.statusMessage).toContain('File > Print / Export PDF')
+      expect(store.statusMessage).toBe('The print dialog could not be opened.')
     })
 
     it('does not report success before the print has been accepted', async () => {
@@ -309,39 +312,52 @@ describe('useExportStore configuration', () => {
       }
     })
 
-    it('still falls back when the flags only pass options to the engine', async () => {
-      const store = setUpPdfExport(null)
-      store.extraFlags = '--pdf-engine-opt=-shell-escape'
-      const onPrint = vi.fn(acceptPrint)
-      window.addEventListener('gdown:print', onPrint)
-      try {
-        await expect(store.performExport()).resolves.toBe(true)
-      } finally {
-        window.removeEventListener('gdown:print', onPrint)
-      }
-
-      expect(onPrint).toHaveBeenCalledTimes(1)
-      expect(exportedConfig()).toBeUndefined()
-    })
-
     // The dialog reads this to say, before the user configures anything, that
     // the export will be a print and which options do not apply.
     it.each<[string, string | null, string, string, boolean]>([
-      ['PDF with no LaTeX engine', null, 'pdf', '', true],
-      ['PDF with engine options only', null, 'pdf', '--pdf-engine-opt=-shell-escape', true],
+      ['PDF with no LaTeX engine and no flags', null, 'pdf', '', true],
+      ['PDF with no LaTeX engine and blank flags', null, 'pdf', '   ', true],
+      ['PDF with any Pandoc flag', null, 'pdf', '--number-sections', false],
+      ['PDF with a bundled defaults flag', null, 'pdf', '-sd report.yaml', false],
+      ['PDF with flags that do not parse', null, 'pdf', '--metadata "unterminated', false],
       ['PDF with xelatex found', 'xelatex', 'pdf', '', false],
-      ['PDF with an engine named in the flags', null, 'pdf', '--pdf-engine=weasyprint', false],
-      ['PDF with a defaults file', null, 'pdf', '--defaults=report.yaml', false],
-      ['PDF with a defaults file (short flag)', null, 'pdf', '-d report.yaml', false],
-      ['PDF with a flag that only starts with -d', null, 'pdf', '--dpi=300', true],
       ['another format', null, 'html', '', false],
-      ['flags that do not parse', null, 'pdf', '--metadata "unterminated', false],
     ])('pdfViaPrint: %s', (_, engine, format, flags, expected) => {
       const store = setUpPdfExport(engine)
       store.selectedFormatId = format
       store.extraFlags = flags
 
       expect(store.pdfViaPrint).toBe(expected)
+    })
+
+    it.each<[string, string | null, string, boolean]>([
+      ['PDF with no LaTeX engine', null, 'pdf', true],
+      ['PDF with xelatex found', 'xelatex', 'pdf', false],
+      ['another format', null, 'html', false],
+    ])('pdfEngineMissing: %s', (_, engine, format, expected) => {
+      const store = setUpPdfExport(engine)
+      store.selectedFormatId = format
+      store.extraFlags = '--number-sections'
+
+      expect(store.pdfEngineMissing).toBe(expected)
+    })
+
+    // An image tab has no document: neither Pandoc nor the print fallback can use it.
+    it.each([null, 'xelatex'])('offers no export for an image tab (engine: %s)', async (engine) => {
+      const store = setUpPdfExport(engine)
+      useTabsStore().openImageFile('/tmp/photo.png')
+      const onPrint = vi.fn(acceptPrint)
+      window.addEventListener('gdown:print', onPrint)
+      try {
+        expect(store.canExport).toBe(false)
+        await expect(store.performExport()).resolves.toBe(false)
+      } finally {
+        window.removeEventListener('gdown:print', onPrint)
+      }
+
+      expect(store.statusMessage).toBe('An image cannot be exported.')
+      expect(onPrint).not.toHaveBeenCalled()
+      expect(exportedConfig()).toBeUndefined()
     })
 
     // xelatex (or Pandoc itself) may have been installed since the dialog was last open.

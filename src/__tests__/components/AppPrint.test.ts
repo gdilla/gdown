@@ -128,6 +128,23 @@ describe('App print / export PDF', () => {
     await expect(request.detail.started).resolves.toBe(false)
   })
 
+  it('says that an image tab cannot be printed', async () => {
+    useTabsStore().openImageFile('/tmp/photo.png')
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+
+    listeners.get('menu-print-pdf')!()
+    const request = printRequest()
+    window.dispatchEvent(request)
+
+    await expect(request.detail.started).resolves.toBe(false)
+    expect(mockedPrint).not.toHaveBeenCalled()
+    expect(useAutoSaveStore().saveNotification).toEqual({
+      message: 'An image cannot be printed from Leaf.',
+      type: 'warning',
+    })
+  })
+
   // Export as HTML and Copy as Rich Text take the rich editor's HTML. Without
   // it they did nothing at all, and a source-only tab can never switch to it.
   it.each([

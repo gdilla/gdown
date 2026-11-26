@@ -100,14 +100,17 @@ describe('ExportDialog PDF without a LaTeX engine', () => {
     expect(dialog()!.querySelector<HTMLInputElement>('#export-extra-flags')!.disabled).toBe(false)
   })
 
-  it('is an ordinary export again once an engine is named in the flags', async () => {
+  it('exports through Pandoc once any flags are set, and says what that needs', async () => {
     const store = await open(null)
     store.extraFlags = '--pdf-engine=weasyprint'
     await nextTick()
 
-    expect(dialog()!.textContent).not.toContain('No LaTeX engine')
     expect(button('Export')).toBeDefined()
+    expect(button('Print…')).toBeUndefined()
     expect(button('Browse...')!.disabled).toBe(false)
+    // Still no xelatex: the export only works if the flags choose an engine.
+    expect(dialog()!.textContent).toContain('No LaTeX engine (xelatex) was found')
+    expect(dialog()!.textContent).toMatch(/Clear\s+the\s+flags/)
   })
 
   it.each([

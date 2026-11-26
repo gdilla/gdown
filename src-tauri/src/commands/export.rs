@@ -736,6 +736,35 @@ pub fn check_pandoc() -> Result<PandocInfo, String> {
     })
 }
 
+/// Whether the webview can print on a macOS with this version string
+/// (`sw_vers -productVersion`). WKWebView's print operation arrived in macOS 11,
+/// and wry skips printing without it, reporting nothing. 10.16 is how macOS 11
+/// and later report themselves in compatibility mode. Anything unparseable
+/// counts as able to print: the check must never block printing by mistake.
+fn version_can_print(version: &str) -> bool {
+    let mut parts = version
+        .trim()
+        .split('.')
+        .map(|part| part.parse::<u32>().ok());
+    match (parts.next().flatten(), parts.next().flatten()) {
+        (Some(10), Some(minor)) => minor >= 16,
+        _ => true,
+    }
+}
+
+/// Tauri command: whether Print / Export PDF can open the print sheet here.
+/// `async` keeps the process spawn off the main thread.
+#[tauri::command(async)]
+pub fn print_supported() -> bool {
+    Command::new("/usr/bin/sw_vers")
+        .arg("-productVersion")
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|version| version_can_print(&version))
+        .unwrap_or(true)
+}
+
 /// Tauri command: Get supported export formats with their default file extensions.
 #[tauri::command]
 pub fn get_export_formats() -> Vec<serde_json::Value> {
@@ -881,6 +910,17 @@ mod tests {
     use std::fs;
 
     // ─── Unit Tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_version_can_print_from_macos_11() {
+        for version in ["10.15.7", "10.14", "10.9.5\n"] {
+            assert!(!version_can_print(version), "{version}");
+        }
+        // 10.16 is macOS 11+ in compatibility mode; unknown output never blocks printing.
+        for version in ["11.0", "12.7.6", "26.1\n", "10.16", "10", "", "unknown"] {
+            assert!(version_can_print(version), "{version}");
+        }
+    }
 
     #[test]
     fn test_find_pdf_engine_only_accepts_an_executable_xelatex() {

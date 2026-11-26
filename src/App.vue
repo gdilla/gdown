@@ -189,7 +189,11 @@ function appActionsBlocked(): boolean {
  */
 function printActiveDocument(): Promise<boolean> {
   const tab = tabsStore.activeTab
-  if (appActionsBlocked() || !tab || tab.isImage) return Promise.resolve(false)
+  if (appActionsBlocked() || !tab) return Promise.resolve(false)
+  if (tab.isImage) {
+    autoSaveStore.showNotification('An image cannot be printed from Leaf.', 'warning')
+    return Promise.resolve(false)
+  }
   const editor = editorRef.value?.getEditor()
   if (editor) return publishStore.printToPdf({ html: editor.getHTML() })
   // The source editor's own text, so the printout matches the screen exactly.

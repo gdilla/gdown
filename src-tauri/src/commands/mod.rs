@@ -21,6 +21,7 @@ mod tests {
         "find_instruction_files",
         "open_file_dialog",
         "open_folder_dialog",
+        "print_supported",
         "read_directory_shallow",
         "save_file_dialog",
     ];

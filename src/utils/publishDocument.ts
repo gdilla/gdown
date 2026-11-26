@@ -288,6 +288,11 @@ let printRoot: HTMLElement | null = null
  * `core:webview:allow-print` capability and rejects without it.
  */
 export async function printDocument(content: PrintContent): Promise<void> {
+  // Before macOS 11 the webview has no print operation, and the print command
+  // then does nothing without saying so. Anything but an explicit "no" prints.
+  if ((await invoke('print_supported')) === false) {
+    throw new Error('Printing needs macOS 11 or later.')
+  }
   // ponytail: the hidden copy stays in the page until the next print — the native
   // sheet reads it after window.print() returns and WebKit sends no afterprint.
   if (!printRoot?.isConnected) {
