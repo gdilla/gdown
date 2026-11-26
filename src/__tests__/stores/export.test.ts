@@ -319,6 +319,23 @@ describe('useExportStore configuration', () => {
       expect(exportedConfig()).toBeUndefined()
     })
 
+    // The dialog reads this to say, before the user configures anything, that
+    // the export will be a print and which options do not apply.
+    it.each<[string, string | null, string, string, boolean]>([
+      ['PDF with no LaTeX engine', null, 'pdf', '', true],
+      ['PDF with engine options only', null, 'pdf', '--pdf-engine-opt=-shell-escape', true],
+      ['PDF with xelatex found', 'xelatex', 'pdf', '', false],
+      ['PDF with an engine named in the flags', null, 'pdf', '--pdf-engine=weasyprint', false],
+      ['another format', null, 'html', '', false],
+      ['flags that do not parse', null, 'pdf', '--metadata "unterminated', false],
+    ])('pdfViaPrint: %s', (_, engine, format, flags, expected) => {
+      const store = setUpPdfExport(engine)
+      store.selectedFormatId = format
+      store.extraFlags = flags
+
+      expect(store.pdfViaPrint).toBe(expected)
+    })
+
     it('does not use the print sheet for other formats', async () => {
       const store = setUpPdfExport(null)
       store.formats = [{ id: 'html', label: 'HTML', extension: 'html' }]

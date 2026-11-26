@@ -112,6 +112,13 @@ export function parsePandocArgs(value: string): string[] {
   return args
 }
 
+/** Whether Pandoc flags choose a PDF engine (`--pdf-engine x` or `--pdf-engine=x`). */
+function namesPdfEngine(pandocArguments: string[]): boolean {
+  return pandocArguments.some(
+    (argument) => argument === '--pdf-engine' || argument.startsWith('--pdf-engine='),
+  )
+}
+
 export const useExportStore = defineStore('export', () => {
   const exportSettingsStore = useExportSettingsStore()
 
@@ -154,6 +161,23 @@ export const useExportStore = defineStore('export', () => {
   // off the main thread, so this is what keeps one export in flight at a time.
   const exportInFlight = ref(false)
   const isExporting = computed(() => exportInFlight.value)
+
+  /**
+   * Whether Export will print instead of running Pandoc: PDF with no LaTeX
+   * engine found and none named in the flags. The dialog says so up front,
+   * because the output path, table of contents and other flags do not apply.
+   */
+  const pdfViaPrint = computed(() => {
+    if (selectedFormatId.value !== 'pdf' || !pandocInfo.value || pandocInfo.value.pdf_engine) {
+      return false
+    }
+    try {
+      return !namesPdfEngine(parsePandocArgs(extraFlags.value))
+    } catch {
+      // Flags that do not parse fail the export with their own message.
+      return false
+    }
+  })
 
   const canExport = computed(() => {
     const tabsStore = useTabsStore()
@@ -354,11 +378,7 @@ export const useExportStore = defineStore('export', () => {
 
     // Pandoc needs a LaTeX engine for PDF. Without one (and with none chosen in
     // the flags) the webview prints the document instead; App.vue owns the editor.
-    const pdfEngine = pandocInfo.value?.pdf_engine ?? null
-    const engineInFlags = extraArguments.some(
-      (argument) => argument === '--pdf-engine' || argument.startsWith('--pdf-engine='),
-    )
-    if (formatId === 'pdf' && !pdfEngine && !engineInFlags) {
+    if (formatId === 'pdf' && !pandocInfo.value?.pdf_engine && !namesPdfEngine(extraArguments)) {
       // App.vue answers with how the print went: refused, busy with another
       // print and failed all mean no print sheet opened for this export.
       const request = new CustomEvent<{ started?: Promise<boolean> }>('gdown:print', { detail: {} })
@@ -482,6 +502,7 @@ export const useExportStore = defineStore('export', () => {
     isPandocAvailable,
     isExporting,
     canExport,
+    pdfViaPrint,
 
     // Actions
     checkPandoc,

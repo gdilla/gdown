@@ -246,6 +246,9 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
     if (action === 'cancel') setActiveStatus('unsaved', conflict.tabId)
   }
 
+  /** Files last written over the open limit: the warning is given once per crossing. */
+  const writtenOverOpenLimit = new Set<string>()
+
   async function writeFileToDisk(filePath: string, content: string): Promise<void> {
     // write_file returns the mtime of the file it wrote. A separate stat could
     // trust an external write that landed in between as our own baseline.
@@ -253,6 +256,21 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
       path: filePath,
       content,
     })
+
+    // The save is never refused, but `read_file` will not open this file again.
+    // UTF-8 is at most three bytes per UTF-16 unit, so most saves skip the count.
+    const bytes = content.length * 3 > MAX_OPEN_BYTES ? new TextEncoder().encode(content).length : 0
+    if (bytes <= MAX_OPEN_BYTES) {
+      writtenOverOpenLimit.delete(filePath)
+    } else if (!writtenOverOpenLimit.has(filePath)) {
+      writtenOverOpenLimit.add(filePath)
+      const megabytes = (size: number) => (size / (1024 * 1024)).toFixed(1)
+      const name = filePath.slice(filePath.lastIndexOf('/') + 1)
+      showNotification(
+        `${name} is now ${megabytes(bytes)} MB; Leaf cannot reopen files over ${megabytes(MAX_OPEN_BYTES)} MB.`,
+        'warning',
+      )
+    }
   }
 
   async function performSave(tabId: string): Promise<boolean> {

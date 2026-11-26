@@ -30,11 +30,11 @@ export const useEditorModeStore = defineStore('editorMode', () => {
   /** Set the preferred mode. Rich mode is refused, with a notice, on a source-only tab. */
   function setMode(newMode: EditorMode) {
     const tab = useTabsStore().activeTab
-    // Re-decide on request: the document may have been trimmed under the limit,
-    // or have grown past it in the source editor, since the tab was created.
-    if (newMode === 'wysiwyg' && tab && !tab.isImage) {
-      tab.sourceOnly = tabSourceOnlyReason(tab)
-    }
+    // Re-decide on every request, in either direction: the document may have
+    // been trimmed under the limit, or have grown past it (in the rich editor
+    // too, whose flush runs before this) since the tab was classified. The
+    // editor that mounts next must not get a document it cannot handle.
+    if (tab && !tab.isImage) tab.sourceOnly = tabSourceOnlyReason(tab)
     if (newMode === 'wysiwyg' && tab?.sourceOnly) {
       useAutoSaveStore().showNotification(sourceOnlyNotice(tab.title, tab.sourceOnly), 'warning')
       return

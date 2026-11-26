@@ -132,6 +132,13 @@
           </div>
         </div>
 
+        <!-- PDF without a LaTeX engine is a print, not a Pandoc export -->
+        <p v-if="exportStore.pdfViaPrint" class="help-text">
+          No LaTeX engine (xelatex) was found, so PDF is made through the print dialog: choose "Save
+          as PDF" there. The output path and table of contents below are not used. To export through
+          Pandoc instead, name an engine in the advanced flags (<code>--pdf-engine=…</code>).
+        </p>
+
         <!-- Output Path -->
         <div class="export-section">
           <label class="export-label" for="export-output-path">Output Path</label>
@@ -147,7 +154,9 @@
             <button
               class="browse-btn"
               type="button"
-              :disabled="exportStore.isExporting || !exportStore.isPandocAvailable"
+              :disabled="
+                exportStore.isExporting || !exportStore.isPandocAvailable || exportStore.pdfViaPrint
+              "
               @click="exportStore.chooseOutputPath()"
             >
               Browse...
@@ -163,7 +172,11 @@
               <input
                 v-model="exportStore.includeToc"
                 type="checkbox"
-                :disabled="exportStore.isExporting || !exportStore.isPandocAvailable"
+                :disabled="
+                  exportStore.isExporting ||
+                  !exportStore.isPandocAvailable ||
+                  exportStore.pdfViaPrint
+                "
               />
               <span>Include Table of Contents</span>
             </label>
@@ -223,7 +236,13 @@
             :disabled="!exportStore.canExport"
             @click="handleExport"
           >
-            {{ exportStore.isExporting ? 'Exporting...' : 'Export' }}
+            {{
+              exportStore.isExporting
+                ? 'Exporting...'
+                : exportStore.pdfViaPrint
+                  ? 'Print…'
+                  : 'Export'
+            }}
           </button>
         </div>
       </div>

@@ -390,8 +390,13 @@ function navigateToHeading(pos: number): void {
   view.focus()
 }
 
+/** The text on screen, for printing it as shown. */
+function getText(): string {
+  return cmView.value?.state.doc.toString() ?? ''
+}
+
 // Expose for parent components
-defineExpose({ toggleMathPreview, openFind, navigateToHeading })
+defineExpose({ toggleMathPreview, openFind, navigateToHeading, getText })
 
 // Watch for active tab changes
 watch(

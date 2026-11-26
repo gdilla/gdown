@@ -379,6 +379,45 @@ describe('useAutoSaveStore', () => {
       )
     })
 
+    // Leaf refuses to open a file over the limit, so writing one must not look
+    // like an ordinary save. Bytes, not characters: these are three bytes each.
+    it('warns, once per crossing, when a save writes a file too large to reopen', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const overLimit = '日'.repeat(1.5 * 1024 * 1024)
+      expect(overLimit.length).toBeLessThan(MAX_OPEN_BYTES)
+      const tab = tabsStore.createTab('/tmp/big.csv', overLimit)
+      // The file's modified time always matches the last write: no conflict.
+      mockedInvoke.mockImplementation(async (command) =>
+        command === 'write_file' || command === 'get_file_modified_time' ? 100 : undefined,
+      )
+      const saveEdited = async (markdown: string) => {
+        tabsStore.saveEditorState(tab.id, { markdown })
+        tabsStore.setModified(tab.id, true)
+        autoSaveStore.saveNotification = null
+        await expect(autoSaveStore.saveTab(tab.id)).resolves.toBe(true)
+      }
+      const warning = {
+        message: 'big.csv is now 4.5 MB; Leaf cannot reopen files over 4.0 MB.',
+        type: 'warning',
+      }
+
+      await saveEdited(overLimit + ' ')
+      expect(mockedInvoke.mock.calls.some(([command]) => command === 'write_file')).toBe(true)
+      expect(autoSaveStore.saveNotification).toEqual(warning)
+
+      // Still over the limit: the next save does not repeat it.
+      await saveEdited(overLimit)
+      expect(autoSaveStore.saveNotification).toBeNull()
+
+      // Trimmed under the limit and grown past it again: it is said again.
+      await saveEdited('small')
+      expect(autoSaveStore.saveNotification).toBeNull()
+      await saveEdited(overLimit)
+      expect(autoSaveStore.saveNotification).toEqual(warning)
+    })
+
     // The copy on screen is stale and still marked saved; that must not be silent.
     it('says once per disk revision that a changed file could not be reloaded', async () => {
       const tabsStore = useTabsStore()

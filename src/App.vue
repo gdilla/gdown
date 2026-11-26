@@ -100,8 +100,6 @@ import { useEditorSettingsStore } from './stores/editorSettings'
 import { useExportStore } from './stores/export'
 import { usePublishStore } from './stores/publish'
 import type { CloseDecision } from './stores/tabs'
-import { assembleFullMarkdown } from './utils/copyMarkdown'
-import { flushLiveEditorState } from './utils/flushEditorState'
 import type { Tab } from './types/tab'
 
 const tabsStore = useTabsStore()
@@ -124,6 +122,7 @@ const editorRef = ref<InstanceType<typeof Editor> | null>(null)
 const sourceEditorRef = ref<{
   openFind: () => void
   navigateToHeading: (pos: number) => void
+  getText: () => string
 } | null>(null)
 
 interface ClosePrompt {
@@ -192,10 +191,9 @@ function printActiveDocument(): Promise<boolean> {
   if (appActionsBlocked() || !tab || tab.isImage) return Promise.resolve(false)
   const editor = editorRef.value?.getEditor()
   if (editor) return publishStore.printToPdf({ html: editor.getHTML() })
-  flushLiveEditorState()
-  return publishStore.printToPdf({
-    text: assembleFullMarkdown(tab.editorState.markdown, tab.editorState.frontmatter),
-  })
+  // The source editor's own text, so the printout matches the screen exactly.
+  const source = sourceEditorRef.value
+  return source ? publishStore.printToPdf({ text: source.getText() }) : Promise.resolve(false)
 }
 
 /** Export dialog > PDF without a LaTeX engine (stores/export.ts) is answered with how the print went. */

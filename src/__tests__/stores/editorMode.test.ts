@@ -139,6 +139,26 @@ describe('useEditorModeStore', () => {
       expect(store.mode).toBe('source')
     })
 
+    // A paste in the rich editor can take a document past the limit; the flag is
+    // left alone while it is being edited there. Leaving for source mode must
+    // settle it before the source editor mounts with the markdown parser on.
+    it.each<[string, (store: ReturnType<typeof useEditorModeStore>) => void]>([
+      ['setMode', (store) => store.setMode('source')],
+      ['toggleMode', (store) => store.toggleMode()],
+    ])('re-decides a rich tab that outgrew the limit on %s to source', (_, toSource) => {
+      const tabs = useTabsStore()
+      const note = tabs.createTab('/tmp/note.md', '# Small')
+      const store = useEditorModeStore()
+      expect(store.mode).toBe('wysiwyg')
+      // What the rich editor's flush writes just before the mode changes.
+      tabs.saveEditorState(note.id, { markdown: 'a'.repeat(200 * 1024 + 1) })
+
+      toSource(store)
+
+      expect(store.mode).toBe('source')
+      expect(note.sourceOnly).toBe('too-large')
+    })
+
     it('allows rich mode again once a large document has been trimmed under the limit', () => {
       const tabs = useTabsStore()
       const book = tabs.createTab('/tmp/book.md', 'a'.repeat(200 * 1024 + 1))

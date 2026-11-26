@@ -160,8 +160,8 @@ behind them):
 - `sourceOnly` is a stored decision, re-made at fixed points — never derive it live, or a paste in the
   rich editor would swap editors mid-edit. The points: open, disk reload and session recovery; Save As
   (`setFilePath`); a tab becoming active (a sync watcher on `activeTabId` in `tabs.ts`, so every way of
-  activating a tab is covered); a rich-mode request (`setMode`); and, growth only, each source-editor
-  edit. SourceEditor and `wordCount` watch the active tab's flag, because it can change without a tab
+  activating a tab is covered); a mode request in either direction (`setMode`, after the outgoing
+  editor's flush); and, growth only, each source-editor edit. SourceEditor and `wordCount` watch the active tab's flag, because it can change without a tab
   switch (SourceEditor swaps its language through `languageCompartment`, keeping cursor and undo).
 - A source-only tab is saved byte for byte: SourceEditor restores CRLF line endings on every read of
   its text (`editorText`), since CodeMirror reads CRLF and writes LF.
@@ -171,6 +171,8 @@ behind them):
 - `read_file` takes the open-size limit (`MAX_OPEN_BYTES`, 4 MB) on every call — opening, the
   external-change reload and the save-conflict check — and refuses a larger file before reading it; when
   opening, its error text is shown to the user. A reload re-decides `sourceOnly` (`applyDiskContent`).
+  Saving is never refused: `writeFileToDisk` warns, once per crossing, when it writes a file over the
+  limit (counted in UTF-8 bytes), since Leaf will not reopen it.
 
 **Keyboard shortcut rule:** Cmd+/ is handled by:
 - `Editor.vue` window listener → wysiwyg→source (calls `handleToggleMode`)
@@ -273,6 +275,8 @@ Exported HTML copies only `.gdown-editor` rules, so content tokens also get ligh
   image that is not displayed — WebKit never settles it. `collectThemeCss()` skips rules that mention
   `#print-root`: in an exported file they would hide the whole document when it is printed. A print is
   requested from outside App.vue with a `gdown:print` CustomEvent; App.vue sets `detail.started`, a
-  promise of whether the print sheet was reached.
+  promise of whether the print sheet was reached. Source mode prints the editor's own text
+  (`SourceEditor.getText()`), not a re-assembly of tab state. `exportStore.pdfViaPrint` is the one
+  test of "this PDF export will be a print"; the export dialog reads it to say so beforehand.
 - **Test files use `.test.ts`** extension (not `.spec.ts`). Tests live in `src/__tests__/` mirroring `src/` structure.
 - **Worktree pnpm setup:** `pnpm-workspace.yaml` intentionally denies esbuild build scripts. Do not symlink binaries, approve dependency scripts ad hoc, or bypass hooks with `--no-verify`. Report missing build outputs as a setup/config failure and handle policy changes separately.

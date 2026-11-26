@@ -93,8 +93,10 @@ describe('App print / export PDF', () => {
     window.dispatchEvent(request)
     await expect(request.detail.started).resolves.toBe(true)
 
+    // Exactly the text in the source editor, delimiter spacing included.
+    expect(wrapper.find('.cm-content').exists()).toBe(true)
     expect(await printed()).toEqual({
-      text: '---\ntitle: Notes\n---\n\n# Title\n\n<img src=x onerror="alert(1)">',
+      text: '---\ntitle: Notes\n---\n# Title\n\n<img src=x onerror="alert(1)">',
     })
   })
 
