@@ -161,7 +161,8 @@ behind them):
   rich editor would swap editors mid-edit. The points: open, disk reload and session recovery; Save As
   (`setFilePath`); a tab becoming active (a sync watcher on `activeTabId` in `tabs.ts`, so every way of
   activating a tab is covered); a mode request in either direction (`setMode`, after the outgoing
-  editor's flush); and, growth only, each source-editor edit. SourceEditor and `wordCount` watch the active tab's flag, because it can change without a tab
+  editor's flush); and, growth only, each source-editor edit (the language is switched off inside the
+  crossing transaction itself, by a `transactionExtender`, so a large paste is never parsed). SourceEditor and `wordCount` watch the active tab's flag, because it can change without a tab
   switch (SourceEditor swaps its language through `languageCompartment`, keeping cursor and undo).
 - A source-only tab is saved byte for byte: SourceEditor restores CRLF line endings on every read of
   its text (`editorText`), since CodeMirror reads CRLF and writes LF.
@@ -277,6 +278,7 @@ Exported HTML copies only `.gdown-editor` rules, so content tokens also get ligh
   requested from outside App.vue with a `gdown:print` CustomEvent; App.vue sets `detail.started`, a
   promise of whether the print sheet was reached. Source mode prints the editor's own text
   (`SourceEditor.getText()`), not a re-assembly of tab state. `exportStore.pdfViaPrint` is the one
-  test of "this PDF export will be a print"; the export dialog reads it to say so beforehand.
+  test of "this PDF export will be a print"; the export dialog reads it to say so beforehand. Flags
+  that choose the engine themselves (`--pdf-engine`, `--defaults`/`-d`) always go to Pandoc.
 - **Test files use `.test.ts`** extension (not `.spec.ts`). Tests live in `src/__tests__/` mirroring `src/` structure.
 - **Worktree pnpm setup:** `pnpm-workspace.yaml` intentionally denies esbuild build scripts. Do not symlink binaries, approve dependency scripts ad hoc, or bypass hooks with `--no-verify`. Report missing build outputs as a setup/config failure and handle policy changes separately.

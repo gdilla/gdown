@@ -136,7 +136,8 @@
         <p v-if="exportStore.pdfViaPrint" class="help-text">
           No LaTeX engine (xelatex) was found, so PDF is made through the print dialog: choose "Save
           as PDF" there. The output path and table of contents below are not used. To export through
-          Pandoc instead, name an engine in the advanced flags (<code>--pdf-engine=…</code>).
+          Pandoc instead, name an engine or a defaults file in the advanced flags
+          (<code>--pdf-engine=…</code>, <code>--defaults=…</code>).
         </p>
 
         <!-- Output Path -->

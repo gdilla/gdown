@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import { useTabsStore } from '../../stores/tabs'
 import { useWordCountStore } from '../../stores/wordCount'
+import { MAX_RICH_CHARS } from '../../utils/documentLimits'
 
 describe('useWordCountStore', () => {
   beforeEach(() => {
@@ -60,6 +61,22 @@ describe('useWordCountStore', () => {
       lines: 6,
       paragraphs: 2,
     })
+  })
+
+  // A document pasted into the rich editor keeps its rich classification until
+  // the tab is left; the quadratic markdown patterns must not run on it meanwhile.
+  it('counts a rich-capable tab that has outgrown the limit as plain text', () => {
+    const tabs = useTabsStore()
+    const tab = tabs.createTab('/tmp/note.md', '# a')
+    const repeats = MAX_RICH_CHARS / 4 + 1
+    tabs.saveEditorState(tab.id, { markdown: '# a\n'.repeat(repeats) })
+    expect(tab.sourceOnly).toBeNull()
+    const store = useWordCountStore()
+
+    store.updateStats()
+
+    // Plain counting keeps the '#' markers as words; markdown counting drops them.
+    expect(store.stats.words).toBe(repeats * 2)
   })
 
   // Save As can turn a markdown tab into a plain-text one (and back) without

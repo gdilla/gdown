@@ -24,6 +24,7 @@ import {
   defaultHighlightStyle,
   bracketMatching,
   indentOnInput,
+  language,
 } from '@codemirror/language'
 import { mathHighlightPlugin, extractMathExpressions } from '../../codemirror/math-language'
 import { renderMathToSvg } from '../../codemirror/mathjax-preview'
@@ -32,7 +33,7 @@ import {
   frontmatterHighlightTheme,
 } from '../../codemirror/frontmatter-highlight'
 import { assembleFrontMatter, splitDocument } from '../../utils/frontmatter'
-import { tabSourceOnlyReason } from '../../utils/documentLimits'
+import { MAX_RICH_CHARS, tabSourceOnlyReason } from '../../utils/documentLimits'
 import { useTabsStore } from '../../stores/tabs'
 import { useEditorModeStore } from '../../stores/editorMode'
 import { useEditorSettingsStore } from '../../stores/editorSettings'
@@ -156,6 +157,15 @@ function buildExtensions(plainText: boolean): Extension[] {
     indentOnInput(),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     languageCompartment.of(languageExtensions(plainText)),
+    // A change that takes a markdown document past the rich limit (a large
+    // paste) turns the language off in that same transaction, so the parser
+    // and the highlighters never scan the new text. The update listener below
+    // then records the new classification on the tab.
+    EditorState.transactionExtender.of((tr) =>
+      tr.docChanged && tr.newDoc.length > MAX_RICH_CHARS && tr.startState.facet(language)
+        ? { effects: languageCompartment.reconfigure(languageExtensions(true)) }
+        : null,
+    ),
     search({ top: true }),
     keymap.of(sourceKeymap),
     EditorView.updateListener.of((update) => {

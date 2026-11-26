@@ -112,10 +112,13 @@ export function parsePandocArgs(value: string): string[] {
   return args
 }
 
-/** Whether Pandoc flags choose a PDF engine (`--pdf-engine x` or `--pdf-engine=x`). */
+/**
+ * Whether the Pandoc flags decide the PDF engine themselves: `--pdf-engine`, or
+ * a defaults file (`--defaults`, `-d`), which can name one (`pdf-engine: tectonic`).
+ */
 function namesPdfEngine(pandocArguments: string[]): boolean {
-  return pandocArguments.some(
-    (argument) => argument === '--pdf-engine' || argument.startsWith('--pdf-engine='),
+  return pandocArguments.some((argument) =>
+    /^(--pdf-engine|--defaults)(=|$)|^-d[^-]?/.test(argument),
   )
 }
 
@@ -164,7 +167,7 @@ export const useExportStore = defineStore('export', () => {
 
   /**
    * Whether Export will print instead of running Pandoc: PDF with no LaTeX
-   * engine found and none named in the flags. The dialog says so up front,
+   * engine found and none chosen by the flags. The dialog says so up front,
    * because the output path, table of contents and other flags do not apply.
    */
   const pdfViaPrint = computed(() => {
@@ -243,8 +246,9 @@ export const useExportStore = defineStore('export', () => {
     extraFlags.value = exportSettingsStore.settings.extraPandocArgs
     includeToc.value = exportSettingsStore.settings.addTableOfContents
 
-    // Check Pandoc if not already checked
-    if (!pandocChecked.value) {
+    // Check Pandoc if not already checked, and again while no LaTeX engine (or
+    // no Pandoc) has been found: either may have been installed since.
+    if (!pandocChecked.value || !pandocInfo.value?.pdf_engine) {
       await checkPandoc()
     }
 

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useTabsStore } from './tabs'
+import { MAX_RICH_CHARS } from '../utils/documentLimits'
 
 export interface WordCountStats {
   /** Total word count */
@@ -196,8 +197,9 @@ export const useWordCountStore = defineStore('wordCount', () => {
 
     // A source-only tab may be megabytes of text that is not markdown: the
     // markdown-stripping patterns in countWords are quadratic on some of it
-    // (33 s for a 440 KB CSV of `<LOD` values).
-    if (tab.sourceOnly) {
+    // (33 s for a 440 KB CSV of `<LOD` values). The length check covers a tab
+    // that has outgrown the limit in the rich editor and is not reclassified yet.
+    if (tab.sourceOnly || text.length > MAX_RICH_CHARS) {
       stats.value = plainStats(text)
       return
     }

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { MAX_OPEN_BYTES, MAX_RICH_CHARS, sourceOnlyReason } from '../../utils/documentLimits'
+import {
+  MAX_OPEN_BYTES,
+  MAX_RICH_CHARS,
+  sourceOnlyReason,
+  tabSourceOnlyReason,
+} from '../../utils/documentLimits'
+import { assembleFrontMatter } from '../../utils/frontmatter'
 
 describe('sourceOnlyReason', () => {
   it.each([
@@ -63,5 +69,33 @@ describe('sourceOnlyReason', () => {
     for (const extension of extensions) {
       expect(sourceOnlyReason(`/notes/a.${extension}`, 10), extension).toBeNull()
     }
+  })
+})
+
+describe('tabSourceOnlyReason', () => {
+  const tab = (markdown: string, frontmatter: string | null) => ({
+    filePath: '/notes/a.md',
+    editorState: { markdown, frontmatter },
+  })
+
+  // The same boundary as opening the file: the rich editor is handed the
+  // assembled document, delimiters included.
+  it('measures the document as it is assembled, front-matter delimiters included', () => {
+    const frontmatter = 'title: A'
+    const delimiters = assembleFrontMatter(frontmatter, '').length - frontmatter.length
+    expect(delimiters).toBeGreaterThan(0)
+
+    const atLimit = 'a'.repeat(MAX_RICH_CHARS - frontmatter.length - delimiters)
+    expect(tabSourceOnlyReason(tab(atLimit, frontmatter))).toBeNull()
+    expect(tabSourceOnlyReason(tab(atLimit + 'a', frontmatter))).toBe('too-large')
+    // Payloads that total exactly the limit are over it once assembled.
+    expect(
+      tabSourceOnlyReason(tab('a'.repeat(MAX_RICH_CHARS - frontmatter.length), frontmatter)),
+    ).toBe('too-large')
+  })
+
+  it('measures a document without front matter by its text alone', () => {
+    expect(tabSourceOnlyReason(tab('a'.repeat(MAX_RICH_CHARS), null))).toBeNull()
+    expect(tabSourceOnlyReason(tab('a'.repeat(MAX_RICH_CHARS + 1), null))).toBe('too-large')
   })
 })

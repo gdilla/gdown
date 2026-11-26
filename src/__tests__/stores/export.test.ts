@@ -244,23 +244,28 @@ describe('useExportStore configuration', () => {
       expect(exportedConfig()?.pdf_engine).toBe('xelatex')
     })
 
-    it.each(['--pdf-engine=weasyprint', '--pdf-engine weasyprint'])(
-      'leaves an engine chosen in the Pandoc flags (%s) to Pandoc',
-      async (flags) => {
-        const store = setUpPdfExport(null)
-        store.extraFlags = flags
-        const onPrint = vi.fn(acceptPrint)
-        window.addEventListener('gdown:print', onPrint)
-        try {
-          await expect(store.performExport()).resolves.toBe(true)
-        } finally {
-          window.removeEventListener('gdown:print', onPrint)
-        }
+    // A defaults file can name the engine too (`pdf-engine: tectonic`).
+    it.each([
+      '--pdf-engine=weasyprint',
+      '--pdf-engine weasyprint',
+      '--defaults=report.yaml',
+      '--defaults report.yaml',
+      '-d report.yaml',
+      '-dreport.yaml',
+    ])('leaves an engine chosen in the Pandoc flags (%s) to Pandoc', async (flags) => {
+      const store = setUpPdfExport(null)
+      store.extraFlags = flags
+      const onPrint = vi.fn(acceptPrint)
+      window.addEventListener('gdown:print', onPrint)
+      try {
+        await expect(store.performExport()).resolves.toBe(true)
+      } finally {
+        window.removeEventListener('gdown:print', onPrint)
+      }
 
-        expect(onPrint).not.toHaveBeenCalled()
-        expect(exportedConfig()?.pdf_engine).toBe('xelatex')
-      },
-    )
+      expect(onPrint).not.toHaveBeenCalled()
+      expect(exportedConfig()?.pdf_engine).toBe('xelatex')
+    })
 
     it('reports an error when nothing takes the print request', async () => {
       const store = setUpPdfExport(null)
@@ -326,6 +331,9 @@ describe('useExportStore configuration', () => {
       ['PDF with engine options only', null, 'pdf', '--pdf-engine-opt=-shell-escape', true],
       ['PDF with xelatex found', 'xelatex', 'pdf', '', false],
       ['PDF with an engine named in the flags', null, 'pdf', '--pdf-engine=weasyprint', false],
+      ['PDF with a defaults file', null, 'pdf', '--defaults=report.yaml', false],
+      ['PDF with a defaults file (short flag)', null, 'pdf', '-d report.yaml', false],
+      ['PDF with a flag that only starts with -d', null, 'pdf', '--dpi=300', true],
       ['another format', null, 'html', '', false],
       ['flags that do not parse', null, 'pdf', '--metadata "unterminated', false],
     ])('pdfViaPrint: %s', (_, engine, format, flags, expected) => {
@@ -334,6 +342,31 @@ describe('useExportStore configuration', () => {
       store.extraFlags = flags
 
       expect(store.pdfViaPrint).toBe(expected)
+    })
+
+    // xelatex (or Pandoc itself) may have been installed since the dialog was last open.
+    it.each<[string, string | null, number]>([
+      ['no LaTeX engine was found last time', null, 1],
+      ['an engine is already known', 'xelatex', 0],
+    ])('reopening the dialog re-checks Pandoc when %s', async (_, engine, checks) => {
+      const store = setUpPdfExport(engine)
+      store.pandocChecked = true
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'check_pandoc') {
+          return { path: '/usr/bin/pandoc', version: '3.7', pdf_engine: 'xelatex' } as never
+        }
+        return null as never
+      })
+
+      mockedInvoke.mockClear()
+
+      await store.openDialog()
+
+      expect(
+        mockedInvoke.mock.calls.filter(([command]) => command === 'check_pandoc'),
+      ).toHaveLength(checks)
+      expect(store.pandocInfo?.pdf_engine).toBe('xelatex')
+      expect(store.pdfViaPrint).toBe(false)
     })
 
     it('does not use the print sheet for other formats', async () => {

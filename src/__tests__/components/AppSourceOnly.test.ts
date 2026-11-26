@@ -365,6 +365,9 @@ describe('App with source-only tabs', () => {
     // change spanning tens of thousands of lines takes minutes on a busy machine.
     const pasted = 'a'.repeat(MAX_RICH_CHARS + 1)
     view.dispatch({ changes: { from: view.state.doc.length, insert: '\n' + pasted } })
+    // Already off in the state the paste produced: the parser and the
+    // highlighters never get to scan the pasted text.
+    expect(sourceLanguage(wrapper)).toBeNull()
     await flushPromises()
 
     expect(note.sourceOnly).toBe('too-large')

@@ -18,6 +18,8 @@
  * opens with an unclosed link-reference title).
  */
 
+import { assembleFrontMatter } from './frontmatter'
+
 /** Why a tab can only be shown in the source editor. */
 export type SourceOnlyReason = 'plain-text' | 'too-large'
 
@@ -52,13 +54,16 @@ export function sourceOnlyReason(
   return contentLength > MAX_RICH_CHARS ? 'too-large' : null
 }
 
-/** The same decision for an existing tab. Front matter counts: the rich editor loads and converts it too. */
+/**
+ * The same decision for an existing tab, measured as the document the editors
+ * are handed: front matter and its delimiters count, as they do when a file is opened.
+ */
 export function tabSourceOnlyReason(tab: {
   filePath: string | null
   editorState: { markdown: string; frontmatter: string | null }
 }): SourceOnlyReason | null {
   const { markdown, frontmatter } = tab.editorState
-  return sourceOnlyReason(tab.filePath, markdown.length + (frontmatter?.length ?? 0))
+  return sourceOnlyReason(tab.filePath, assembleFrontMatter(frontmatter, markdown).length)
 }
 
 /** What to tell the user when rich mode is asked for on a source-only tab. */
