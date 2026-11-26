@@ -33,7 +33,7 @@ import {
   frontmatterHighlightTheme,
 } from '../../codemirror/frontmatter-highlight'
 import { assembleFrontMatter, splitDocument } from '../../utils/frontmatter'
-import { MAX_RICH_CHARS, tabSourceOnlyReason } from '../../utils/documentLimits'
+import { MAX_RICH_CHARS } from '../../utils/documentLimits'
 import { useTabsStore } from '../../stores/tabs'
 import { useEditorModeStore } from '../../stores/editorMode'
 import { useEditorSettingsStore } from '../../stores/editorSettings'
@@ -178,13 +178,20 @@ function buildExtensions(plainText: boolean): Extension[] {
         if (tabId) {
           const content = editorText(update.state)
           tabsStore.setModified(tabId, true)
-          // Body and front-matter are stored separately; source mode works with raw markdown.
-          tabsStore.saveEditorState(tabId, { ...splitTabContent(tabId, content), doc: null })
           // An edit (a large paste, say) can take a markdown tab past the rich
-          // limit. Only that direction is decided here: letting a trimmed tab
-          // back into rich mode would swap editors under the cursor.
+          // limit. It is measured as the text in the editor, like the
+          // transaction extender above, and stored whole from this edit on:
+          // split parts do not always re-assemble to the same text. Only growth
+          // is decided here; letting a trimmed tab back into rich mode would
+          // swap editors under the cursor.
           const tab = renderedTab()
-          if (tab && !tab.sourceOnly && tabSourceOnlyReason(tab)) tabsStore.reclassify(tabId)
+          const outgrown = tab && !tab.sourceOnly && content.length > MAX_RICH_CHARS
+          // Body and front-matter are stored separately; source mode works with raw markdown.
+          tabsStore.saveEditorState(tabId, {
+            ...(outgrown ? splitDocument(content, true) : splitTabContent(tabId, content)),
+            doc: null,
+          })
+          if (outgrown) tabsStore.reclassify(tabId)
           // Update math preview if visible
           if (mathPreviewVisible.value) {
             updateMathPreview(content)

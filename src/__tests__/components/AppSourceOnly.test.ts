@@ -383,6 +383,27 @@ describe('App with source-only tabs', () => {
     expect(note.sourceOnly).toBeNull()
   })
 
+  // Splitting front matter off and putting it back is not exact (spaces after
+  // the closing --- are dropped), so the edit that crosses the limit is
+  // measured and stored as the text in the editor, not as its split parts.
+  it('classifies and stores a size-crossing paste as the exact text pasted', async () => {
+    const tabs = useTabsStore()
+    const note = tabs.createTab('/tmp/note.md', '')
+    useEditorSettingsStore().defaultMode = 'source'
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    await sourceShown(wrapper)
+
+    const view = EditorView.findFromDOM(wrapper.find('.cm-editor').element as HTMLElement)!
+    const pasted = '---\ntitle: x\n---' + ' '.repeat(MAX_RICH_CHARS + 1) + '\nbody'
+    view.dispatch({ changes: { from: 0, insert: pasted } })
+
+    expect(sourceLanguage(wrapper)).toBeNull()
+    expect(note.sourceOnly).toBe('too-large')
+    expect(note.editorState.frontmatter).toBeNull()
+    expect(useAutoSaveStore().serializeTabToFile(note)).toBe(pasted)
+  })
+
   // CodeMirror reads CRLF as a line break and writes LF. A source-only tab is
   // saved byte for byte, so a Windows CSV must keep its line endings.
   it('keeps a CRLF file’s line endings through edits, capture and save', async () => {

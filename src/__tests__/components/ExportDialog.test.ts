@@ -89,6 +89,9 @@ describe('ExportDialog PDF without a LaTeX engine', () => {
     await open(null)
 
     expect(dialog()!.textContent).toContain('No LaTeX engine (xelatex) was found')
+    // Nothing Pandoc does applies to a print, configured filters and templates included.
+    expect(dialog()!.textContent).toMatch(/Pandoc\s+does\s+not\s+run/)
+    expect(dialog()!.textContent).toMatch(/filters/)
     expect(button('Print…')).toBeDefined()
     expect(button('Export')).toBeUndefined()
     expect(button('Browse...')!.disabled).toBe(true)

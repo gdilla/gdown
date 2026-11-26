@@ -162,7 +162,8 @@ behind them):
   (`setFilePath`); a tab becoming active (a sync watcher on `activeTabId` in `tabs.ts`, so every way of
   activating a tab is covered); a mode request in either direction (`setMode`, after the outgoing
   editor's flush); and, growth only, each source-editor edit (the language is switched off inside the
-  crossing transaction itself, by a `transactionExtender`, so a large paste is never parsed). SourceEditor and `wordCount` watch the active tab's flag, because it can change without a tab
+  crossing transaction itself, by a `transactionExtender`, so a large paste is never parsed; both measure
+  the editor's text, and the tab is stored whole from that edit on). SourceEditor and `wordCount` watch the active tab's flag, because it can change without a tab
   switch (SourceEditor swaps its language through `languageCompartment`, keeping cursor and undo).
 - A source-only tab is saved byte for byte: SourceEditor restores CRLF line endings on every read of
   its text (`editorText`), since CodeMirror reads CRLF and writes LF.
@@ -270,7 +271,8 @@ Exported HTML copies only `.gdown-editor` rules, so content tokens also get ligh
   work that scans the whole document without checking it against the limits in `documentLimits.ts`.
 - **Printing:** on macOS `window.print()` is a Tauri IPC call that needs `core:webview:allow-print` and
   rejects without it. Print through `publishDocument.printDocument()`, which renders the document into
-  `#print-root` (shown only by the `@media print` rules in `style.css`; `@page` supplies the margins,
+  `#print-root` (shown only by the `@media print` rules in `style.css`, all scoped to `body > #print-root`
+  so an element with that id inside a document is unaffected; `@page` supplies the margins,
   because the native print operation sets none). Images in that hidden root must be `loading="eager"`
   (the editor serialises them lazy, which never loads there), and do not `await img.decode()` on an
   image that is not displayed — WebKit never settles it. `collectThemeCss()` skips rules that mention

@@ -51,6 +51,25 @@ describe('publishDocument', () => {
       expect(css.length).toBeGreaterThan(0)
     })
 
+    // A document can contain an element with this id (a diagram label, say);
+    // only the container printDocument() adds to <body> may be hidden or shown.
+    it('scopes every print-root rule to the direct child of body', () => {
+      const fs = (
+        globalThis as unknown as {
+          process: {
+            getBuiltinModule(id: 'node:fs'): { readFileSync(p: string, e: 'utf8'): string }
+          }
+        }
+      ).process.getBuiltinModule('node:fs')
+      const css = fs.readFileSync('src/style.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+      const uses = css.match(/[^\n]*#print-root[^\n]*/g) ?? []
+
+      expect(uses.length).toBeGreaterThan(0)
+      for (const line of uses) {
+        expect(line).toMatch(/body > #print-root|body > :not\(#print-root\)/)
+      }
+    })
+
     // The collector copies any rule that mentions an editor class, and the app's
     // `@media print` block does. In an exported file there is no #print-root, so
     // its "hide everything else" rule would print a blank page.

@@ -190,7 +190,17 @@ export const useExportStore = defineStore('export', () => {
   /**
    * Check if Pandoc is installed and get its version info.
    */
-  async function checkPandoc(): Promise<boolean> {
+  /** The check in flight, if any: concurrent callers share it, and an export waits for it. */
+  let pandocCheck: Promise<boolean> | null = null
+
+  function checkPandoc(): Promise<boolean> {
+    pandocCheck ??= runPandocCheck().finally(() => {
+      pandocCheck = null
+    })
+    return pandocCheck
+  }
+
+  async function runPandocCheck(): Promise<boolean> {
     status.value = 'checking'
     pandocError.value = null
 
@@ -328,6 +338,9 @@ export const useExportStore = defineStore('export', () => {
     if (exportInFlight.value) return false
     exportInFlight.value = true
     try {
+      // A re-check started when the dialog opened decides whether PDF goes to
+      // Pandoc or to Print, and resets the status when it lands.
+      await pandocCheck
       return await runExport()
     } finally {
       exportInFlight.value = false

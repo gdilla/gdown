@@ -369,6 +369,39 @@ describe('useExportStore configuration', () => {
       expect(store.pdfViaPrint).toBe(false)
     })
 
+    it('waits for a pending engine re-check before choosing between Pandoc and Print', async () => {
+      const store = setUpPdfExport(null)
+      store.pandocChecked = true
+      let found!: (info: unknown) => void
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'check_pandoc') return new Promise((resolve) => (found = resolve)) as never
+        if (command === 'export_document') {
+          return { success: true, output_path: '/tmp/notes.pdf', message: 'Exported' } as never
+        }
+        return null as never
+      })
+      const onPrint = vi.fn(acceptPrint)
+      window.addEventListener('gdown:print', onPrint)
+      try {
+        // Reopened after xelatex was installed; Export is clicked before the re-check returns.
+        const opening = store.openDialog()
+        await vi.waitFor(() => expect(found).toBeDefined())
+        store.selectedFormatId = 'pdf'
+        store.customOutputPath = '/tmp/notes.pdf'
+        const exporting = store.performExport()
+        found({ path: '/usr/bin/pandoc', version: '3.7', pdf_engine: 'xelatex' })
+        await opening
+        store.selectedFormatId = 'pdf'
+        await expect(exporting).resolves.toBe(true)
+      } finally {
+        window.removeEventListener('gdown:print', onPrint)
+      }
+
+      expect(onPrint).not.toHaveBeenCalled()
+      expect(exportedConfig()?.pdf_engine).toBe('xelatex')
+      expect(store.status).toBe('success')
+    })
+
     it('does not use the print sheet for other formats', async () => {
       const store = setUpPdfExport(null)
       store.formats = [{ id: 'html', label: 'HTML', extension: 'html' }]
