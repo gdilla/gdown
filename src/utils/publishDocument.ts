@@ -7,6 +7,7 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import katex from 'katex'
+import { stripInteractiveElements } from './mermaidSvg'
 
 /** Escape a string for safe embedding in HTML attribute/content contexts. */
 function escapeHtml(str: string): string {
@@ -66,8 +67,11 @@ export async function buildRenderedBody(rawHtml: string): Promise<string> {
     }
   }
 
-  // Render mermaid diagrams (lazy-loaded)
-  const mermaidBlocks = doc.querySelectorAll('pre.mermaid, [data-type="mermaid"]')
+  // Render mermaid diagrams (lazy-loaded). `pre.mermaid-block` is what the
+  // editor serialises a diagram as (MermaidBlock.renderHTML).
+  const mermaidBlocks = doc.querySelectorAll(
+    'pre.mermaid-block, pre.mermaid, [data-type="mermaid"]',
+  )
   if (mermaidBlocks.length > 0) {
     try {
       const { default: mermaid } = await import('mermaid')
@@ -81,14 +85,20 @@ export async function buildRenderedBody(rawHtml: string): Promise<string> {
       for (const el of mermaidBlocks) {
         const code = el.textContent || ''
         if (code.trim()) {
+          counter++
+          const id = `publish-mermaid-${Date.now()}-${counter}`
           try {
-            counter++
-            const id = `publish-mermaid-${Date.now()}-${counter}`
             const { svg } = await mermaid.render(id, code.trim())
-            el.innerHTML = svg
-            el.classList.add('mermaid-rendered')
+            // A plain block in place of the <pre>, so the diagram does not get
+            // code-block styling.
+            const diagram = doc.createElement('div')
+            diagram.className = 'mermaid-rendered'
+            diagram.innerHTML = stripInteractiveElements(svg)
+            el.replaceWith(diagram)
           } catch {
-            // Leave original code on error
+            // Leave the original code; on a syntax error Mermaid leaves its
+            // temporary container in <body>.
+            document.getElementById(`d${id}`)?.remove()
           }
         }
       }
@@ -133,6 +143,9 @@ export function collectThemeCss(): string {
       try {
         for (const rule of sheet.cssRules) {
           const ruleText = rule.cssText
+          // The app's own print rules hide everything but #print-root, which
+          // an exported document does not have.
+          if (ruleText.includes('#print-root')) continue
           if (
             ruleText.includes('.gdown-editor') ||
             ruleText.includes('.content') ||
@@ -253,10 +266,70 @@ export async function copyAsRichText(rawHtml: string, title: string): Promise<vo
   await navigator.clipboard.write([item])
 }
 
+/** What to print: schema-serialised editor HTML, or source text printed literally. */
+/** Rendered HTML, or literal source text with the tab width it is shown at. */
+export type PrintContent = { html: string } | { text: string; tabSize?: number }
+
+const PRINT_ROOT_ID = 'print-root'
+/** Longest the print waits for the document's images to load. */
+const IMAGE_WAIT_MS = 3000
+
+/** Held here, not looked up by id: document content can carry any id into the page. */
+let printRoot: HTMLElement | null = null
+
 /**
- * Trigger native macOS print sheet (user picks Save as PDF).
- * Tauri 2 on macOS maps window.print() to the native print dialog.
+ * Print the document through the native print sheet (user picks Save as PDF).
+ *
+ * The webview prints the whole page, so the document is rendered into a
+ * `#print-root` element that the print stylesheet (style.css) shows in place of
+ * the app. `html` must come from the editor (`editor.getHTML()`): it is inserted
+ * as markup. Source text is inserted as text, so raw HTML in it stays inert.
+ *
+ * On macOS Tauri replaces `window.print()` with an IPC call that needs the
+ * `core:webview:allow-print` capability and rejects without it.
  */
-export function triggerPrint(): void {
-  window.print()
+export async function printDocument(content: PrintContent): Promise<void> {
+  // Before macOS 11 the webview has no print operation, and the print command
+  // then does nothing without saying so. Anything but an explicit "no" prints.
+  if ((await invoke('print_supported')) === false) {
+    throw new Error('Printing needs macOS 11 or later.')
+  }
+  // ponytail: the hidden copy stays in the page until the next print — the native
+  // sheet reads it after window.print() returns and WebKit sends no afterprint.
+  if (!printRoot?.isConnected) {
+    printRoot = document.createElement('div')
+    printRoot.id = PRINT_ROOT_ID
+    printRoot.className = 'gdown-editor content'
+    document.body.appendChild(printRoot)
+  }
+  const root = printRoot
+
+  if ('html' in content) {
+    root.innerHTML = await buildRenderedBody(content.html)
+    // An image that has not loaded yet would be missing from the printout. The
+    // editor serialises images as loading="lazy", which never loads in this
+    // hidden root, so load them eagerly, then wait on load/error (WebKit never
+    // settles decode() for an image that is not displayed).
+    const imagesLoaded = Promise.all(
+      Array.from(root.querySelectorAll('img'), (img) => {
+        img.setAttribute('loading', 'eager')
+        return img.complete
+          ? null
+          : new Promise((resolve) => {
+              img.addEventListener('load', resolve, { once: true })
+              img.addEventListener('error', resolve, { once: true })
+            })
+      }),
+    )
+    // ponytail: capped wait — a print that never opens is worse than a missing image.
+    await Promise.race([imagesLoaded, new Promise((resolve) => setTimeout(resolve, IMAGE_WAIT_MS))])
+  } else {
+    const source = document.createElement('pre')
+    source.className = 'print-source'
+    source.textContent = content.text
+    if (content.tabSize) source.style.tabSize = String(content.tabSize)
+    root.replaceChildren(source)
+  }
+
+  await (window.print() as void | Promise<void>)
 }

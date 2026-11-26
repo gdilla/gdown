@@ -1,0 +1,186 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import App from '../../App.vue'
+import { useTabsStore } from '../../stores/tabs'
+import { useEditorSettingsStore } from '../../stores/editorSettings'
+import { usePreferencesStore } from '../../stores/preferences'
+import { useAutoSaveStore } from '../../stores/autoSave'
+import { printDocument, type PrintContent } from '../../utils/publishDocument'
+
+const { listeners } = vi.hoisted(() => ({ listeners: new Map<string, () => void>() }))
+
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async (name: string, handler: () => void) => {
+    listeners.set(name, handler)
+    return () => {}
+  }),
+  emit: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../utils/publishDocument', () => ({
+  printDocument: vi.fn().mockResolvedValue(undefined),
+}))
+
+// Real Editor and SourceEditor, as in AppModeSwitch.test.ts: what is printed
+// depends on which of the two is mounted.
+const stubs = {
+  TabBar: true,
+  Sidebar: true,
+  OutlinePanel: true,
+  StatusBar: true,
+  RecentFiles: true,
+  ConflictDialog: true,
+  SaveNotification: true,
+  PreferencesWindow: true,
+  ExportDialog: true,
+  ExportToast: true,
+  QuickOpenDialog: true,
+  ImageViewer: true,
+  EditorContent: { template: '<div />' },
+  LinkTooltip: true,
+  InsertLinkDialog: true,
+  FindReplace: true,
+}
+
+const mockedPrint = vi.mocked(printDocument)
+
+function printRequest() {
+  return new CustomEvent<{ started?: Promise<boolean> }>('gdown:print', { detail: {} })
+}
+
+async function printed(): Promise<PrintContent> {
+  await vi.waitFor(() => expect(mockedPrint).toHaveBeenCalledTimes(1))
+  return mockedPrint.mock.calls[0]![0]
+}
+
+describe('App print / export PDF', () => {
+  let wrapper: VueWrapper | undefined
+
+  beforeEach(() => {
+    localStorage.clear()
+    setActivePinia(createPinia())
+    listeners.clear()
+    mockedPrint.mockClear()
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = undefined
+  })
+
+  it('File > Print prints the rich editor’s rendered document', async () => {
+    useTabsStore().createTab(null, '# Title\n\nSome **bold** text')
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+
+    listeners.get('menu-print-pdf')!()
+
+    const content = await printed()
+    expect('html' in content && content.html).toContain('<strong>bold</strong>')
+  })
+
+  it('prints the source text, front matter included, when the source editor is active', async () => {
+    useEditorSettingsStore().defaultMode = 'source'
+    useEditorSettingsStore().indentSize = 2
+    const tab = useTabsStore().createTab(null, '# Title\n\n<img src=x onerror="alert(1)">')
+    tab.editorState.frontmatter = 'title: Notes'
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper!.find('.cm-content').exists()).toBe(true))
+
+    // The export dialog's PDF fallback (stores/export.ts) asks for a print this
+    // way, and is answered with how the print went.
+    const request = printRequest()
+    window.dispatchEvent(request)
+    await expect(request.detail.started).resolves.toBe(true)
+
+    // Exactly the text in the source editor, delimiter spacing included.
+    expect(wrapper.find('.cm-content').exists()).toBe(true)
+    expect(await printed()).toEqual({
+      text: '---\ntitle: Notes\n---\n# Title\n\n<img src=x onerror="alert(1)">',
+      // The editor's tab width, so tab-aligned text keeps its columns on paper.
+      tabSize: 2,
+    })
+  })
+
+  it('does not print while a modal blocks app actions', async () => {
+    useTabsStore().createTab(null, '# Title')
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    usePreferencesStore().open()
+
+    listeners.get('menu-print-pdf')!()
+    const request = printRequest()
+    window.dispatchEvent(request)
+    // The requester is told that no print started.
+    await expect(request.detail.started).resolves.toBe(false)
+
+    expect(mockedPrint).not.toHaveBeenCalled()
+  })
+
+  it('tells the requester when the print fails', async () => {
+    useTabsStore().createTab(null, '# Title')
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    mockedPrint.mockRejectedValueOnce('webview.print not allowed')
+
+    const request = printRequest()
+    window.dispatchEvent(request)
+
+    await expect(request.detail.started).resolves.toBe(false)
+  })
+
+  it('says that an image tab cannot be printed', async () => {
+    useTabsStore().openImageFile('/tmp/photo.png')
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+
+    listeners.get('menu-print-pdf')!()
+    const request = printRequest()
+    window.dispatchEvent(request)
+
+    await expect(request.detail.started).resolves.toBe(false)
+    expect(mockedPrint).not.toHaveBeenCalled()
+    expect(useAutoSaveStore().saveNotification).toEqual({
+      message: 'An image cannot be printed from Leaf.',
+      type: 'warning',
+    })
+  })
+
+  // Export as HTML and Copy as Rich Text take the rich editor's HTML. Without
+  // it they did nothing at all, and a source-only tab can never switch to it.
+  it.each([
+    ['menu-export-html', 'Export as HTML'],
+    ['menu-copy-rich-text', 'Copy as Rich Text'],
+  ])('%s says why it is unavailable on a source-only tab', async (menuEvent, command) => {
+    useTabsStore().createTab('/tmp/data.csv', 'a,b\n1,2\n')
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper!.find('.cm-content').exists()).toBe(true))
+
+    listeners.get(menuEvent)!()
+
+    expect(useAutoSaveStore().saveNotification).toEqual({
+      message:
+        `${command} needs the rich editor. data.csv is a plain-text file, so it stays in source mode.` +
+        (command === 'Export as HTML' ? ' File > Export… can make HTML from it.' : ''),
+      type: 'warning',
+    })
+  })
+
+  it('tells an ordinary source-mode tab to switch to the rich editor first', async () => {
+    useEditorSettingsStore().defaultMode = 'source'
+    useTabsStore().createTab('/tmp/note.md', '# Title')
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper!.find('.cm-content').exists()).toBe(true))
+
+    listeners.get('menu-copy-rich-text')!()
+
+    expect(useAutoSaveStore().saveNotification).toEqual({
+      message: 'Copy as Rich Text needs the rich editor. Switch to it with Cmd+/ first.',
+      type: 'warning',
+    })
+  })
+})

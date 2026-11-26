@@ -90,6 +90,7 @@ import { useSidebarStore } from './stores/sidebar'
 import { useRecentFilesStore } from './stores/recentFiles'
 import { useEditorModeStore } from './stores/editorMode'
 import { useAutoSaveStore } from './stores/autoSave'
+import { sourceOnlyNotice } from './utils/documentLimits'
 import { useOutlineStore, type OutlineHeading } from './stores/outline'
 import { useSessionStore } from './stores/session'
 import { useFocusModeStore } from './stores/focusMode'
@@ -122,6 +123,7 @@ const editorRef = ref<InstanceType<typeof Editor> | null>(null)
 const sourceEditorRef = ref<{
   openFind: () => void
   navigateToHeading: (pos: number) => void
+  getPrintContent: () => { text: string; tabSize: number } | null
 } | null>(null)
 
 interface ClosePrompt {
@@ -178,6 +180,49 @@ function handleClosePromptKeydown(event: KeyboardEvent): void {
 
 function appActionsBlocked(): boolean {
   return closePrompt.value !== null || exitInProgress || preferencesStore.visible
+}
+
+/**
+ * Print the active document: rendered from the rich editor, or the source text
+ * as shown when the source editor is active (its markdown is not rendered).
+ * Resolves to whether the document was handed to the print sheet.
+ */
+function printActiveDocument(): Promise<boolean> {
+  const tab = tabsStore.activeTab
+  if (appActionsBlocked() || !tab) return Promise.resolve(false)
+  if (tab.isImage) {
+    autoSaveStore.showNotification('An image cannot be printed from Leaf.', 'warning')
+    return Promise.resolve(false)
+  }
+  const editor = editorRef.value?.getEditor()
+  if (editor) return publishStore.printToPdf({ html: editor.getHTML() })
+  // The source editor's own text, so the printout matches the screen exactly.
+  const source = sourceEditorRef.value?.getPrintContent()
+  return source ? publishStore.printToPdf(source) : Promise.resolve(false)
+}
+
+/**
+ * The rich editor, for a command that publishes its rendered HTML. In source
+ * mode there is none: say why, since a source-only tab cannot switch to it.
+ */
+function richEditorFor(command: string, sourceOnlyAlternative = '') {
+  const editor = editorRef.value?.getEditor()
+  const tab = tabsStore.activeTab
+  if (!editor && tab && !tab.isImage) {
+    autoSaveStore.showNotification(
+      `${command} needs the rich editor. ` +
+        (tab.sourceOnly
+          ? sourceOnlyNotice(tab.title, tab.sourceOnly) + sourceOnlyAlternative
+          : 'Switch to it with Cmd+/ first.'),
+      'warning',
+    )
+  }
+  return editor ?? null
+}
+
+/** Export dialog > PDF without a LaTeX engine (stores/export.ts) is answered with how the print went. */
+function handlePrintRequest(event: Event): void {
+  ;(event as CustomEvent<{ started?: Promise<boolean> }>).detail.started = printActiveDocument()
 }
 
 // Files opened from Finder while a modal blocks app actions wait here
@@ -455,6 +500,7 @@ onMounted(async () => {
   window.addEventListener('keydown', handleKeydown)
   // Register beforeunload handler to save session on app close
   window.addEventListener('beforeunload', handleBeforeUnload)
+  window.addEventListener('gdown:print', handlePrintRequest)
 
   // Listen for menu events from Tauri backend
   try {
@@ -563,7 +609,7 @@ onMounted(async () => {
     // File > Export as HTML (Cmd+Shift+H)
     unlistenExportHtml = await listen('menu-export-html', () => {
       if (appActionsBlocked()) return
-      const editor = editorRef.value?.getEditor()
+      const editor = richEditorFor('Export as HTML', ' File > Export… can make HTML from it.')
       if (!editor) return
       const tab = tabsStore.activeTab
       const title = tab?.title?.replace(/\.[^.]+$/, '') ?? 'Untitled'
@@ -574,7 +620,7 @@ onMounted(async () => {
     // Edit > Copy as Rich Text (Cmd+Shift+C)
     unlistenCopyRichText = await listen('menu-copy-rich-text', () => {
       if (appActionsBlocked()) return
-      const editor = editorRef.value?.getEditor()
+      const editor = richEditorFor('Copy as Rich Text')
       if (!editor) return
       const tab = tabsStore.activeTab
       const title = tab?.title?.replace(/\.[^.]+$/, '') ?? 'Untitled'
@@ -583,8 +629,7 @@ onMounted(async () => {
 
     // File > Print / Export PDF (Cmd+P)
     unlistenPrintPdf = await listen('menu-print-pdf', () => {
-      if (appActionsBlocked()) return
-      publishStore.printToPdf()
+      void printActiveDocument()
     })
 
     // Clear recent files
@@ -676,6 +721,7 @@ onUnmounted(() => {
   if (!exitApproved) window.dispatchEvent(new Event('gdown:capture-state'))
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  window.removeEventListener('gdown:print', handlePrintRequest)
   tabsStore.setCloseDecisionHandler(null)
   autoSaveStore.cleanup()
   if (!exitApproved) void sessionStore.teardown()

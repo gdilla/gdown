@@ -10,11 +10,14 @@ use std::time::SystemTime;
 ///
 /// # Arguments
 /// * `path` - The absolute path of the file to read.
+/// * `max_bytes` - A larger file is refused before it is read, with a message
+///   meant for the user. The frontend passes the editor's open-size limit, both
+///   when opening a document and when re-reading one that changed on disk.
 ///
 /// # Returns
 /// The file contents as a String.
 #[tauri::command]
-pub fn read_file(path: String) -> Result<String, String> {
+pub fn read_file(path: String, max_bytes: u64) -> Result<String, String> {
     let file_path = Path::new(&path);
 
     if !file_path.exists() {
@@ -25,7 +28,46 @@ pub fn read_file(path: String) -> Result<String, String> {
         return Err(format!("Path '{}' is not a file", path));
     }
 
-    fs::read_to_string(file_path).map_err(|e| format!("Failed to read file '{}': {}", path, e))
+    let size = fs::metadata(file_path)
+        .map_err(|e| format!("Failed to read file '{}': {}", path, e))?
+        .len();
+    let megabytes = |bytes: u64| format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0));
+    if size > max_bytes {
+        return Err(format!(
+            "'{}' is too large to open ({}; Leaf opens text files up to {}).",
+            file_path.file_name().unwrap_or_default().to_string_lossy(),
+            megabytes(size),
+            megabytes(max_bytes)
+        ));
+    }
+
+    // Bound the read as well: the file can grow between the check and here.
+    let bytes = read_at_most(file_path, max_bytes)
+        .map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(format!(
+            "'{}' is too large to open (Leaf opens text files up to {}).",
+            file_path.file_name().unwrap_or_default().to_string_lossy(),
+            megabytes(max_bytes)
+        ));
+    }
+    String::from_utf8(bytes).map_err(|_| {
+        format!(
+            "Failed to read file '{}': stream did not contain valid UTF-8",
+            path
+        )
+    })
+}
+
+/// Reads at most `max_bytes + 1` bytes, so the caller can tell "over the limit"
+/// from "exactly at it" without ever holding more than that.
+fn read_at_most(path: &Path, max_bytes: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    Ok(bytes)
 }
 
 /// Tauri command: Writes content to a file at the given path.
@@ -588,6 +630,31 @@ mod tests {
 
     fn s(path: &Path) -> String {
         path.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn test_read_file_refuses_a_file_over_the_limit_without_reading_it() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("data.csv");
+        fs::write(&file, "0123456789").unwrap();
+
+        // At the limit the file is read.
+        assert_eq!(read_file(s(&file), 10).unwrap(), "0123456789");
+        assert!(read_file(s(&file), 9).is_err());
+
+        // The read itself is bounded too, for a file that grows after the check.
+        assert_eq!(read_at_most(&file, 4).unwrap().len(), 5);
+
+        // Over it, the user-facing message names the file and both sizes.
+        let big = dir.path().join("big.csv");
+        fs::File::create(&big)
+            .unwrap()
+            .set_len(22 * 1024 * 1024 + 700 * 1024)
+            .unwrap();
+        assert_eq!(
+            read_file(s(&big), 4 * 1024 * 1024).unwrap_err(),
+            "'big.csv' is too large to open (22.7 MB; Leaf opens text files up to 4.0 MB)."
+        );
     }
 
     fn dir_names(dir: &Path) -> Vec<String> {

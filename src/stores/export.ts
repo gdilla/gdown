@@ -19,6 +19,8 @@ export interface ExportFormatInfo {
 export interface PandocInfo {
   path: string
   version: string
+  /** The LaTeX engine PDF export uses, when it is installed; null when it is not. */
+  pdf_engine: string | null
 }
 
 /** Result of an export operation */
@@ -153,15 +155,52 @@ export const useExportStore = defineStore('export', () => {
   const exportInFlight = ref(false)
   const isExporting = computed(() => exportInFlight.value)
 
+  /** PDF is selected and Pandoc has no LaTeX engine (xelatex) to make it with. */
+  const pdfEngineMissing = computed(
+    () =>
+      selectedFormatId.value === 'pdf' && pandocInfo.value !== null && !pandocInfo.value.pdf_engine,
+  )
+
+  /**
+   * Whether Export will print instead of running Pandoc: PDF with no LaTeX
+   * engine and no Pandoc flags. Any flags mean "run Pandoc as configured";
+   * Leaf does not guess which of them choose an engine. The dialog says which
+   * of the two will happen before the user configures anything.
+   */
+  const pdfViaPrint = computed(() => pdfEngineMissing.value && extraFlags.value.trim() === '')
+
   const canExport = computed(() => {
     const tabsStore = useTabsStore()
-    return isPandocAvailable.value && tabsStore.activeTab !== null && !isExporting.value
+    const tab = tabsStore.activeTab
+    return (
+      isPandocAvailable.value &&
+      tab !== null &&
+      !tab.isImage &&
+      !isExporting.value &&
+      !checkingPandoc.value
+    )
   })
 
   /**
    * Check if Pandoc is installed and get its version info.
    */
-  async function checkPandoc(): Promise<boolean> {
+  /** The check in flight, if any: concurrent callers share it. */
+  let pandocCheck: Promise<boolean> | null = null
+  // While a check is pending nothing can be exported: its result decides
+  // whether PDF goes to Pandoc or to Print, and the dialog still shows the
+  // action the previous result implied.
+  const checkingPandoc = ref(false)
+
+  function checkPandoc(): Promise<boolean> {
+    checkingPandoc.value = true
+    pandocCheck ??= runPandocCheck().finally(() => {
+      pandocCheck = null
+      checkingPandoc.value = false
+    })
+    return pandocCheck
+  }
+
+  async function runPandocCheck(): Promise<boolean> {
     status.value = 'checking'
     pandocError.value = null
 
@@ -217,10 +256,11 @@ export const useExportStore = defineStore('export', () => {
     extraFlags.value = exportSettingsStore.settings.extraPandocArgs
     includeToc.value = exportSettingsStore.settings.addTableOfContents
 
-    // Check Pandoc if not already checked
-    if (!pandocChecked.value) {
-      await checkPandoc()
-    }
+    // Check Pandoc on every opening: it, or the LaTeX engine, may have been
+    // installed or removed since, and the result decides what Export does.
+    // Not while an export is running (Cmd+Shift+E reopens the dialog then):
+    // the check ends by resetting the status the export is about to report in.
+    if (!exportInFlight.value) await checkPandoc()
 
     // Load formats if not already loaded
     if (formats.value.length === 0) {
@@ -295,7 +335,7 @@ export const useExportStore = defineStore('export', () => {
    * Execute the export operation.
    */
   async function performExport(): Promise<boolean> {
-    if (exportInFlight.value) return false
+    if (exportInFlight.value || checkingPandoc.value) return false
     exportInFlight.value = true
     try {
       return await runExport()
@@ -315,10 +355,37 @@ export const useExportStore = defineStore('export', () => {
       return false
     }
 
+    if (activeTab.isImage) {
+      status.value = 'error'
+      statusMessage.value = 'An image cannot be exported.'
+      return false
+    }
+
     if (!isPandocAvailable.value) {
       status.value = 'error'
       statusMessage.value = 'Pandoc is not installed.'
       return false
+    }
+
+    // Pandoc needs a LaTeX engine for PDF. Without one (and with no Pandoc
+    // flags set) the webview prints the document instead; App.vue owns the
+    // editor. This is the test the dialog showed "Print…" for, and it comes
+    // before the Pandoc-only checks: a print shows what the editor shows.
+    if (pdfViaPrint.value) {
+      // App.vue answers with how the print went: refused, busy with another
+      // print and failed all mean no print sheet opened for this export.
+      const request = new CustomEvent<{ started?: Promise<boolean> }>('gdown:print', { detail: {} })
+      window.dispatchEvent(request)
+      status.value = 'exporting'
+      statusMessage.value = 'Opening the print dialog...'
+      if (!(await request.detail.started)) {
+        status.value = 'error'
+        statusMessage.value = 'The print dialog could not be opened.'
+        return false
+      }
+      status.value = 'success'
+      statusMessage.value = 'No LaTeX engine found. Choose "Save as PDF" in the print dialog.'
+      return true
     }
 
     // Snapshot the document and options before any native dialog or backend
@@ -456,6 +523,8 @@ export const useExportStore = defineStore('export', () => {
     isPandocAvailable,
     isExporting,
     canExport,
+    pdfEngineMissing,
+    pdfViaPrint,
 
     // Actions
     checkPandoc,

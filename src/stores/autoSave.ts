@@ -3,8 +3,9 @@ import { computed, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { usePreferencesStore } from './preferences'
 import { useTabsStore } from './tabs'
-import { parseFrontMatter, assembleFrontMatter } from '../utils/frontmatter'
+import { assembleFrontMatter, splitDocument } from '../utils/frontmatter'
 import { flushLiveEditorState } from '../utils/flushEditorState'
+import { MAX_OPEN_BYTES, sourceOnlyReason } from '../utils/documentLimits'
 import type { Tab } from '../types/tab'
 
 export type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'error'
@@ -22,15 +23,6 @@ export interface ConflictInfo {
 /** The one full-file serialization contract used by every disk write. */
 export function serializeTabToFile(tab: Tab): string {
   return assembleFrontMatter(tab.editorState.frontmatter, tab.editorState.markdown ?? '')
-}
-
-function parseDiskContent(content: string) {
-  const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
-  return {
-    markdown: body,
-    frontmatter: hasFrontMatter ? rawYaml : null,
-    frontmatterAttributes: hasFrontMatter ? attributes : {},
-  }
 }
 
 export const useAutoSaveStore = defineStore('autoSave', () => {
@@ -138,6 +130,13 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
     }
   }
 
+  /**
+   * Files last written over the open limit: the warning is given once per
+   * crossing. Cleared when the file is written or re-read within the limit, and
+   * when its tab closes.
+   */
+  const writtenOverOpenLimit = new Set<string>()
+
   async function trackFileModifiedTime(filePath: string): Promise<void> {
     try {
       knownModifiedTimes.value[filePath] = await invoke<number>('get_file_modified_time', {
@@ -150,6 +149,8 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
 
   function untrackFile(filePath: string): void {
     delete knownModifiedTimes.value[filePath]
+    writtenOverOpenLimit.delete(filePath)
+    unreadableModifiedTimes.delete(filePath)
   }
 
   /** Mark a recovered dirty file for an explicit disk conflict decision. */
@@ -157,11 +158,21 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
     recoveryTabsNeedingConflict.add(tabId)
   }
 
+  function parseDiskContent(tabId: string, content: string) {
+    const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+    return splitDocument(content, Boolean(tab?.sourceOnly))
+  }
+
   function applyDiskContent(tabId: string, content: string): void {
     const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
     if (!tab) return
-    tabsStore.saveEditorState(tabId, { ...parseDiskContent(content), doc: null })
+    // Decide first, as opening does: the file may have grown past (or shrunk
+    // back under) the rich editor's limit, and a source-only tab is stored whole.
+    tab.sourceOnly = sourceOnlyReason(tab.filePath, content.length)
+    tabsStore.saveEditorState(tabId, { ...parseDiskContent(tabId, content), doc: null })
     tabsStore.setModified(tabId, false)
+    // What was read is within the open limit: a later save over it is a new crossing.
+    if (tab.filePath) writtenOverOpenLimit.delete(tab.filePath)
   }
 
   async function checkConflictBeforeSave(
@@ -180,17 +191,22 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         return 'overwrite'
       }
 
-      const diskContent = await invoke<string>('read_file', { path: filePath })
+      const diskContent = await invoke<string>('read_file', {
+        path: filePath,
+        maxBytes: MAX_OPEN_BYTES,
+      })
       conflictDialog.value = { tabId, filePath, diskContent, modifiedTime: currentModTime }
       return await new Promise<'overwrite' | 'cancel'>((resolve) => {
         conflictResolver = resolve
       })
-    } catch {
+    } catch (err) {
       // A recovered document has no trusted baseline. Refuse a blind write if
       // metadata or disk content cannot be read; the user can use Save As.
       if (needsRecoveryConflict || knownModTime !== undefined) {
+        // read_file's own message says why, e.g. the file outgrew the open limit.
+        const reason = typeof err === 'string' ? ` (${err})` : ''
         showNotification(
-          `Could not verify ${filePath}; use Save As to choose a destination.`,
+          `Could not verify ${filePath}${reason}; use Save As to choose a destination.`,
           'warning',
         )
         return 'cancel'
@@ -222,7 +238,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         new CustomEvent('gdown:file-reloaded', {
           detail: {
             tabId: conflict.tabId,
-            markdown: parseDiskContent(conflict.diskContent).markdown,
+            markdown: parseDiskContent(conflict.tabId, conflict.diskContent).markdown,
           },
         }),
       )
@@ -248,6 +264,21 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
       path: filePath,
       content,
     })
+
+    // The save is never refused, but `read_file` will not open this file again.
+    // UTF-8 is at most three bytes per UTF-16 unit, so most saves skip the count.
+    const bytes = content.length * 3 > MAX_OPEN_BYTES ? new TextEncoder().encode(content).length : 0
+    if (bytes <= MAX_OPEN_BYTES) {
+      writtenOverOpenLimit.delete(filePath)
+    } else if (!writtenOverOpenLimit.has(filePath)) {
+      writtenOverOpenLimit.add(filePath)
+      const megabytes = (size: number) => (size / (1024 * 1024)).toFixed(1)
+      const name = filePath.slice(filePath.lastIndexOf('/') + 1)
+      showNotification(
+        `${name} is now ${megabytes(bytes)} MB; Leaf cannot reopen files over ${megabytes(MAX_OPEN_BYTES)} MB.`,
+        'warning',
+      )
+    }
   }
 
   async function performSave(tabId: string): Promise<boolean> {
@@ -480,6 +511,9 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
     status.value = tab?.isModified ? 'unsaved' : 'saved'
   }
 
+  /** Disk revisions already reported as changed-but-unreadable, by file path. */
+  const unreadableModifiedTimes = new Map<string, number>()
+
   async function scanExternalChanges(): Promise<void> {
     for (const tab of [...tabsStore.tabs]) {
       if (!tab.filePath || tab.isUntitled) continue
@@ -498,7 +532,27 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         })
         if (currentModTime === knownModTime) continue
 
-        const diskContent = await invoke<string>('read_file', { path: filePath })
+        let diskContent: string
+        try {
+          diskContent = await invoke<string>('read_file', {
+            path: filePath,
+            maxBytes: MAX_OPEN_BYTES,
+          })
+        } catch (err) {
+          // The file changed and cannot be read (it may have outgrown the open
+          // limit), so the copy on screen is stale. Say so once per disk revision.
+          if (unreadableModifiedTimes.get(filePath) !== currentModTime) {
+            unreadableModifiedTimes.set(filePath, currentModTime)
+            const reason = typeof err === 'string' ? `: ${err}` : '.'
+            showNotification(
+              `${tab.title} changed on disk and could not be reloaded${reason}`,
+              'error',
+            )
+          }
+          continue
+        }
+        // Readable again: a later unreadable revision is a new failure to report.
+        unreadableModifiedTimes.delete(filePath)
         const currentTab = tabsStore.tabs.find((candidate) => candidate.id === tab.id)
         if (!currentTab || currentTab.filePath !== filePath || inFlightSaves.has(tab.id)) continue
 
@@ -524,7 +578,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         } else {
           applyDiskContent(currentTab.id, diskContent)
           knownModifiedTimes.value[filePath] = currentModTime
-          const markdown = parseDiskContent(diskContent).markdown
+          const markdown = parseDiskContent(currentTab.id, diskContent).markdown
           window.dispatchEvent(
             new CustomEvent('gdown:file-reloaded', {
               detail: { tabId: currentTab.id, markdown },
@@ -609,6 +663,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
     errorMessage,
     conflictDialog,
     saveNotification,
+    showNotification,
     knownModifiedTimes,
     statusText,
     statusIcon,

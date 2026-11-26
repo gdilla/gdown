@@ -5,6 +5,7 @@ import { useAutoSaveStore } from '../../stores/autoSave'
 import { usePreferencesStore } from '../../stores/preferences'
 import { useTabsStore } from '../../stores/tabs'
 import { assembleFrontMatter } from '../../utils/frontmatter'
+import { MAX_OPEN_BYTES, MAX_RICH_CHARS } from '../../utils/documentLimits'
 
 const mockedInvoke = vi.mocked(invoke)
 
@@ -339,6 +340,251 @@ describe('useAutoSaveStore', () => {
       await autoSaveStore.checkForExternalChanges()
       expect(tabsStore.tabs[0]?.editorState.markdown).toBe('# External')
       expect(autoSaveStore.knownModifiedTimes['/tmp/note.md']).toBe(160)
+    })
+
+    it('never re-reads an open file without the open-size limit', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const clean = tabsStore.createTab('/tmp/clean.md', '# Clean')
+      const dirty = tabsStore.createTab('/tmp/dirty.md', '# Dirty')
+      tabsStore.setModified(dirty.id, true)
+      autoSaveStore.knownModifiedTimes['/tmp/clean.md'] = 100
+      autoSaveStore.knownModifiedTimes['/tmp/dirty.md'] = 100
+      const reads: unknown[] = []
+      mockedInvoke.mockImplementation(async (command, args) => {
+        if (command === 'get_file_modified_time') return 200
+        if (command === 'read_file') {
+          reads.push(args)
+          // A file that outgrew the limit while open is refused, not loaded.
+          throw "'x' is too large to open (900.0 MB; Leaf opens text files up to 4.0 MB)."
+        }
+        return undefined
+      })
+
+      // External-change scan (clean tab) and the pre-save conflict check (dirty tab).
+      await autoSaveStore.checkForExternalChanges()
+      await expect(autoSaveStore.saveTab(dirty.id)).resolves.toBe(false)
+
+      expect(reads).toEqual([
+        { path: '/tmp/clean.md', maxBytes: MAX_OPEN_BYTES },
+        { path: '/tmp/dirty.md', maxBytes: MAX_OPEN_BYTES },
+        { path: '/tmp/dirty.md', maxBytes: MAX_OPEN_BYTES },
+      ])
+      expect(clean.editorState.markdown).toBe('# Clean')
+      expect(dirty.editorState.markdown).toBe('# Dirty')
+      // The blocked save names the real reason.
+      expect(autoSaveStore.saveNotification?.message).toBe(
+        "Could not verify /tmp/dirty.md ('x' is too large to open (900.0 MB; Leaf opens text files up to 4.0 MB).); use Save As to choose a destination.",
+      )
+    })
+
+    // Leaf refuses to open a file over the limit, so writing one must not look
+    // like an ordinary save. Bytes, not characters: these are three bytes each.
+    it('warns, once per crossing, when a save writes a file too large to reopen', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const overLimit = '日'.repeat(1.5 * 1024 * 1024)
+      expect(overLimit.length).toBeLessThan(MAX_OPEN_BYTES)
+      const tab = tabsStore.createTab('/tmp/big.csv', overLimit)
+      // The file's modified time always matches the last write: no conflict.
+      mockedInvoke.mockImplementation(async (command) =>
+        command === 'write_file' || command === 'get_file_modified_time' ? 100 : undefined,
+      )
+      const saveEdited = async (markdown: string) => {
+        tabsStore.saveEditorState(tab.id, { markdown })
+        tabsStore.setModified(tab.id, true)
+        autoSaveStore.saveNotification = null
+        await expect(autoSaveStore.saveTab(tab.id)).resolves.toBe(true)
+      }
+      const warning = {
+        message: 'big.csv is now 4.5 MB; Leaf cannot reopen files over 4.0 MB.',
+        type: 'warning',
+      }
+
+      await saveEdited(overLimit + ' ')
+      expect(mockedInvoke.mock.calls.some(([command]) => command === 'write_file')).toBe(true)
+      expect(autoSaveStore.saveNotification).toEqual(warning)
+
+      // Still over the limit: the next save does not repeat it.
+      await saveEdited(overLimit)
+      expect(autoSaveStore.saveNotification).toBeNull()
+
+      // Trimmed under the limit and grown past it again: it is said again.
+      await saveEdited('small')
+      expect(autoSaveStore.saveNotification).toBeNull()
+      await saveEdited(overLimit)
+      expect(autoSaveStore.saveNotification).toEqual(warning)
+
+      // Shrunk by another program and reloaded, then grown past it here again.
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'get_file_modified_time') return 200
+        if (command === 'read_file') return 'shrunk elsewhere'
+        return command === 'write_file' ? 200 : undefined
+      })
+      await autoSaveStore.checkForExternalChanges()
+      expect(tab.editorState.markdown).toBe('shrunk elsewhere')
+      await saveEdited(overLimit)
+      expect(autoSaveStore.saveNotification).toEqual(warning)
+    })
+
+    it('warns again when an over-limit file is closed and written from a new tab', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const overLimit = '日'.repeat(1.5 * 1024 * 1024)
+      mockedInvoke.mockImplementation(async (command) =>
+        command === 'write_file' || command === 'get_file_modified_time' ? 100 : undefined,
+      )
+      const saveOverLimit = async () => {
+        const tab = tabsStore.createTab('/tmp/big.csv', overLimit)
+        tabsStore.setModified(tab.id, true)
+        autoSaveStore.saveNotification = null
+        await expect(autoSaveStore.saveTab(tab.id)).resolves.toBe(true)
+        return tab
+      }
+
+      const first = await saveOverLimit()
+      expect(autoSaveStore.saveNotification?.message).toContain('cannot reopen')
+      await tabsStore.closeTab(first.id)
+      // Closing untracks the file through a lazy import of this store.
+      await vi.dynamicImportSettled()
+      await saveOverLimit()
+      expect(autoSaveStore.saveNotification?.message).toContain('cannot reopen')
+    })
+
+    // The copy on screen is stale and still marked saved; that must not be silent.
+    it('says once per disk revision that a changed file could not be reloaded', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const tab = tabsStore.createTab('/tmp/grown.csv', 'a,b\n')
+      autoSaveStore.knownModifiedTimes['/tmp/grown.csv'] = 100
+      let modifiedTime = 200
+      const tooLarge =
+        "'grown.csv' is too large to open (9.0 MB; Leaf opens text files up to 4.0 MB)."
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'get_file_modified_time') return modifiedTime
+        if (command === 'read_file') throw tooLarge
+        return undefined
+      })
+      const stale = {
+        message: `grown.csv changed on disk and could not be reloaded: ${tooLarge}`,
+        type: 'error',
+      }
+
+      await autoSaveStore.checkForExternalChanges()
+      expect(autoSaveStore.saveNotification).toEqual(stale)
+      expect(tab.editorState.markdown).toBe('a,b\n')
+
+      // The same revision is not announced again on later scans.
+      autoSaveStore.saveNotification = null
+      await autoSaveStore.checkForExternalChanges()
+      expect(autoSaveStore.saveNotification).toBeNull()
+
+      // A newer revision that still cannot be read is.
+      modifiedTime = 300
+      await autoSaveStore.checkForExternalChanges()
+      expect(autoSaveStore.saveNotification).toEqual(stale)
+
+      // A readable revision is loaded; then a sync tool restores the oversized
+      // one with its old timestamp. That is a new failure, not the one reported.
+      let readable = true
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'get_file_modified_time') return modifiedTime
+        if (command === 'read_file') {
+          if (readable) return 'a,b\n1,2\n'
+          throw tooLarge
+        }
+        return undefined
+      })
+      modifiedTime = 400
+      await autoSaveStore.checkForExternalChanges()
+      expect(tab.editorState.markdown).toBe('a,b\n1,2\n')
+      readable = false
+      modifiedTime = 300
+      autoSaveStore.saveNotification = null
+      await autoSaveStore.checkForExternalChanges()
+      expect(autoSaveStore.saveNotification).toEqual(stale)
+
+      // Closed and tracked again from a new tab: also a fresh start.
+      autoSaveStore.untrackFile('/tmp/grown.csv')
+      autoSaveStore.knownModifiedTimes['/tmp/grown.csv'] = 100
+      autoSaveStore.saveNotification = null
+      await autoSaveStore.checkForExternalChanges()
+      expect(autoSaveStore.saveNotification).toEqual(stale)
+    })
+
+    it('stays quiet when a watched file has simply gone away', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      tabsStore.createTab('/tmp/gone.md', '# Gone')
+      autoSaveStore.knownModifiedTimes['/tmp/gone.md'] = 100
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'get_file_modified_time') throw 'No such file or directory'
+        return undefined
+      })
+
+      await autoSaveStore.checkForExternalChanges()
+
+      expect(autoSaveStore.saveNotification).toBeNull()
+    })
+
+    it('decides a reloaded document the way opening it does: front matter counts', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const tab = tabsStore.createTab('/tmp/notes.md', 'short')
+      autoSaveStore.knownModifiedTimes['/tmp/notes.md'] = 100
+      const disk = mockDisk(200)
+      // The body alone is at the limit; front matter takes the document over it.
+      disk.content = `---\ntitle: ${'t'.repeat(1000)}\n---\n${'x'.repeat(MAX_RICH_CHARS)}`
+
+      await autoSaveStore.checkForExternalChanges()
+      expect(tab.sourceOnly).toBe('too-large')
+      expect(autoSaveStore.serializeTabToFile(tab)).toBe(disk.content)
+
+      // Opening the same content gives the same answer.
+      const opened = await tabsStore.openFile('/tmp/notes-copy.md')
+      expect(opened?.sourceOnly).toBe('too-large')
+    })
+
+    it('reloads a plain-text file that starts with --- without treating it as front matter', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const tab = tabsStore.createTab('/tmp/k8s.yaml', 'a: 0\n')
+      autoSaveStore.knownModifiedTimes['/tmp/k8s.yaml'] = 100
+      const disk = mockDisk(200)
+      disk.content = '---\na: 1\n---\n\nb: 2\n'
+
+      await autoSaveStore.checkForExternalChanges()
+
+      expect(tab.editorState.frontmatter).toBeNull()
+      expect(tab.editorState.markdown).toBe(disk.content)
+      expect(autoSaveStore.serializeTabToFile(tab)).toBe(disk.content)
+    })
+
+    it('makes a tab source-only when its file outgrows the rich editor on disk', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const tab = tabsStore.createTab('/tmp/log.txt', 'short')
+      autoSaveStore.knownModifiedTimes['/tmp/log.txt'] = 100
+      const disk = mockDisk(200)
+      disk.content = 'x'.repeat(MAX_RICH_CHARS + 1)
+
+      await autoSaveStore.checkForExternalChanges()
+      expect(tab.editorState.markdown).toBe(disk.content)
+      expect(tab.sourceOnly).toBe('too-large')
+
+      // And rich editing comes back when it shrinks again.
+      disk.time = 300
+      disk.content = 'short again'
+      await autoSaveStore.checkForExternalChanges()
+      expect(tab.sourceOnly).toBeNull()
     })
 
     it('reloads a clean tab when the disk mtime moves backwards', async () => {

@@ -4,6 +4,8 @@ import { useTabsStore } from './tabs'
 import MarkdownIt from 'markdown-it'
 import { markdownToHtml } from '../utils/markdownConverter'
 import { copyAsRichText, copyAsPlainText, unescapeMarkdown } from '../utils/clipboardUtils'
+import { sourceOnlyNotice, tabSourceOnlyReason } from '../utils/documentLimits'
+import { serializeTabToFile, useAutoSaveStore } from './autoSave'
 import { flushLiveEditorState } from '../utils/flushEditorState'
 import { parseFrontMatter } from '../utils/frontmatter'
 
@@ -223,9 +225,26 @@ export const useOutlineStore = defineStore('outline', () => {
    */
   async function copyWholeDocument(format: 'markdown' | 'richtext'): Promise<boolean> {
     flushLiveEditorState()
-    const tabsStore = useTabsStore()
-    const markdown = tabsStore.activeTab?.editorState?.markdown
-    if (!markdown) return false
+    const tab = useTabsStore().activeTab
+    const markdown = tab?.editorState?.markdown
+    if (!tab || !markdown) return false
+
+    // A source-only tab (as classified, or having outgrown the limit since) is
+    // not markdown to clean up or convert: its text is copied as it is, and a
+    // rendered copy is refused, since that conversion is what such a document
+    // must never run.
+    const sourceOnly = tab.sourceOnly ?? tabSourceOnlyReason(tab)
+    if (sourceOnly) {
+      if (format === 'richtext') {
+        useAutoSaveStore().showNotification(
+          `Copy as Rich Text needs the rich editor. ${sourceOnlyNotice(tab.title, sourceOnly)}`,
+          'warning',
+        )
+        return false
+      }
+      await navigator.clipboard.writeText(serializeTabToFile(tab))
+      return true
+    }
 
     const cleanMd = unescapeMarkdown(markdown)
     if (format === 'markdown') {

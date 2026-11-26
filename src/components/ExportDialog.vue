@@ -132,6 +132,20 @@
           </div>
         </div>
 
+        <!-- PDF without a LaTeX engine is a print, not a Pandoc export -->
+        <p v-if="exportStore.pdfViaPrint" class="help-text">
+          No LaTeX engine (xelatex) was found, so PDF is made through the print dialog: choose "Save
+          as PDF" there. Pandoc does not run for a print, so nothing below applies: not the output
+          path, the table of contents, or a template or filters from your settings. To export
+          through Pandoc instead, install xelatex, or add Pandoc flags that choose an engine
+          (<code>--pdf-engine=…</code>, or a defaults file).
+        </p>
+        <p v-else-if="exportStore.pdfEngineMissing" class="help-text">
+          No LaTeX engine (xelatex) was found. With Pandoc flags set, the export runs Pandoc as
+          configured, so it only works if the flags choose an engine. Clear the flags to make the
+          PDF through the print dialog instead.
+        </p>
+
         <!-- Output Path -->
         <div class="export-section">
           <label class="export-label" for="export-output-path">Output Path</label>
@@ -147,7 +161,9 @@
             <button
               class="browse-btn"
               type="button"
-              :disabled="exportStore.isExporting || !exportStore.isPandocAvailable"
+              :disabled="
+                exportStore.isExporting || !exportStore.isPandocAvailable || exportStore.pdfViaPrint
+              "
               @click="exportStore.chooseOutputPath()"
             >
               Browse...
@@ -163,7 +179,11 @@
               <input
                 v-model="exportStore.includeToc"
                 type="checkbox"
-                :disabled="exportStore.isExporting || !exportStore.isPandocAvailable"
+                :disabled="
+                  exportStore.isExporting ||
+                  !exportStore.isPandocAvailable ||
+                  exportStore.pdfViaPrint
+                "
               />
               <span>Include Table of Contents</span>
             </label>
@@ -223,7 +243,13 @@
             :disabled="!exportStore.canExport"
             @click="handleExport"
           >
-            {{ exportStore.isExporting ? 'Exporting...' : 'Export' }}
+            {{
+              exportStore.isExporting
+                ? 'Exporting...'
+                : exportStore.pdfViaPrint
+                  ? 'Print…'
+                  : 'Export'
+            }}
           </button>
         </div>
       </div>

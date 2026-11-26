@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useTabsStore } from './tabs'
+import { MAX_RICH_CHARS } from '../utils/documentLimits'
 
 export interface WordCountStats {
   /** Total word count */
@@ -82,6 +83,76 @@ function countParagraphs(text: string): number {
   return blocks.filter((block) => block.trim().length > 0).length
 }
 
+/** Whether a UTF-16 code unit is whitespace, as `\s` defines it. */
+function isSpace(code: number): boolean {
+  return (
+    code === 32 ||
+    (code >= 9 && code <= 13) ||
+    code === 0xa0 ||
+    code === 0x1680 ||
+    (code >= 0x2000 && code <= 0x200a) ||
+    code === 0x2028 ||
+    code === 0x2029 ||
+    code === 0x202f ||
+    code === 0x205f ||
+    code === 0x3000 ||
+    code === 0xfeff
+  )
+}
+
+/** Whether a code unit is a CJK character, which counts as a word on its own. */
+function isCjk(code: number): boolean {
+  return (
+    (code >= 0x4e00 && code <= 0x9fff) ||
+    (code >= 0x3400 && code <= 0x4dbf) ||
+    (code >= 0xf900 && code <= 0xfaff) ||
+    (code >= 0x3040 && code <= 0x30ff) ||
+    (code >= 0xac00 && code <= 0xd7af)
+  )
+}
+
+/**
+ * Statistics for text counted as written, with no markdown handling: one pass,
+ * no allocation, so the cost is the same for every shape of file.
+ */
+function plainStats(text: string): WordCountStats {
+  let words = 0
+  let charactersNoSpaces = 0
+  let lines = text ? 1 : 0
+  let paragraphs = 0
+  let inWord = false
+  let lineHasText = false
+  let inParagraph = false
+
+  for (let i = 0; i <= text.length; i++) {
+    // One step past the end closes the last line.
+    const code = i < text.length ? text.charCodeAt(i) : 10
+    if (code === 10) {
+      if (i < text.length) lines += 1
+      if (lineHasText && !inParagraph) paragraphs += 1
+      inParagraph = lineHasText
+      lineHasText = false
+      inWord = false
+      continue
+    }
+    if (isSpace(code)) {
+      inWord = false
+      continue
+    }
+    charactersNoSpaces += 1
+    lineHasText = true
+    if (isCjk(code)) {
+      words += 1
+      inWord = false
+    } else if (!inWord) {
+      words += 1
+      inWord = true
+    }
+  }
+
+  return { words, characters: text.length, charactersNoSpaces, lines, paragraphs }
+}
+
 export const useWordCountStore = defineStore('wordCount', () => {
   const tabsStore = useTabsStore()
 
@@ -124,6 +195,15 @@ export const useWordCountStore = defineStore('wordCount', () => {
 
     const text = tab.editorState.markdown || ''
 
+    // A source-only tab may be megabytes of text that is not markdown: the
+    // markdown-stripping patterns in countWords are quadratic on some of it
+    // (33 s for a 440 KB CSV of `<LOD` values). The length check covers a tab
+    // that has outgrown the limit in the rich editor and is not reclassified yet.
+    if (tab.sourceOnly || text.length > MAX_RICH_CHARS) {
+      stats.value = plainStats(text)
+      return
+    }
+
     stats.value = {
       words: countWords(text),
       characters: text.length,
@@ -148,9 +228,10 @@ export const useWordCountStore = defineStore('wordCount', () => {
     showDetails.value = !showDetails.value
   }
 
-  // Watch active tab changes — update immediately
+  // Watch active tab changes — update immediately. Save As can change how the
+  // same tab is counted (`sourceOnly`) without changing its text.
   watch(
-    () => tabsStore.activeTabId,
+    [() => tabsStore.activeTabId, () => tabsStore.activeTab?.sourceOnly],
     () => {
       updateStats()
     },

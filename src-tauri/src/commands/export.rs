@@ -444,6 +444,9 @@ impl ExportConfig {
 pub struct PandocInfo {
     pub path: String,
     pub version: String,
+    /// The LaTeX engine PDF export uses, when it is installed; None when it is
+    /// not (the frontend then prints through the webview instead).
+    pub pdf_engine: Option<String>,
 }
 
 /// Result of an export operation.
@@ -508,6 +511,51 @@ fn extended_path() -> String {
         "{}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/Library/TeX/texbin:/usr/local/texlive/2024/bin/universal-darwin",
         current
     )
+}
+
+/// The LaTeX engine PDF export runs (the default in `ExportConfig`). No other
+/// engine is picked automatically: document math reaches the engine as raw TeX,
+/// and only xelatex ran before this check existed.
+const PDF_ENGINE: &str = "xelatex";
+
+/// How long the engine probe may take. `xelatex --version` answers in well
+/// under a second; a wrapper that hangs must not hold up the export dialog,
+/// which waits for this before offering any format.
+const PDF_ENGINE_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// `PDF_ENGINE` when running it by name with `path` as the PATH succeeds.
+/// That is how Pandoc starts it, so this finds the same executable Pandoc
+/// would, and finds out whether the user running Leaf can run it and whether it
+/// works: an execute bit, or a working copy later on the PATH, says neither.
+fn find_pdf_engine(path: &str) -> Option<String> {
+    probe_pdf_engine(path, PDF_ENGINE_PROBE_TIMEOUT)
+}
+
+fn probe_pdf_engine(path: &str, timeout: std::time::Duration) -> Option<String> {
+    use std::process::Stdio;
+    let mut probe = Command::new(PDF_ENGINE)
+        .arg("--version")
+        .env("PATH", path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match probe.try_wait() {
+            Ok(Some(status)) => return status.success().then(|| PDF_ENGINE.to_string()),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            // Timed out, or the child cannot be waited for: not an engine.
+            _ => {
+                let _ = probe.kill();
+                let _ = probe.wait();
+                return None;
+            }
+        }
+    }
 }
 
 /// Execute Pandoc with the given config, markdown input, and output path.
@@ -713,7 +761,37 @@ pub fn check_pandoc() -> Result<PandocInfo, String> {
     Ok(PandocInfo {
         path: pandoc_path,
         version,
+        pdf_engine: find_pdf_engine(&extended_path()),
     })
+}
+
+/// Whether the webview can print on a macOS with this version string
+/// (`sw_vers -productVersion`). WKWebView's print operation arrived in macOS 11,
+/// and wry skips printing without it, reporting nothing. 10.16 is how macOS 11
+/// and later report themselves in compatibility mode. Anything unparseable
+/// counts as able to print: the check must never block printing by mistake.
+fn version_can_print(version: &str) -> bool {
+    let mut parts = version
+        .trim()
+        .split('.')
+        .map(|part| part.parse::<u32>().ok());
+    match (parts.next().flatten(), parts.next().flatten()) {
+        (Some(10), Some(minor)) => minor >= 16,
+        _ => true,
+    }
+}
+
+/// Tauri command: whether Print / Export PDF can open the print sheet here.
+/// `async` keeps the process spawn off the main thread.
+#[tauri::command(async)]
+pub fn print_supported() -> bool {
+    Command::new("/usr/bin/sw_vers")
+        .arg("-productVersion")
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|version| version_can_print(&version))
+        .unwrap_or(true)
 }
 
 /// Tauri command: Get supported export formats with their default file extensions.
@@ -861,6 +939,80 @@ mod tests {
     use std::fs;
 
     // ─── Unit Tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_version_can_print_from_macos_11() {
+        for version in ["10.15.7", "10.14", "10.9.5\n"] {
+            assert!(!version_can_print(version), "{version}");
+        }
+        // 10.16 is macOS 11+ in compatibility mode; unknown output never blocks printing.
+        for version in ["11.0", "12.7.6", "26.1\n", "10.16", "10", "", "unknown"] {
+            assert!(version_can_print(version), "{version}");
+        }
+    }
+
+    #[test]
+    fn test_find_pdf_engine_only_accepts_an_executable_xelatex() {
+        use std::os::unix::fs::PermissionsExt;
+        let empty = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let path = format!("{}:{}", empty.path().display(), bin.path().display());
+        let install_exiting = |name: &str, mode: u32, exit_code: u8| {
+            let file = bin.path().join(name);
+            // Replace, not overwrite: an earlier mode may not allow writing.
+            let _ = fs::remove_file(&file);
+            fs::write(&file, format!("#!/bin/sh\nexit {exit_code}\n")).unwrap();
+            fs::set_permissions(&file, fs::Permissions::from_mode(mode)).unwrap();
+        };
+        let install = |name: &str, mode: u32| install_exiting(name, mode, 0);
+
+        assert_eq!(find_pdf_engine(&path), None);
+
+        // Other engines are never picked: only xelatex ran before this check
+        // existed, and document math reaches the engine as raw TeX.
+        for engine in ["lualatex", "tectonic", "pdflatex"] {
+            install(engine, 0o755);
+        }
+        assert_eq!(find_pdf_engine(&path), None);
+
+        // Not executable: not an engine.
+        install("xelatex", 0o644);
+        assert_eq!(find_pdf_engine(&path), None);
+
+        // Executable for someone, but not for the user running Leaf (the owner
+        // class applies to this file): Pandoc could not run it either.
+        install("xelatex", 0o411);
+        assert_eq!(find_pdf_engine(&path), None);
+
+        // Runs but fails (a broken install, a wrapper without its binary):
+        // Pandoc would fail with it too.
+        install_exiting("xelatex", 0o755, 1);
+        assert_eq!(find_pdf_engine(&path), None);
+
+        install("xelatex", 0o755);
+        assert_eq!(find_pdf_engine(&path), Some("xelatex".to_string()));
+
+        // One that never answers must not hold the export dialog: the probe
+        // gives up, and that is not an engine.
+        install("xelatex", 0o755);
+        fs::write(bin.path().join("xelatex"), "#!/bin/sh\nexec sleep 30\n").unwrap();
+        let started = std::time::Instant::now();
+        assert_eq!(
+            probe_pdf_engine(&path, std::time::Duration::from_millis(300)),
+            None
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        install("xelatex", 0o755);
+
+        // A broken xelatex earlier on the PATH is the one Pandoc would run
+        // (it is given the bare name), whatever comes after it.
+        let first = tempfile::tempdir().unwrap();
+        let broken = first.path().join("xelatex");
+        fs::write(&broken, "#!/bin/sh\nexit 1\n").unwrap();
+        fs::set_permissions(&broken, fs::Permissions::from_mode(0o755)).unwrap();
+        let shadowed = format!("{}:{}", first.path().display(), path);
+        assert_eq!(find_pdf_engine(&shadowed), None);
+    }
 
     #[test]
     fn test_export_format_pandoc_format() {

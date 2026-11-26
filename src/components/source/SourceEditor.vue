@@ -24,6 +24,7 @@ import {
   defaultHighlightStyle,
   bracketMatching,
   indentOnInput,
+  language,
 } from '@codemirror/language'
 import { mathHighlightPlugin, extractMathExpressions } from '../../codemirror/math-language'
 import { renderMathToSvg } from '../../codemirror/mathjax-preview'
@@ -31,7 +32,8 @@ import {
   frontmatterHighlightPlugin,
   frontmatterHighlightTheme,
 } from '../../codemirror/frontmatter-highlight'
-import { parseFrontMatter, assembleFrontMatter } from '../../utils/frontmatter'
+import { assembleFrontMatter, splitDocument } from '../../utils/frontmatter'
+import { MAX_RICH_CHARS } from '../../utils/documentLimits'
 import { useTabsStore } from '../../stores/tabs'
 import { useEditorModeStore } from '../../stores/editorMode'
 import { useEditorSettingsStore } from '../../stores/editorSettings'
@@ -49,10 +51,54 @@ const mathPreviewVisible = ref(false)
 const mathPreviewHtml = ref('')
 const cmView = shallowRef<EditorView | null>(null)
 const settingsCompartment = new Compartment()
+const languageCompartment = new Compartment()
 
 // The tab represented by this mounted editor. activeTabId can move before
 // Vue unmounts the editor when switching to an image tab.
 let renderedTabId: string | null = null
+// The tab a switch is about to load; a later switch supersedes it.
+let pendingTabId: string | null = null
+// Whether the document in the editor came with CRLF line endings (see editorText).
+let renderedCrlf = false
+
+function renderedTab(): Tab | undefined {
+  return tabsStore.tabs.find((tab) => tab.id === renderedTabId)
+}
+
+/**
+ * The editor's text as the file stores it. CodeMirror reads CRLF as a line
+ * break and writes LF; a source-only tab is saved byte for byte, so a file
+ * that came with CRLF line endings gets them back.
+ */
+// ponytail: all-CRLF files only; one with mixed line endings is saved with LF,
+// as every file was before. Markdown tabs are too: their front matter is
+// re-assembled with LF.
+function editorText(state: EditorState): string {
+  // One pass either way: CodeMirror joins its lines with the separator given.
+  return renderedCrlf ? state.doc.sliceString(0, state.doc.length, '\r\n') : state.doc.toString()
+}
+
+function hasOnlyCrlfLineEndings(content: string): boolean {
+  return content.includes('\r\n') && !/\r(?!\n)|(?<!\r)\n/.test(content)
+}
+
+/**
+ * Markdown parsing and highlighting, or nothing for a source-only tab: the
+ * markdown parser reads a CSV as one paragraph and is quadratic in its length
+ * (0.9 s at 500 KB, 67 s at 4 MB), which would freeze the editor.
+ */
+function languageExtensions(plainText: boolean): Extension[] {
+  if (plainText) return []
+  return [
+    markdown({
+      base: markdownLanguage,
+      codeLanguages: languages,
+    }),
+    mathHighlightPlugin,
+    frontmatterHighlightPlugin,
+    frontmatterHighlightTheme,
+  ]
+}
 
 // Outline headings are re-scanned once edits settle, not on every keystroke.
 const OUTLINE_REFRESH_MS = 150
@@ -63,6 +109,12 @@ function refreshOutline(): void {
   outlineTimer = null
   const view = cmView.value
   if (!view) return
+  // No outline for a source-only tab: the heading scan parses the whole document
+  // as markdown, which is quadratic on some input (62 s for 1 MB).
+  if (renderedTab()?.sourceOnly) {
+    outlineStore.clearHeadings()
+    return
+  }
   outlineStore.updateFromMarkdown(view.state.doc.toString())
   outlineStore.setActiveHeading(view.state.selection.main.head)
 }
@@ -82,10 +134,8 @@ const sourceKeymap = [...searchKeymap, ...defaultKeymap, ...historyKeymap, inden
   // Shift+Cmd+G is App.vue's "Open by Path"; find-previous stays on Shift+F3 / Shift+Enter.
   .map((binding) => (binding.key === 'Mod-g' ? { ...binding, shift: undefined } : binding))
 
-/**
- * Build the full set of CodeMirror extensions
- */
-function buildExtensions(): Extension[] {
+/** Build the full set of CodeMirror extensions. A source-only tab is edited as plain text. */
+function buildExtensions(plainText: boolean): Extension[] {
   return [
     settingsCompartment.of(
       buildSourceEditorSettings({
@@ -106,13 +156,16 @@ function buildExtensions(): Extension[] {
     bracketMatching(),
     indentOnInput(),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-    markdown({
-      base: markdownLanguage,
-      codeLanguages: languages,
-    }),
-    mathHighlightPlugin,
-    frontmatterHighlightPlugin,
-    frontmatterHighlightTheme,
+    languageCompartment.of(languageExtensions(plainText)),
+    // A change that takes a markdown document past the rich limit (a large
+    // paste) turns the language off in that same transaction, so the parser
+    // and the highlighters never scan the new text. The update listener below
+    // then records the new classification on the tab.
+    EditorState.transactionExtender.of((tr) =>
+      tr.docChanged && tr.newDoc.length > MAX_RICH_CHARS && tr.startState.facet(language)
+        ? { effects: languageCompartment.reconfigure(languageExtensions(true)) }
+        : null,
+    ),
     search({ top: true }),
     keymap.of(sourceKeymap),
     EditorView.updateListener.of((update) => {
@@ -123,16 +176,22 @@ function buildExtensions(): Extension[] {
       if (update.docChanged) {
         const tabId = renderedTabId
         if (tabId) {
-          const content = update.state.doc.toString()
-          // Parse front-matter out so body and front-matter are stored separately
-          const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
+          const content = editorText(update.state)
           tabsStore.setModified(tabId, true)
+          // An edit (a large paste, say) can take a markdown tab past the rich
+          // limit. It is measured as the text in the editor, like the
+          // transaction extender above, and stored whole from this edit on:
+          // split parts do not always re-assemble to the same text. Only growth
+          // is decided here; letting a trimmed tab back into rich mode would
+          // swap editors under the cursor.
+          const tab = renderedTab()
+          const outgrown = tab && !tab.sourceOnly && content.length > MAX_RICH_CHARS
+          // Body and front-matter are stored separately; source mode works with raw markdown.
           tabsStore.saveEditorState(tabId, {
-            markdown: body,
-            doc: null, // source mode works with raw markdown
-            frontmatter: hasFrontMatter ? rawYaml : null,
-            frontmatterAttributes: hasFrontMatter ? attributes : {},
+            ...(outgrown ? splitDocument(content, true) : splitTabContent(tabId, content)),
+            doc: null,
           })
+          if (outgrown) tabsStore.reclassify(tabId)
           // Update math preview if visible
           if (mathPreviewVisible.value) {
             updateMathPreview(content)
@@ -246,10 +305,12 @@ function initEditor() {
   if (!editorContainer.value) return
 
   const content = getActiveContent()
+  const plainText = Boolean(tabsStore.activeTab?.sourceOnly)
+  renderedCrlf = plainText && hasOnlyCrlfLineEndings(content)
 
   const state = EditorState.create({
     doc: content,
-    extensions: buildExtensions(),
+    extensions: buildExtensions(plainText),
   })
 
   cmView.value = new EditorView({
@@ -264,23 +325,30 @@ function initEditor() {
  * document: a change with addToHistory false still lets older history entries
  * replay into the new one. setState also skips the update listener.
  */
-function restoreContent(content: string) {
+function restoreContent(tab: Tab, content: string) {
   if (!cmView.value) return
-  cmView.value.setState(EditorState.create({ doc: content, extensions: buildExtensions() }))
+  const plainText = Boolean(tab.sourceOnly)
+  renderedCrlf = plainText && hasOnlyCrlfLineEndings(content)
+  cmView.value.setState(
+    EditorState.create({ doc: content, extensions: buildExtensions(plainText) }),
+  )
   refreshOutline()
+}
+
+/** The parts of `content` this tab stores; a source-only tab is stored whole. */
+function splitTabContent(tabId: string, content: string) {
+  const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
+  return splitDocument(content, Boolean(tab?.sourceOnly))
 }
 
 /** Capture raw content and navigation state before a tab or mode change. */
 function captureEditorState(tabId: string): void {
   if (!cmView.value) return
-  const content = cmView.value.state.doc.toString()
-  const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
+  const content = editorText(cmView.value.state)
   const { from, to } = cmView.value.state.selection.main
   tabsStore.saveEditorState(tabId, {
-    markdown: body,
+    ...splitTabContent(tabId, content),
     doc: null,
-    frontmatter: hasFrontMatter ? rawYaml : null,
-    frontmatterAttributes: hasFrontMatter ? attributes : {},
     scrollTop: cmView.value.scrollDOM.scrollTop,
     selection: { from, to },
   })
@@ -296,7 +364,10 @@ function restoreNavigation(tab: Tab): void {
 }
 
 function restoreTab(tab: Tab): void {
-  restoreContent(assembleFrontMatter(tab.editorState.frontmatter, tab.editorState.markdown || ''))
+  restoreContent(
+    tab,
+    assembleFrontMatter(tab.editorState.frontmatter, tab.editorState.markdown || ''),
+  )
   nextTick(() => {
     if (renderedTabId !== tab.id || tabsStore.activeTabId !== tab.id || editorModeStore.isWysiwyg) {
       return
@@ -336,8 +407,14 @@ function navigateToHeading(pos: number): void {
   view.focus()
 }
 
+/** The text on screen and its tab width, for printing it as shown. */
+function getPrintContent(): { text: string; tabSize: number } | null {
+  const state = cmView.value?.state
+  return state ? { text: state.doc.toString(), tabSize: state.tabSize } : null
+}
+
 // Expose for parent components
-defineExpose({ toggleMathPreview, openFind, navigateToHeading })
+defineExpose({ toggleMathPreview, openFind, navigateToHeading, getPrintContent })
 
 // Watch for active tab changes
 watch(
@@ -347,18 +424,24 @@ watch(
     if (renderedTabId) captureEditorState(renderedTabId)
     if (newTabId) {
       const tab = tabsStore.tabs.find((t) => t.id === newTabId)
-      // Image tabs (and a null active tab) unmount this editor. Keep the
-      // rendered id until onBeforeUnmount captures it.
-      if (tab && !tab.isImage) {
-        renderedTabId = newTabId
+      // Image tabs (and a null active tab) unmount this editor, and so does a
+      // rich-mode tab reached from a source-only one. Keep the rendered id until
+      // onBeforeUnmount captures it: adopting the new tab would write this
+      // editor's text into it.
+      if (tab && !tab.isImage && !editorModeStore.isWysiwyg) {
+        // The editor still holds the outgoing document until restoreTab() runs,
+        // so renderedTabId stays on it until then: a capture in between must
+        // save that document to its own tab, never to the incoming one.
+        pendingTabId = newTabId
         nextTick(() => {
           if (
-            renderedTabId !== newTabId ||
+            pendingTabId !== newTabId ||
             tabsStore.activeTabId !== newTabId ||
             editorModeStore.isWysiwyg
           ) {
             return
           }
+          renderedTabId = newTabId
           restoreTab(tab)
           if (mathPreviewVisible.value) {
             updateMathPreview(cmView.value?.state.doc.toString() || '')
@@ -366,6 +449,24 @@ watch(
         })
       }
     }
+  },
+)
+
+// The tab on screen can change classification without a tab switch: Save As
+// to another file type, or an edit past the rich limit. Swap the language in
+// place; the compartment preserves the document, selection and history.
+watch(
+  () => Boolean(tabsStore.activeTab?.sourceOnly),
+  (plainText) => {
+    // Mid tab switch the editor still holds the outgoing tab (restoreTab()
+    // builds the incoming one's extensions); in rich mode it is about to unmount.
+    if (!cmView.value || renderedTabId !== tabsStore.activeTabId || editorModeStore.isWysiwyg) {
+      return
+    }
+    cmView.value.dispatch({
+      effects: languageCompartment.reconfigure(languageExtensions(plainText)),
+    })
+    refreshOutline()
   },
 )
 
@@ -402,7 +503,7 @@ function handleFileReloaded(e: Event) {
   const tab = tabsStore.tabs.find((candidate) => candidate.id === tabId)
   if (!tab) return
   const fullContent = assembleFrontMatter(tab.editorState.frontmatter, markdown)
-  restoreContent(fullContent)
+  restoreContent(tab, fullContent)
   nextTick(() => {
     if (renderedTabId === tabId && tabsStore.activeTabId === tabId) restoreNavigation(tab)
   })

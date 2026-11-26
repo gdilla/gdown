@@ -12,6 +12,20 @@
 - **Find:** source mode uses `@codemirror/search` (exposed `openFind()`); App.vue routes Cmd+F/H there instead of `findReplaceStore`. Keys owned by window handlers are filtered out of the CodeMirror keymap (`APP_OWNED_KEYS`); add to it when a new app shortcut collides.
 - **Outline:** SourceEditor owns the outline while mounted (debounced `updateFromMarkdown` on edits, immediate refresh in `restoreContent()` since `setState` skips update listeners, `navigateToHeading(offset)`), and clears it on unmount — offsets are into front matter + body.
 
+## Source-only tabs
+A tab with `tab.sourceOnly` set (not a markdown file, or over the rich-editor size limit — see
+`src/utils/documentLimits.ts`) is always shown here, whatever the mode preference. `buildExtensions(true)`
+leaves out the markdown language and the math/front-matter highlighters for it: the markdown parser is
+quadratic on text with no blank lines and froze the editor on multi-megabyte CSVs. Such a tab also gets no
+outline and is stored whole (no front-matter split).
+
+The flag can change under a mounted editor (Save As to another file type, an edit past the size limit):
+a watcher swaps `languageCompartment` in place, and the update listener re-decides it on growth only.
+Read the editor's text for tab state through `editorText()`, which gives a CRLF file its line endings back.
+
+`renderedTabId` must always name the tab whose text is in the editor: on a tab switch it changes only
+when `restoreTab()` loads the new tab, never before.
+
 ## CodeMirror Extensions
 Custom extensions are in `src/codemirror/`:
 - Math highlight and preview

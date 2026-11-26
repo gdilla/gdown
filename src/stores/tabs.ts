@@ -1,10 +1,17 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { Tab, EditorState } from '../types/tab'
 import { createDefaultEditorState } from '../types/tab'
-import { parseFrontMatter } from '../utils/frontmatter'
+import { splitDocument } from '../utils/frontmatter'
 import { flushLiveEditorState } from '../utils/flushEditorState'
+import {
+  MAX_OPEN_BYTES,
+  MAX_RICH_CHARS,
+  sourceOnlyNotice,
+  sourceOnlyReason,
+  tabSourceOnlyReason,
+} from '../utils/documentLimits'
 
 export type CloseDecision = 'save' | 'discard' | 'cancel'
 export type CloseDecisionHandler = (tab: Tab) => Promise<CloseDecision>
@@ -23,6 +30,18 @@ function fileNameFromPath(filePath: string): string {
 export const useTabsStore = defineStore('tabs', () => {
   const tabs = ref<Tab[]>([])
   const activeTabId = ref<string | null>(null)
+
+  // `sourceOnly` is decided when a tab's content is loaded, and text typed or
+  // pasted since may have outgrown the rich limit. Re-decide whenever a tab
+  // becomes active, however it does: sync, so it is settled before anything
+  // else that watches the active tab picks an editor for it.
+  watch(
+    activeTabId,
+    (tabId) => {
+      if (tabId) reclassify(tabId)
+    },
+    { flush: 'sync' },
+  )
   let closeDecisionHandler: CloseDecisionHandler | null = null
   const pendingCloseOperations = new Map<string, Promise<boolean>>()
 
@@ -58,6 +77,7 @@ export const useTabsStore = defineStore('tabs', () => {
       isModified: false,
       isUntitled,
       isImage: false,
+      sourceOnly: sourceOnlyReason(filePath, content.length),
       contentRevision: 0,
       editorState: createDefaultEditorState(content),
     }
@@ -240,7 +260,23 @@ export const useTabsStore = defineStore('tabs', () => {
       tab.filePath = filePath
       tab.title = fileNameFromPath(filePath)
       tab.isUntitled = false
+      // Save As can change the file type (notes saved as .csv, and back).
+      tab.sourceOnly = tabSourceOnlyReason(tab)
     }
+  }
+
+  /**
+   * Re-decide `sourceOnly` from a tab's current path and content, and say so
+   * when a document turns out to have outgrown the rich editor.
+   */
+  function reclassify(tabId: string): void {
+    const tab = tabs.value.find((t) => t.id === tabId)
+    if (!tab || tab.isImage) return
+    const reason = tabSourceOnlyReason(tab)
+    if (reason === 'too-large' && !tab.sourceOnly) {
+      notify(sourceOnlyNotice(tab.title, reason), 'warning')
+    }
+    tab.sourceOnly = reason
   }
 
   /** Register the UI's Save / Don't Save / Cancel prompt for dirty closes. */
@@ -418,7 +454,11 @@ export const useTabsStore = defineStore('tabs', () => {
     }
 
     try {
-      const content = await invoke<string>('read_file', { path: filePath })
+      // read_file refuses a larger file with a message for the user.
+      const content = await invoke<string>('read_file', {
+        path: filePath,
+        maxBytes: MAX_OPEN_BYTES,
+      })
 
       // Another open request may have completed while the disk read was in
       // flight. Never replace that tab's current state with the older read.
@@ -428,17 +468,18 @@ export const useTabsStore = defineStore('tabs', () => {
         return existingAfterRead
       }
 
-      // Parse YAML front-matter: separate metadata from body content
-      const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
+      // Decide from the whole file, then separate YAML front-matter from the
+      // body — unless the tab is source-only, which is stored whole.
+      const sourceOnly = sourceOnlyReason(filePath, content.length)
+      const { markdown, frontmatter, frontmatterAttributes } = splitDocument(
+        content,
+        sourceOnly !== null,
+      )
 
-      // Create tab with body-only markdown (front-matter is stored separately)
-      const tab = createTab(filePath, body)
-
-      // Store front-matter in the tab's editor state
-      if (hasFrontMatter) {
-        tab.editorState.frontmatter = rawYaml
-        tab.editorState.frontmatterAttributes = attributes
-      }
+      const tab = createTab(filePath, markdown)
+      tab.editorState.frontmatter = frontmatter
+      tab.editorState.frontmatterAttributes = frontmatterAttributes
+      tab.sourceOnly = sourceOnly
 
       // Track the file's modified time for conflict detection (lazy import to avoid circular deps)
       import('./autoSave')
@@ -448,11 +489,26 @@ export const useTabsStore = defineStore('tabs', () => {
         })
         .catch(() => {})
 
+      if (tab.sourceOnly === 'too-large') {
+        notify(
+          `${tab.title} opened as plain text in source mode: rich editing and highlighting are off for documents over ${MAX_RICH_CHARS / 1024} KB.`,
+          'warning',
+        )
+      }
+
       return tab
     } catch (err) {
       console.error(`Failed to open file '${filePath}':`, err)
+      notify(err instanceof Error ? err.message : String(err), 'error')
       return null
     }
+  }
+
+  /** Show a notification (lazy import: autoSave imports this store). */
+  function notify(message: string, type: 'error' | 'warning'): void {
+    import('./autoSave')
+      .then(({ useAutoSaveStore }) => useAutoSaveStore().showNotification(message, type))
+      .catch(() => {})
   }
 
   /**
@@ -473,6 +529,7 @@ export const useTabsStore = defineStore('tabs', () => {
       isModified: false,
       isUntitled: false,
       isImage: true,
+      sourceOnly: null,
       contentRevision: 0,
       editorState: createDefaultEditorState(),
     }
@@ -512,6 +569,7 @@ export const useTabsStore = defineStore('tabs', () => {
     setModified,
     updateTabTitle,
     setFilePath,
+    reclassify,
     findTabByPath,
     reorderTab,
     moveTab,

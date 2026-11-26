@@ -5,6 +5,7 @@ import { useSessionStore, type SessionState } from '../../stores/session'
 import { useTabsStore } from '../../stores/tabs'
 import { useAutoSaveStore } from '../../stores/autoSave'
 import { usePreferencesStore } from '../../stores/preferences'
+import { MAX_OPEN_BYTES } from '../../utils/documentLimits'
 
 const mockedInvoke = vi.mocked(invoke)
 
@@ -104,7 +105,55 @@ title: From disk
     expect(tabsStore.tabs[0]?.isModified).toBe(false)
     expect(tabsStore.tabs[0]?.editorState.markdown).toBe('# Fresh body')
     expect(tabsStore.tabs[0]?.editorState.frontmatter).toBe('title: From disk')
-    expect(mockedInvoke).toHaveBeenCalledWith('read_file', { path: '/tmp/note.md' })
+    expect(mockedInvoke).toHaveBeenCalledWith('read_file', {
+      path: '/tmp/note.md',
+      maxBytes: MAX_OPEN_BYTES,
+    })
+  })
+
+  it('leaves out a file that is too large to reopen, says so, and restores the rest', async () => {
+    const session = useSessionStore()
+    const state = sessionState({})
+    // A session saved before the open limit existed, with the oversized tab active.
+    state.tabs.unshift({
+      ...state.tabs[0]!,
+      filePath: '/tmp/huge.csv',
+      title: 'huge.csv',
+      markdown: 'id,name\n'.repeat(1000),
+    })
+    const tooLarge =
+      "'huge.csv' is too large to open (21.7 MB; Leaf opens text files up to 4.0 MB)."
+    mockedInvoke.mockImplementation(async (command, args) => {
+      if (command === 'load_session_state') return JSON.stringify(state)
+      if (command === 'read_file') {
+        if ((args as { path: string }).path === '/tmp/huge.csv') throw tooLarge
+        return '# Note'
+      }
+      return null
+    })
+
+    await expect(session.restoreSession()).resolves.toBe(true)
+
+    const tabsStore = useTabsStore()
+    expect(tabsStore.tabs.map((tab) => tab.title)).toEqual(['note.md'])
+    expect(tabsStore.activeTab?.title).toBe('note.md')
+    await vi.waitFor(() =>
+      expect(useAutoSaveStore().saveNotification).toEqual({ message: tooLarge, type: 'error' }),
+    )
+  })
+
+  it('recovers a dirty document with oversized front matter as source-only', async () => {
+    const session = useSessionStore()
+    const state = sessionState({
+      isModified: true,
+      markdown: '# Tiny body',
+      frontmatter: 'k: v\n'.repeat(50000),
+    })
+    mockedInvoke.mockResolvedValueOnce(JSON.stringify(state))
+
+    await expect(session.restoreSession()).resolves.toBe(true)
+
+    expect(useTabsStore().tabs[0]?.sourceOnly).toBe('too-large')
   })
 
   it('keeps an explicitly dirty blank untitled document for recovery', async () => {

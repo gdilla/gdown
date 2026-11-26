@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { invoke } from '@tauri-apps/api/core'
 import {
   buildStandaloneHtml,
   collectThemeCss,
   buildRenderedBody,
   copyAsRichText,
-  triggerPrint,
+  printDocument,
 } from '../../utils/publishDocument'
 
 describe('publishDocument', () => {
@@ -49,6 +50,89 @@ describe('publishDocument', () => {
       expect(typeof css).toBe('string')
       // Should contain some CSS content (at minimum the editor base styles)
       expect(css.length).toBeGreaterThan(0)
+    })
+
+    // A document can contain an element with this id (a diagram label, say);
+    // only the container printDocument() adds to <body> may be hidden or shown.
+    it('scopes every print-root rule to the direct child of body', () => {
+      const fs = (
+        globalThis as unknown as {
+          process: {
+            getBuiltinModule(id: 'node:fs'): { readFileSync(p: string, e: 'utf8'): string }
+          }
+        }
+      ).process.getBuiltinModule('node:fs')
+      const css = fs.readFileSync('src/style.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+      const uses = css.match(/[^\n]*#print-root[^\n]*/g) ?? []
+
+      expect(uses.length).toBeGreaterThan(0)
+      for (const line of uses) {
+        expect(line).toMatch(/body > #print-root|body > :not\(#print-root\)/)
+      }
+    })
+
+    // The editor (ProseMirror) shows runs of spaces as typed; the print root is
+    // not inside it, so it needs the same rule or the PDF collapses them.
+    it('keeps repeated spaces in printed prose, as the editor shows them', () => {
+      const fs = (
+        globalThis as unknown as {
+          process: {
+            getBuiltinModule(id: 'node:fs'): { readFileSync(p: string, e: 'utf8'): string }
+          }
+        }
+      ).process.getBuiltinModule('node:fs')
+      const css = fs.readFileSync('src/style.css', 'utf8')
+      const printBlock = css.slice(css.indexOf('@media print {'), css.indexOf('@page {'))
+
+      expect(printBlock).toMatch(
+        /body > #print-root :is\(p, h1, h2, h3, h4, h5, h6\) \{\s*white-space: break-spaces;/,
+      )
+    })
+
+    // The editor serialises a blank line as <p></p>; ProseMirror's own trailing
+    // <br> is display-only. Without a line box it collapses to nothing on paper.
+    it('gives an empty paragraph a line of height in print', () => {
+      const fs = (
+        globalThis as unknown as {
+          process: {
+            getBuiltinModule(id: 'node:fs'): { readFileSync(p: string, e: 'utf8'): string }
+          }
+        }
+      ).process.getBuiltinModule('node:fs')
+      const css = fs.readFileSync('src/style.css', 'utf8')
+      const printBlock = css.slice(css.indexOf('@media print {'), css.indexOf('@page {'))
+
+      expect(printBlock).toMatch(
+        /body > #print-root p:empty::before \{\s*content: '';\s*display: inline-block;/,
+      )
+    })
+
+    // The collector copies any rule that mentions an editor class, and the app's
+    // `@media print` block does. In an exported file there is no #print-root, so
+    // its "hide everything else" rule would print a blank page.
+    it('leaves the app-only print rules out of an exported document', () => {
+      // Vitest blanks `.css` imports, so read the real stylesheet from disk.
+      const fs = (
+        globalThis as unknown as {
+          process: {
+            getBuiltinModule(id: 'node:fs'): { readFileSync(p: string, e: 'utf8'): string }
+          }
+        }
+      ).process.getBuiltinModule('node:fs')
+      const appCss = fs.readFileSync('src/style.css', 'utf8')
+      // jsdom cannot compute styles from the whole stylesheet; the print block is the part under test.
+      const printBlock = appCss.slice(appCss.indexOf('@media print {'), appCss.indexOf('@page {'))
+      expect(printBlock).toContain('#print-root .math-block')
+      const style = document.createElement('style')
+      style.textContent = `.gdown-editor { color: black; }\n${printBlock}`
+      document.head.appendChild(style)
+      try {
+        const css = collectThemeCss()
+        expect(css).toContain('.gdown-editor')
+        expect(css).not.toContain('#print-root')
+      } finally {
+        style.remove()
+      }
     })
   })
 
@@ -110,17 +194,48 @@ describe('publishDocument', () => {
       })
     })
 
-    // Characterises reachability: the editor serialises diagrams as
-    // <pre class="mermaid-block">, which the export selector does not match.
-    it('does not render the editor mermaid-block markup (export path is unreachable today)', async () => {
+    // What the editor serialises a diagram as (MermaidBlock.renderHTML).
+    it('renders the editor’s mermaid-block markup as a diagram, not as code', async () => {
       const { default: mermaid } = await import('mermaid')
       const init = vi.spyOn(mermaid, 'initialize')
 
-      await buildRenderedBody(
-        `<pre class="mermaid-block" data-language="mermaid"><code class="language-mermaid">${PIE}</code></pre>`,
+      const result = await buildRenderedBody(
+        `<p>Before</p><pre class="mermaid-block" data-language="mermaid"><code class="language-mermaid">${PIE}</code></pre>`,
       )
 
-      expect(init).not.toHaveBeenCalled()
+      expect(result).toContain('<svg')
+      // The diagram replaces the code block: no <pre> chrome around it.
+      expect(result).not.toContain('<pre')
+      expect(result).not.toContain('language-mermaid')
+      expect(init.mock.calls[init.mock.calls.length - 1]?.[0]).toMatchObject({
+        securityLevel: 'strict',
+      })
+    })
+
+    it('drops form controls and image maps from a rendered diagram, as the editor does', async () => {
+      const { default: mermaid } = await import('mermaid')
+      vi.spyOn(mermaid, 'render').mockResolvedValue({
+        svg: '<svg><foreignObject><form action="https://example.com"><input name="q"><button>Go</button></form><map><area href="https://example.com"></map><span>Label</span></foreignObject></svg>',
+        diagramType: 'flowchart',
+      })
+
+      const result = await buildRenderedBody(
+        `<pre class="mermaid-block"><code class="language-mermaid">${PIE}</code></pre>`,
+      )
+
+      expect(result).toContain('Label')
+      expect(result).not.toMatch(/<(form|input|button|map|area)\b/)
+    })
+
+    it('leaves the code in place, and no stray container, when a diagram does not parse', async () => {
+      const before = document.body.children.length
+
+      const result = await buildRenderedBody(
+        '<pre class="mermaid-block"><code class="language-mermaid">not a diagram ::: {{{</code></pre>',
+      )
+
+      expect(result).toContain('not a diagram')
+      expect(document.body.children.length).toBe(before)
     })
   })
 
@@ -153,12 +268,167 @@ describe('publishDocument', () => {
     })
   })
 
-  describe('triggerPrint', () => {
-    it('calls window.print()', () => {
-      const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
-      triggerPrint()
-      expect(printSpy).toHaveBeenCalledTimes(1)
+  describe('printDocument', () => {
+    let printSpy: ReturnType<typeof vi.spyOn>
+
+    beforeEach(() => {
+      printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
       printSpy.mockRestore()
+      Array.from(document.body.children)
+        .filter((el) => el.id === 'print-root')
+        .forEach((el) => el.remove())
+    })
+
+    // Before macOS 11 the webview has no print operation and the print command
+    // does nothing without reporting it (wry checks, then silently skips).
+    it('fails instead of printing nothing where the webview cannot print', async () => {
+      vi.mocked(invoke).mockImplementation(async (command) =>
+        command === 'print_supported' ? false : undefined,
+      )
+      try {
+        await expect(printDocument({ html: '<p>Body</p>' })).rejects.toThrow(
+          'Printing needs macOS 11 or later.',
+        )
+        expect(printSpy).not.toHaveBeenCalled()
+      } finally {
+        vi.mocked(invoke).mockReset()
+      }
+    })
+
+    it('renders the document into the print root, then prints', async () => {
+      await printDocument({ html: '<h1>Title</h1><p>Body</p>' })
+
+      const root = document.getElementById('print-root')
+      expect(root?.parentElement).toBe(document.body)
+      // The exported-document classes give it the editor rules and light palette.
+      expect(root?.className).toBe('gdown-editor content')
+      expect(root?.innerHTML).toBe('<h1>Title</h1><p>Body</p>')
+      expect(printSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('prints source text literally, never parsing it as HTML', async () => {
+      const source = '# Title\n\n<img src=x onerror="alert(1)">'
+      await printDocument({ text: source })
+
+      const root = document.getElementById('print-root')
+      expect(root?.querySelector('img')).toBeNull()
+      expect(root?.querySelector('pre.print-source')?.textContent).toBe(source)
+      expect(printSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('prints source text with the tab width the editor shows it at', async () => {
+      await printDocument({ text: 'a\tb', tabSize: 2 })
+
+      const pre = document.body.querySelector<HTMLElement>('#print-root > pre.print-source')
+      expect(pre?.style.tabSize).toBe('2')
+    })
+
+    it('replaces the previous document instead of stacking print roots', async () => {
+      await printDocument({ html: '<p>First</p>' })
+      await printDocument({ html: '<p>Second</p>' })
+
+      expect(document.querySelectorAll('#print-root')).toHaveLength(1)
+      expect(document.getElementById('print-root')?.innerHTML).toBe('<p>Second</p>')
+    })
+
+    // WebKit never settles decode() for an image that is not displayed, so the
+    // print root (display: none on screen) has to wait on load/error instead.
+    it.each(['load', 'error'])('prints once a pending image fires %s', async (eventName) => {
+      const prototype = HTMLImageElement.prototype as { decode?: () => Promise<void> }
+      const originalDecode = prototype.decode
+      prototype.decode = () => new Promise(() => {})
+      const complete = vi.spyOn(HTMLImageElement.prototype, 'complete', 'get')
+      complete.mockReturnValue(false)
+      try {
+        const printing = printDocument({ html: '<p><img src="a.png"></p>' })
+        const image = await vi.waitFor(() => {
+          const img = document.querySelector('#print-root img')
+          expect(img).not.toBeNull()
+          return img!
+        })
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        expect(printSpy).not.toHaveBeenCalled()
+
+        image.dispatchEvent(new Event(eventName))
+        await printing
+        expect(printSpy).toHaveBeenCalledTimes(1)
+      } finally {
+        complete.mockRestore()
+        prototype.decode = originalDecode
+      }
+    })
+
+    // Seen live: WebKit held back the load event while the window was in the background.
+    it('prints anyway when an image never finishes loading', async () => {
+      const complete = vi.spyOn(HTMLImageElement.prototype, 'complete', 'get')
+      complete.mockReturnValue(false)
+      vi.useFakeTimers()
+      try {
+        const printing = printDocument({ html: '<p><img src="a.png"></p>' })
+        await vi.advanceTimersByTimeAsync(2999)
+        expect(printSpy).not.toHaveBeenCalled()
+
+        await vi.advanceTimersByTimeAsync(1)
+        await printing
+        expect(printSpy).toHaveBeenCalledTimes(1)
+      } finally {
+        vi.useRealTimers()
+        complete.mockRestore()
+      }
+    })
+
+    // The editor serialises images as loading="lazy", and a lazy image in the
+    // hidden print root never starts loading.
+    it('loads the printed copy of every image eagerly', async () => {
+      await printDocument({ html: '<p><img loading="lazy" src="a.png"><img src="b.png"></p>' })
+
+      const images = Array.from(document.querySelectorAll('#print-root img'))
+      expect(images.map((img) => img.getAttribute('loading'))).toEqual(['eager', 'eager'])
+    })
+
+    it('uses its own print root, not a document element that claims the id', async () => {
+      // A diagram label can carry id="print-root" into the editor DOM.
+      const decoy = document.createElement('span')
+      decoy.id = 'print-root'
+      document.body.prepend(decoy)
+      try {
+        await printDocument({ html: '<p>Mine</p>' })
+
+        expect(decoy.innerHTML).toBe('')
+        // Not looked up by id here either: with two, an id lookup finds the decoy.
+        const roots = Array.from(document.body.children).filter((el) => el.tagName === 'DIV')
+        expect(roots.map((el) => el.innerHTML)).toContain('<p>Mine</p>')
+      } finally {
+        decoy.remove()
+      }
+    })
+
+    it('rejects when the native print command is refused', async () => {
+      // On macOS Tauri replaces window.print with an IPC call that returns a promise.
+      printSpy.mockImplementation((() =>
+        Promise.reject('webview.print not allowed')) as unknown as () => void)
+
+      await expect(printDocument({ html: '<p>x</p>' })).rejects.toBe('webview.print not allowed')
+    })
+  })
+
+  describe('print permission', () => {
+    it('grants the webview print command that window.print() uses on macOS', () => {
+      const fs = (
+        globalThis as unknown as {
+          process: {
+            getBuiltinModule(id: 'node:fs'): { readFileSync(p: string, e: 'utf8'): string }
+          }
+        }
+      ).process.getBuiltinModule('node:fs')
+      const capability = JSON.parse(
+        fs.readFileSync('src-tauri/capabilities/default.json', 'utf8'),
+      ) as { permissions: string[] }
+
+      expect(capability.permissions).toContain('core:webview:allow-print')
     })
   })
 })

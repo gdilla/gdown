@@ -228,6 +228,7 @@ export const useSessionStore = defineStore('session', () => {
           const tab = tabsStore.createTab(null, markdown)
           indexToTabId.set(i, tab.id)
           tabsStore.saveEditorState(tab.id, { frontmatter, frontmatterAttributes })
+          tabsStore.reclassify(tab.id)
           tabsStore.setModified(tab.id, isModified)
           tabsStore.updateTabTitle(tab.id, sessionTab.title)
           // Restore scroll position and selection
@@ -242,6 +243,7 @@ export const useSessionStore = defineStore('session', () => {
           const tab = tabsStore.createTab(sessionTab.filePath, sessionTab.markdown || '')
           indexToTabId.set(i, tab.id)
           tabsStore.saveEditorState(tab.id, { frontmatter, frontmatterAttributes })
+          tabsStore.reclassify(tab.id)
           tabsStore.setModified(tab.id, true)
           tabsStore.updateTabTitle(tab.id, sessionTab.title)
           tabsStore.saveEditorState(tab.id, {

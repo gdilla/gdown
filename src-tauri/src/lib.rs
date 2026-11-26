@@ -3,6 +3,7 @@ mod commands;
 use commands::ai_files::{find_claude_project_dir, find_instruction_files, list_files_with_mtime};
 use commands::export::{
     check_pandoc, export_document, export_save_dialog, get_export_config, get_export_formats,
+    print_supported,
 };
 use commands::fs::{
     copy_image_to_assets, get_file_modified_time, read_directory_shallow, read_file,
@@ -225,6 +226,7 @@ pub fn run() {
             get_export_config,
             export_document,
             export_save_dialog,
+            print_supported,
             find_claude_project_dir,
             list_files_with_mtime,
             find_instruction_files,

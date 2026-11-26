@@ -923,6 +923,79 @@ html, body, #app {
   --search-current-ring: rgba(255, 152, 0, 0.5);
 }
 
+/* ---- Printing (Print / Export PDF) ----
+ * The webview prints the whole page. publishDocument.printDocument() renders the
+ * document into #print-root (a `.gdown-editor.content`, so it gets the light
+ * content palette above on every theme); print shows it in place of the app. */
+body > #print-root {
+  display: none;
+}
+
+@media print {
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+    background: none;
+  }
+
+  body > :not(#print-root) {
+    display: none !important;
+  }
+
+  body > #print-root {
+    display: block;
+    --text-primary: #333;
+    --bg-primary: #ffffff;
+  }
+
+  /* Paper cannot scroll: wrap long code lines instead of clipping them, and
+   * let a wide equation run on rather than be cut off. */
+  body > #print-root pre {
+    overflow: visible;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  body > #print-root .math-block {
+    overflow: visible;
+  }
+
+  /* The editor (ProseMirror) shows runs of spaces as typed. */
+  body > #print-root :is(p, h1, h2, h3, h4, h5, h6) {
+    white-space: break-spaces;
+  }
+
+  /* A blank line is an empty <p>: give it a line box, or it collapses to nothing. */
+  body > #print-root p:empty::before {
+    content: '';
+    display: inline-block;
+  }
+
+  body > #print-root > .print-source {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+
+  /* Backgrounds are not printed, so draw the rule as a border. */
+  body > #print-root hr {
+    height: 0;
+    border-top: 1px solid var(--border-strong);
+  }
+
+  /* Front matter is metadata, not part of the printed document. */
+  body > #print-root [data-type='frontmatter'] {
+    display: none;
+  }
+}
+
+/* The native print operation sets no margins of its own. */
+@page {
+  margin: 18mm 16mm;
+}
+
 /* ---- Editor CSS variable defaults ---- */
 
 :root {

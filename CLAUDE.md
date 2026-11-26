@@ -138,6 +138,44 @@ The WYSIWYG/source switch uses `v-if` in App.vue — **two separate components**
    history — Editor.vue `resetUndoHistory()`, SourceEditor.vue `restoreContent()` → `view.setState()`.
    Never load a document with a plain `setContent`/`dispatch({ changes })` alone (Undo would cross tabs).
 
+**Source-only tabs and size limits** (`src/utils/documentLimits.ts` holds the limits and the measurements
+behind them):
+- `Tab.sourceOnly` is set when a tab is created: `'plain-text'` for any file that is not markdown
+  (`.md .markdown .mdown .mkd .txt .text`), `'too-large'` for a document over `MAX_RICH_CHARS` (200 KB).
+  The rich editor rewrites what it loads as markdown (a CSV comes back with rows joined), and converts
+  the whole document on every edit, so it must never load such a tab.
+- `editorModeStore.mode` is the mode **in effect**: `'source'` whenever the active tab is source-only,
+  otherwise the user's preference. `setMode('wysiwyg')` is refused with a notice on a source-only tab.
+  Switching between a rich tab and a source-only tab therefore swaps Editor/SourceEditor through the
+  `v-if`, like an image tab does — not through the handoff protocol above.
+- Size only bounds work that is linear in the document. Work that can be quadratic is kept away from
+  source-only tabs altogether: SourceEditor loads them as plain text (the markdown parser takes 67 s on a
+  4 MB CSV) and builds no outline for them (the heading scan takes 62 s on 1 MB that opens with an unclosed
+  link-reference title), and `wordCount` counts them in one plain pass (its markdown-stripping patterns
+  take 33 s on a 440 KB CSV of `<LOD` values).
+- A source-only tab is stored whole (`splitDocument(content, true)`: `frontmatter` is null and `markdown`
+  is the entire file). In a plain-text file a leading `---` block is content, not front matter, so saving
+  cannot rewrite it; in a large markdown file it avoids re-parsing the front matter on every keystroke.
+  Front matter counts towards the 200 KB limit (`tabSourceOnlyReason`).
+- `sourceOnly` is a stored decision, re-made at fixed points — never derive it live, or a paste in the
+  rich editor would swap editors mid-edit. The points: open, disk reload and session recovery; Save As
+  (`setFilePath`); a tab becoming active (a sync watcher on `activeTabId` in `tabs.ts`, so every way of
+  activating a tab is covered); a mode request in either direction (`setMode`, after the outgoing
+  editor's flush); and, growth only, each source-editor edit (the language is switched off inside the
+  crossing transaction itself, by a `transactionExtender`, so a large paste is never parsed; both measure
+  the editor's text, and the tab is stored whole from that edit on). SourceEditor and `wordCount` watch the active tab's flag, because it can change without a tab
+  switch (SourceEditor swaps its language through `languageCompartment`, keeping cursor and undo).
+- A source-only tab is saved byte for byte: SourceEditor restores CRLF line endings on every read of
+  its text (`editorText`), since CodeMirror reads CRLF and writes LF.
+- SourceEditor's `renderedTabId` is the tab whose text is in the editor. On a tab switch it moves only
+  when the new tab is loaded (`pendingTabId` covers the gap): a `gdown:capture-state` in between must
+  save the outgoing document to its own tab. Moving it early wrote one tab's text into another.
+- `read_file` takes the open-size limit (`MAX_OPEN_BYTES`, 4 MB) on every call — opening, the
+  external-change reload and the save-conflict check — and refuses a larger file before reading it; when
+  opening, its error text is shown to the user. A reload re-decides `sourceOnly` (`applyDiskContent`).
+  Saving is never refused: `writeFileToDisk` warns, once per crossing, when it writes a file over the
+  limit (counted in UTF-8 bytes), since Leaf will not reopen it.
+
 **Keyboard shortcut rule:** Cmd+/ is handled by:
 - `Editor.vue` window listener → wysiwyg→source (calls `handleToggleMode`)
 - `source/SourceEditor.vue` window listener → source→wysiwyg (calls `setMode('wysiwyg')`)
@@ -229,5 +267,29 @@ Exported HTML copies only `.gdown-editor` rules, so content tokens also get ligh
 - **Cargo lib name** is `leaf_lib` (not `gdown_lib`) — main.rs calls `leaf_lib::run()`.
 - Mermaid and MathJax are **lazy-loaded** — do not add top-level imports of these packages.
 - The source editor is `src/components/source/SourceEditor.vue`; it is mounted only when source mode is active.
+- Anything that reads a tab's text to clean up or convert it as markdown must check
+  `tab.sourceOnly ?? tabSourceOnlyReason(tab)` first (the Outline panel's whole-document copy does): a source-only tab's
+  text is copied or saved as it is, never converted.
+- Commands that publish the rich editor's HTML (Export as HTML, Copy as Rich Text) go through
+  `richEditorFor()` in App.vue, which says why nothing happened when the source editor is showing.
+- **DO NOT** load a tab into the rich editor without checking `tab.sourceOnly`, and do not add per-edit
+  work that scans the whole document without checking it against the limits in `documentLimits.ts`.
+- **Printing:** on macOS `window.print()` is a Tauri IPC call that needs `core:webview:allow-print` and
+  rejects without it. Print through `publishDocument.printDocument()`, which renders the document into
+  `#print-root` (shown only by the `@media print` rules in `style.css`, all scoped to `body > #print-root`
+  so an element with that id inside a document is unaffected; `@page` supplies the margins,
+  because the native print operation sets none). Images in that hidden root must be `loading="eager"`
+  (the editor serialises them lazy, which never loads there), and do not `await img.decode()` on an
+  image that is not displayed — WebKit never settles it. `collectThemeCss()` skips rules that mention
+  `#print-root`: in an exported file they would hide the whole document when it is printed. A print is
+  requested from outside App.vue with a `gdown:print` CustomEvent; App.vue sets `detail.started`, a
+  promise of whether the print sheet was reached. Source mode prints the editor's own text
+  (`SourceEditor.getPrintContent()`, with its tab width), not a re-assembly of tab state. `exportStore.pdfViaPrint` is the one
+  test of "this PDF export will be a print": the export dialog reads it to say so beforehand, and
+  `runExport` acts on it before any Pandoc-only check (an empty body still prints its front matter). It is true
+  only for PDF with no LaTeX engine found **and no Pandoc flags set**: any flags mean "run Pandoc as
+  configured" — do not add heuristics for which flags choose an engine (two review rounds each found
+  one the heuristic missed). `printDocument()` first asks the `print_supported` command, because before macOS 11 the
+  webview's print command does nothing without reporting it.
 - **Test files use `.test.ts`** extension (not `.spec.ts`). Tests live in `src/__tests__/` mirroring `src/` structure.
 - **Worktree pnpm setup:** `pnpm-workspace.yaml` intentionally denies esbuild build scripts. Do not symlink binaries, approve dependency scripts ad hoc, or bypass hooks with `--no-verify`. Report missing build outputs as a setup/config failure and handle policy changes separately.

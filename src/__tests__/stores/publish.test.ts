@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { usePublishStore } from '../../stores/publish'
+import { printDocument } from '../../utils/publishDocument'
+
+vi.mock('../../utils/publishDocument', () => ({
+  printDocument: vi.fn(),
+}))
 
 describe('usePublishStore', () => {
   beforeEach(() => {
@@ -76,5 +81,47 @@ describe('usePublishStore', () => {
     // 5s from second call should reset
     vi.advanceTimersByTime(3000)
     expect(store.status).toBe('idle')
+  })
+
+  it('printToPdf hands the document to the print pipeline', async () => {
+    vi.mocked(printDocument).mockResolvedValue()
+    const store = usePublishStore()
+
+    await expect(store.printToPdf({ html: '<p>Hi</p>' })).resolves.toBe(true)
+
+    expect(printDocument).toHaveBeenCalledWith({ html: '<p>Hi</p>' })
+    expect(store.status).toBe('idle')
+  })
+
+  it('printToPdf reports a refused print instead of failing silently', async () => {
+    vi.mocked(printDocument).mockRejectedValue('webview.print not allowed')
+    const store = usePublishStore()
+
+    await expect(store.printToPdf({ html: '<p>Hi</p>' })).resolves.toBe(false)
+
+    expect(store.status).toBe('error')
+    expect(store.statusMessage).toBe('Print failed: webview.print not allowed')
+  })
+
+  it('printToPdf ignores a second request while one is being prepared', async () => {
+    let finish!: () => void
+    vi.mocked(printDocument).mockClear()
+    vi.mocked(printDocument).mockReturnValue(
+      new Promise<void>((resolve) => {
+        finish = resolve
+      }),
+    )
+    const store = usePublishStore()
+
+    const first = store.printToPdf({ html: '<p>One</p>' })
+    await vi.waitFor(() => expect(printDocument).toHaveBeenCalledTimes(1))
+    await expect(store.printToPdf({ html: '<p>Two</p>' })).resolves.toBe(false)
+    expect(printDocument).toHaveBeenCalledTimes(1)
+
+    finish()
+    await first
+    vi.mocked(printDocument).mockResolvedValue()
+    await store.printToPdf({ html: '<p>Three</p>' })
+    expect(printDocument).toHaveBeenCalledTimes(2)
   })
 })

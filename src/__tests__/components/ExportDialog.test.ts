@@ -62,3 +62,64 @@ describe('ExportDialog focus handling', () => {
     expect(document.activeElement).toBe(last)
   })
 })
+
+describe('ExportDialog PDF without a LaTeX engine', () => {
+  let wrapper: VueWrapper
+
+  async function open(pdfEngine: string | null, format = 'pdf') {
+    setActivePinia(createPinia())
+    wrapper = mount(ExportDialog)
+    const store = useExportStore()
+    store.pandocInfo = { path: '/usr/bin/pandoc', version: '3.7', pdf_engine: pdfEngine }
+    store.selectedFormatId = format
+    store.dialogVisible = true
+    await nextTick()
+    await nextTick()
+    return store
+  }
+
+  const button = (text: string) =>
+    Array.from(dialog()!.querySelectorAll('button')).find((b) => b.textContent?.trim() === text)
+
+  afterEach(() => {
+    wrapper.unmount()
+  })
+
+  it('says the export is a print and turns off the options a print ignores', async () => {
+    await open(null)
+
+    expect(dialog()!.textContent).toContain('No LaTeX engine (xelatex) was found')
+    // Nothing Pandoc does applies to a print, configured filters and templates included.
+    expect(dialog()!.textContent).toMatch(/Pandoc\s+does\s+not\s+run/)
+    expect(dialog()!.textContent).toMatch(/filters/)
+    expect(button('Print…')).toBeDefined()
+    expect(button('Export')).toBeUndefined()
+    expect(button('Browse...')!.disabled).toBe(true)
+    expect(dialog()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true)
+    // The flags stay editable: naming an engine there sends the export through Pandoc.
+    expect(dialog()!.querySelector<HTMLInputElement>('#export-extra-flags')!.disabled).toBe(false)
+  })
+
+  it('exports through Pandoc once any flags are set, and says what that needs', async () => {
+    const store = await open(null)
+    store.extraFlags = '--pdf-engine=weasyprint'
+    await nextTick()
+
+    expect(button('Export')).toBeDefined()
+    expect(button('Print…')).toBeUndefined()
+    expect(button('Browse...')!.disabled).toBe(false)
+    // Still no xelatex: the export only works if the flags choose an engine.
+    expect(dialog()!.textContent).toContain('No LaTeX engine (xelatex) was found')
+    expect(dialog()!.textContent).toMatch(/Clear\s+the\s+flags/)
+  })
+
+  it.each([
+    ['xelatex', 'pdf'],
+    [null, 'html'],
+  ])('is an ordinary export with engine %s and format %s', async (engine, format) => {
+    await open(engine, format)
+
+    expect(dialog()!.textContent).not.toContain('No LaTeX engine')
+    expect(button('Export')).toBeDefined()
+  })
+})

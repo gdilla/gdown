@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useOutlineStore } from '../../stores/outline'
 import { useTabsStore } from '../../stores/tabs'
+import { useAutoSaveStore } from '../../stores/autoSave'
+import * as converter from '../../utils/markdownConverter'
+import { MAX_RICH_CHARS } from '../../utils/documentLimits'
 
 describe('useOutlineStore', () => {
   beforeEach(() => {
@@ -512,6 +515,80 @@ Some paragraph.
       const outlineStore = useOutlineStore()
       const result = await outlineStore.copySection(99, 'markdown')
       expect(result).toBe(false)
+    })
+  })
+  // The Outline panel's whole-document copy buttons work without any headings.
+  describe('copyWholeDocument', () => {
+    const clipboard = { writeText: vi.fn(), write: vi.fn() }
+
+    beforeEach(() => {
+      clipboard.writeText.mockReset().mockResolvedValue(undefined)
+      clipboard.write.mockReset().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+    })
+
+    // Backslashes in a CSV are data, not Turndown escapes to clean up.
+    const CSV = 'path,pattern\nC:\\[dir\\],a\\_b\n'
+
+    it('copies a source-only tab as its literal text', async () => {
+      useTabsStore().createTab('/tmp/data.csv', CSV)
+      const toHtml = vi.spyOn(converter, 'markdownToHtml')
+
+      await expect(useOutlineStore().copyWholeDocument('markdown')).resolves.toBe(true)
+
+      expect(clipboard.writeText).toHaveBeenCalledWith(CSV)
+      expect(toHtml).not.toHaveBeenCalled()
+      toHtml.mockRestore()
+    })
+
+    // Rendering is the whole-document markdown conversion a source-only tab
+    // must never run (it is what froze the app on large CSVs).
+    it.each([
+      ['a plain-text file', '/tmp/data.csv', CSV, 'data.csv is a plain-text file'],
+      [
+        'a document over the rich limit',
+        '/tmp/book.md',
+        'a'.repeat(MAX_RICH_CHARS + 1),
+        'book.md is over 200 KB',
+      ],
+    ])('refuses a rendered copy of %s and says why', async (_, path, content, reason) => {
+      useTabsStore().createTab(path, content)
+      const toHtml = vi.spyOn(converter, 'markdownToHtml')
+
+      await expect(useOutlineStore().copyWholeDocument('richtext')).resolves.toBe(false)
+
+      expect(toHtml).not.toHaveBeenCalled()
+      expect(clipboard.write).not.toHaveBeenCalled()
+      expect(useAutoSaveStore().saveNotification).toEqual({
+        message: `Copy as Rich Text needs the rich editor. ${reason}, so it stays in source mode.`,
+        type: 'warning',
+      })
+      toHtml.mockRestore()
+    })
+
+    // Trimmed under the limit but not reclassified yet (that happens on a tab
+    // or mode change): still a source-only tab, with its text stored whole.
+    it('keeps treating a trimmed source-only tab as text until it is reclassified', async () => {
+      const tabs = useTabsStore()
+      const tab = tabs.createTab('/tmp/book.md', 'a'.repeat(MAX_RICH_CHARS + 1))
+      tabs.saveEditorState(tab.id, { markdown: 'a\\_b' })
+      expect(tab.sourceOnly).toBe('too-large')
+      const toHtml = vi.spyOn(converter, 'markdownToHtml')
+      const outline = useOutlineStore()
+
+      await expect(outline.copyWholeDocument('markdown')).resolves.toBe(true)
+      expect(clipboard.writeText).toHaveBeenCalledWith('a\\_b')
+      await expect(outline.copyWholeDocument('richtext')).resolves.toBe(false)
+      expect(toHtml).not.toHaveBeenCalled()
+      toHtml.mockRestore()
+    })
+
+    it('still cleans up Turndown escapes when copying a markdown document', async () => {
+      useTabsStore().createTab('/tmp/note.md', 'a\\_b')
+
+      await expect(useOutlineStore().copyWholeDocument('markdown')).resolves.toBe(true)
+
+      expect(clipboard.writeText).toHaveBeenCalledWith('a_b')
     })
   })
 })

@@ -57,6 +57,7 @@ import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { NodeViewWrapper } from '@tiptap/vue-3'
 import type { NodeViewProps } from '@tiptap/vue-3'
 import { openUrl } from '@tauri-apps/plugin-opener'
+import { stripInteractiveElements } from '../utils/mermaidSvg'
 
 const props = defineProps<NodeViewProps>()
 
@@ -118,20 +119,6 @@ async function renderDiagram() {
     renderError.value = err?.message || 'Failed to render diagram'
     svgOutput.value = ''
   }
-}
-
-/**
- * 'strict' DOMPurifies HTML labels with DOMPurify's default allow-list, which
- * keeps form controls and image maps. A diagram never needs them, and a form
- * submit or <area> click would navigate the app webview, so drop them.
- */
-function stripInteractiveElements(svg: string): string {
-  const template = document.createElement('template')
-  template.innerHTML = svg
-  template.content
-    .querySelectorAll('form, input, button, select, textarea, map, area')
-    .forEach((el) => el.remove())
-  return template.innerHTML
 }
 
 /**

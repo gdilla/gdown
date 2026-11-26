@@ -70,7 +70,7 @@ describe('App quit during an export', () => {
 
     const exportStore = useExportStore()
     exportStore.formats = [{ id: 'html', label: 'HTML', extension: 'html' }]
-    exportStore.pandocInfo = { path: '/usr/bin/pandoc', version: '3.7' }
+    exportStore.pandocInfo = { path: '/usr/bin/pandoc', version: '3.7', pdf_engine: null }
     exportStore.selectedFormatId = 'html'
     exportStore.customOutputPath = '/tmp/notes.html'
     void exportStore.performExport()

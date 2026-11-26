@@ -102,7 +102,11 @@ export function assembleFrontMatter(rawYaml: string | null | undefined, body: st
   }
 
   // Ensure the YAML doesn't have trailing newline before we add delimiter
-  const trimmedYaml = rawYaml.replace(/\n+$/, '')
+  // A loop, not `/\n+$/`: that regex retries from every newline of a long run
+  // that is not at the end, which is quadratic (4.8 s for 50,000 of them).
+  let yamlEnd = rawYaml.length
+  while (yamlEnd > 0 && rawYaml[yamlEnd - 1] === '\n') yamlEnd--
+  const trimmedYaml = rawYaml.slice(0, yamlEnd)
 
   // Ensure body starts without leading newline (we add exactly one)
   const trimmedBody = body.replace(/^\n/, '')
@@ -190,4 +194,24 @@ function parseSimpleYaml(yaml: string): Record<string, string> {
  */
 export function extractTitle(attributes: Record<string, string>): string | null {
   return attributes['title'] || attributes['Title'] || attributes['TITLE'] || null
+}
+
+/**
+ * Split file content into the parts a tab stores. A source-only tab is kept
+ * whole. In a plain-text file a leading `---` block is content (multi-document
+ * YAML, say), and re-assembling it as front matter would rewrite lines the user
+ * never touched; in a large markdown file, re-parsing megabytes of front matter
+ * on every keystroke is work the source editor has no use for.
+ */
+export function splitDocument(
+  content: string,
+  whole: boolean,
+): { markdown: string; frontmatter: string | null; frontmatterAttributes: Record<string, string> } {
+  if (whole) return { markdown: content, frontmatter: null, frontmatterAttributes: {} }
+  const { rawYaml, attributes, body, hasFrontMatter } = parseFrontMatter(content)
+  return {
+    markdown: body,
+    frontmatter: hasFrontMatter ? rawYaml : null,
+    frontmatterAttributes: hasFrontMatter ? attributes : {},
+  }
 }
