@@ -487,6 +487,33 @@ describe('useAutoSaveStore', () => {
       modifiedTime = 300
       await autoSaveStore.checkForExternalChanges()
       expect(autoSaveStore.saveNotification).toEqual(stale)
+
+      // A readable revision is loaded; then a sync tool restores the oversized
+      // one with its old timestamp. That is a new failure, not the one reported.
+      let readable = true
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'get_file_modified_time') return modifiedTime
+        if (command === 'read_file') {
+          if (readable) return 'a,b\n1,2\n'
+          throw tooLarge
+        }
+        return undefined
+      })
+      modifiedTime = 400
+      await autoSaveStore.checkForExternalChanges()
+      expect(tab.editorState.markdown).toBe('a,b\n1,2\n')
+      readable = false
+      modifiedTime = 300
+      autoSaveStore.saveNotification = null
+      await autoSaveStore.checkForExternalChanges()
+      expect(autoSaveStore.saveNotification).toEqual(stale)
+
+      // Closed and tracked again from a new tab: also a fresh start.
+      autoSaveStore.untrackFile('/tmp/grown.csv')
+      autoSaveStore.knownModifiedTimes['/tmp/grown.csv'] = 100
+      autoSaveStore.saveNotification = null
+      await autoSaveStore.checkForExternalChanges()
+      expect(autoSaveStore.saveNotification).toEqual(stale)
     })
 
     it('stays quiet when a watched file has simply gone away', async () => {

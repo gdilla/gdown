@@ -150,6 +150,7 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
   function untrackFile(filePath: string): void {
     delete knownModifiedTimes.value[filePath]
     writtenOverOpenLimit.delete(filePath)
+    unreadableModifiedTimes.delete(filePath)
   }
 
   /** Mark a recovered dirty file for an explicit disk conflict decision. */
@@ -550,6 +551,8 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
           }
           continue
         }
+        // Readable again: a later unreadable revision is a new failure to report.
+        unreadableModifiedTimes.delete(filePath)
         const currentTab = tabsStore.tabs.find((candidate) => candidate.id === tab.id)
         if (!currentTab || currentTab.filePath !== filePath || inFlightSaves.has(tab.id)) continue
 

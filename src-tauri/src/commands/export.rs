@@ -518,9 +518,9 @@ fn extended_path() -> String {
 /// and only xelatex ran before this check existed.
 const PDF_ENGINE: &str = "xelatex";
 
-/// `PDF_ENGINE` when a directory of `path` holds one this process can run.
+/// `PDF_ENGINE` when a directory of `path` holds one that runs for this process.
 /// Running it is the test: mode bits say that someone may execute the file,
-/// not that the user running Leaf (and so Pandoc) may.
+/// not that the user running Leaf (and so Pandoc) may, nor that it works.
 fn find_pdf_engine(path: &str) -> Option<String> {
     use std::process::Stdio;
     std::env::split_paths(path)
@@ -533,7 +533,7 @@ fn find_pdf_engine(path: &str) -> Option<String> {
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .status()
-                    .is_ok()
+                    .is_ok_and(|status| status.success())
         })
         .then(|| PDF_ENGINE.to_string())
 }
@@ -937,13 +937,14 @@ mod tests {
         let empty = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
         let path = format!("{}:{}", empty.path().display(), bin.path().display());
-        let install = |name: &str, mode: u32| {
+        let install_exiting = |name: &str, mode: u32, exit_code: u8| {
             let file = bin.path().join(name);
             // Replace, not overwrite: an earlier mode may not allow writing.
             let _ = fs::remove_file(&file);
-            fs::write(&file, "#!/bin/sh\nexit 0\n").unwrap();
+            fs::write(&file, format!("#!/bin/sh\nexit {exit_code}\n")).unwrap();
             fs::set_permissions(&file, fs::Permissions::from_mode(mode)).unwrap();
         };
+        let install = |name: &str, mode: u32| install_exiting(name, mode, 0);
 
         assert_eq!(find_pdf_engine(&path), None);
 
@@ -961,6 +962,11 @@ mod tests {
         // Executable for someone, but not for the user running Leaf (the owner
         // class applies to this file): Pandoc could not run it either.
         install("xelatex", 0o411);
+        assert_eq!(find_pdf_engine(&path), None);
+
+        // Runs but fails (a broken install, a wrapper without its binary):
+        // Pandoc would fail with it too.
+        install_exiting("xelatex", 0o755, 1);
         assert_eq!(find_pdf_engine(&path), None);
 
         install("xelatex", 0o755);
