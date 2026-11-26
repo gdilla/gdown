@@ -229,10 +229,11 @@ export const useOutlineStore = defineStore('outline', () => {
     const markdown = tab?.editorState?.markdown
     if (!tab || !markdown) return false
 
-    // A source-only tab (or one that has outgrown the limit) is not markdown
-    // to clean up or convert: its text is copied as it is, and a rendered copy
-    // is refused, since that conversion is what such a document must never run.
-    const sourceOnly = tabSourceOnlyReason(tab)
+    // A source-only tab (as classified, or having outgrown the limit since) is
+    // not markdown to clean up or convert: its text is copied as it is, and a
+    // rendered copy is refused, since that conversion is what such a document
+    // must never run.
+    const sourceOnly = tab.sourceOnly ?? tabSourceOnlyReason(tab)
     if (sourceOnly) {
       if (format === 'richtext') {
         useAutoSaveStore().showNotification(

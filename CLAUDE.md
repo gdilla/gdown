@@ -268,7 +268,7 @@ Exported HTML copies only `.gdown-editor` rules, so content tokens also get ligh
 - Mermaid and MathJax are **lazy-loaded** — do not add top-level imports of these packages.
 - The source editor is `src/components/source/SourceEditor.vue`; it is mounted only when source mode is active.
 - Anything that reads a tab's text to clean up or convert it as markdown must check
-  `tabSourceOnlyReason(tab)` first (the Outline panel's whole-document copy does): a source-only tab's
+  `tab.sourceOnly ?? tabSourceOnlyReason(tab)` first (the Outline panel's whole-document copy does): a source-only tab's
   text is copied or saved as it is, never converted.
 - Commands that publish the rich editor's HTML (Export as HTML, Copy as Rich Text) go through
   `richEditorFor()` in App.vue, which says why nothing happened when the source editor is showing.

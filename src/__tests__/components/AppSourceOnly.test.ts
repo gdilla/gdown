@@ -47,8 +47,12 @@ function pressCmdSlash() {
   window.dispatchEvent(new KeyboardEvent('keydown', { key: '/', metaKey: true, bubbles: true }))
 }
 
+// The source editor is a lazily loaded chunk: the first test to show it waits
+// for the import, which takes over waitFor's default second on a busy machine.
 async function sourceShown(wrapper: VueWrapper): Promise<void> {
-  await vi.waitFor(() => expect(wrapper.find('.cm-content').exists()).toBe(true))
+  await vi.waitFor(() => expect(wrapper.find('.cm-content').exists()).toBe(true), {
+    timeout: 4000,
+  })
 }
 
 /** Name of the language CodeMirror is parsing the shown document as, or null for plain text. */

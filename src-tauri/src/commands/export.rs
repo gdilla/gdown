@@ -518,23 +518,20 @@ fn extended_path() -> String {
 /// and only xelatex ran before this check existed.
 const PDF_ENGINE: &str = "xelatex";
 
-/// `PDF_ENGINE` when a directory of `path` holds one that runs for this process.
-/// Running it is the test: mode bits say that someone may execute the file,
-/// not that the user running Leaf (and so Pandoc) may, nor that it works.
+/// `PDF_ENGINE` when running it by name with `path` as the PATH succeeds.
+/// That is how Pandoc starts it, so this finds the same executable Pandoc
+/// would, and finds out whether the user running Leaf can run it and whether it
+/// works: an execute bit, or a working copy later on the PATH, says neither.
 fn find_pdf_engine(path: &str) -> Option<String> {
     use std::process::Stdio;
-    std::env::split_paths(path)
-        .any(|dir| {
-            let candidate = dir.join(PDF_ENGINE);
-            candidate.is_file()
-                && Command::new(&candidate)
-                    .arg("--version")
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .is_ok_and(|status| status.success())
-        })
+    Command::new(PDF_ENGINE)
+        .arg("--version")
+        .env("PATH", path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
         .then(|| PDF_ENGINE.to_string())
 }
 
@@ -971,6 +968,15 @@ mod tests {
 
         install("xelatex", 0o755);
         assert_eq!(find_pdf_engine(&path), Some("xelatex".to_string()));
+
+        // A broken xelatex earlier on the PATH is the one Pandoc would run
+        // (it is given the bare name), whatever comes after it.
+        let first = tempfile::tempdir().unwrap();
+        let broken = first.path().join("xelatex");
+        fs::write(&broken, "#!/bin/sh\nexit 1\n").unwrap();
+        fs::set_permissions(&broken, fs::Permissions::from_mode(0o755)).unwrap();
+        let shadowed = format!("{}:{}", first.path().display(), path);
+        assert_eq!(find_pdf_engine(&shadowed), None);
     }
 
     #[test]

@@ -566,6 +566,23 @@ Some paragraph.
       toHtml.mockRestore()
     })
 
+    // Trimmed under the limit but not reclassified yet (that happens on a tab
+    // or mode change): still a source-only tab, with its text stored whole.
+    it('keeps treating a trimmed source-only tab as text until it is reclassified', async () => {
+      const tabs = useTabsStore()
+      const tab = tabs.createTab('/tmp/book.md', 'a'.repeat(MAX_RICH_CHARS + 1))
+      tabs.saveEditorState(tab.id, { markdown: 'a\\_b' })
+      expect(tab.sourceOnly).toBe('too-large')
+      const toHtml = vi.spyOn(converter, 'markdownToHtml')
+      const outline = useOutlineStore()
+
+      await expect(outline.copyWholeDocument('markdown')).resolves.toBe(true)
+      expect(clipboard.writeText).toHaveBeenCalledWith('a\\_b')
+      await expect(outline.copyWholeDocument('richtext')).resolves.toBe(false)
+      expect(toHtml).not.toHaveBeenCalled()
+      toHtml.mockRestore()
+    })
+
     it('still cleans up Turndown escapes when copying a markdown document', async () => {
       useTabsStore().createTab('/tmp/note.md', 'a\\_b')
 
