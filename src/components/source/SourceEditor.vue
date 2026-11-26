@@ -32,6 +32,7 @@ import {
   frontmatterHighlightTheme,
 } from '../../codemirror/frontmatter-highlight'
 import { assembleFrontMatter, splitDocument } from '../../utils/frontmatter'
+import { tabSourceOnlyReason } from '../../utils/documentLimits'
 import { useTabsStore } from '../../stores/tabs'
 import { useEditorModeStore } from '../../stores/editorMode'
 import { useEditorSettingsStore } from '../../stores/editorSettings'
@@ -49,12 +50,54 @@ const mathPreviewVisible = ref(false)
 const mathPreviewHtml = ref('')
 const cmView = shallowRef<EditorView | null>(null)
 const settingsCompartment = new Compartment()
+const languageCompartment = new Compartment()
 
 // The tab represented by this mounted editor. activeTabId can move before
 // Vue unmounts the editor when switching to an image tab.
 let renderedTabId: string | null = null
 // The tab a switch is about to load; a later switch supersedes it.
 let pendingTabId: string | null = null
+// Whether the document in the editor came with CRLF line endings (see editorText).
+let renderedCrlf = false
+
+function renderedTab(): Tab | undefined {
+  return tabsStore.tabs.find((tab) => tab.id === renderedTabId)
+}
+
+/**
+ * The editor's text as the file stores it. CodeMirror reads CRLF as a line
+ * break and writes LF; a source-only tab is saved byte for byte, so a file
+ * that came with CRLF line endings gets them back.
+ */
+// ponytail: all-CRLF files only; one with mixed line endings is saved with LF,
+// as every file was before. Markdown tabs are too: their front matter is
+// re-assembled with LF.
+function editorText(state: EditorState): string {
+  const text = state.doc.toString()
+  return renderedCrlf ? text.replace(/\n/g, '\r\n') : text
+}
+
+function hasOnlyCrlfLineEndings(content: string): boolean {
+  return content.includes('\r\n') && !/\r(?!\n)|(?<!\r)\n/.test(content)
+}
+
+/**
+ * Markdown parsing and highlighting, or nothing for a source-only tab: the
+ * markdown parser reads a CSV as one paragraph and is quadratic in its length
+ * (0.9 s at 500 KB, 67 s at 4 MB), which would freeze the editor.
+ */
+function languageExtensions(plainText: boolean): Extension[] {
+  if (plainText) return []
+  return [
+    markdown({
+      base: markdownLanguage,
+      codeLanguages: languages,
+    }),
+    mathHighlightPlugin,
+    frontmatterHighlightPlugin,
+    frontmatterHighlightTheme,
+  ]
+}
 
 // Outline headings are re-scanned once edits settle, not on every keystroke.
 const OUTLINE_REFRESH_MS = 150
@@ -67,7 +110,7 @@ function refreshOutline(): void {
   if (!view) return
   // No outline for a source-only tab: the heading scan parses the whole document
   // as markdown, which is quadratic on some input (62 s for 1 MB).
-  if (tabsStore.tabs.find((tab) => tab.id === renderedTabId)?.sourceOnly) {
+  if (renderedTab()?.sourceOnly) {
     outlineStore.clearHeadings()
     return
   }
@@ -90,11 +133,7 @@ const sourceKeymap = [...searchKeymap, ...defaultKeymap, ...historyKeymap, inden
   // Shift+Cmd+G is App.vue's "Open by Path"; find-previous stays on Shift+F3 / Shift+Enter.
   .map((binding) => (binding.key === 'Mod-g' ? { ...binding, shift: undefined } : binding))
 
-/**
- * Build the full set of CodeMirror extensions. A source-only tab is edited as
- * plain text: the markdown parser reads a CSV as one paragraph and is quadratic
- * in its length (0.9 s at 500 KB, 67 s at 4 MB), which would freeze the editor.
- */
+/** Build the full set of CodeMirror extensions. A source-only tab is edited as plain text. */
 function buildExtensions(plainText: boolean): Extension[] {
   return [
     settingsCompartment.of(
@@ -116,17 +155,7 @@ function buildExtensions(plainText: boolean): Extension[] {
     bracketMatching(),
     indentOnInput(),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-    ...(plainText
-      ? []
-      : [
-          markdown({
-            base: markdownLanguage,
-            codeLanguages: languages,
-          }),
-          mathHighlightPlugin,
-          frontmatterHighlightPlugin,
-          frontmatterHighlightTheme,
-        ]),
+    languageCompartment.of(languageExtensions(plainText)),
     search({ top: true }),
     keymap.of(sourceKeymap),
     EditorView.updateListener.of((update) => {
@@ -137,10 +166,15 @@ function buildExtensions(plainText: boolean): Extension[] {
       if (update.docChanged) {
         const tabId = renderedTabId
         if (tabId) {
-          const content = update.state.doc.toString()
+          const content = editorText(update.state)
           tabsStore.setModified(tabId, true)
           // Body and front-matter are stored separately; source mode works with raw markdown.
           tabsStore.saveEditorState(tabId, { ...splitTabContent(tabId, content), doc: null })
+          // An edit (a large paste, say) can take a markdown tab past the rich
+          // limit. Only that direction is decided here: letting a trimmed tab
+          // back into rich mode would swap editors under the cursor.
+          const tab = renderedTab()
+          if (tab && !tab.sourceOnly && tabSourceOnlyReason(tab)) tabsStore.reclassify(tabId)
           // Update math preview if visible
           if (mathPreviewVisible.value) {
             updateMathPreview(content)
@@ -254,10 +288,12 @@ function initEditor() {
   if (!editorContainer.value) return
 
   const content = getActiveContent()
+  const plainText = Boolean(tabsStore.activeTab?.sourceOnly)
+  renderedCrlf = plainText && hasOnlyCrlfLineEndings(content)
 
   const state = EditorState.create({
     doc: content,
-    extensions: buildExtensions(Boolean(tabsStore.activeTab?.sourceOnly)),
+    extensions: buildExtensions(plainText),
   })
 
   cmView.value = new EditorView({
@@ -274,8 +310,10 @@ function initEditor() {
  */
 function restoreContent(tab: Tab, content: string) {
   if (!cmView.value) return
+  const plainText = Boolean(tab.sourceOnly)
+  renderedCrlf = plainText && hasOnlyCrlfLineEndings(content)
   cmView.value.setState(
-    EditorState.create({ doc: content, extensions: buildExtensions(Boolean(tab.sourceOnly)) }),
+    EditorState.create({ doc: content, extensions: buildExtensions(plainText) }),
   )
   refreshOutline()
 }
@@ -289,7 +327,7 @@ function splitTabContent(tabId: string, content: string) {
 /** Capture raw content and navigation state before a tab or mode change. */
 function captureEditorState(tabId: string): void {
   if (!cmView.value) return
-  const content = cmView.value.state.doc.toString()
+  const content = editorText(cmView.value.state)
   const { from, to } = cmView.value.state.selection.main
   tabsStore.saveEditorState(tabId, {
     ...splitTabContent(tabId, content),
@@ -388,6 +426,24 @@ watch(
         })
       }
     }
+  },
+)
+
+// The tab on screen can change classification without a tab switch: Save As
+// to another file type, or an edit past the rich limit. Swap the language in
+// place; the compartment preserves the document, selection and history.
+watch(
+  () => Boolean(tabsStore.activeTab?.sourceOnly),
+  (plainText) => {
+    // Mid tab switch the editor still holds the outgoing tab (restoreTab()
+    // builds the incoming one's extensions); in rich mode it is about to unmount.
+    if (!cmView.value || renderedTabId !== tabsStore.activeTabId || editorModeStore.isWysiwyg) {
+      return
+    }
+    cmView.value.dispatch({
+      effects: languageCompartment.reconfigure(languageExtensions(plainText)),
+    })
+    refreshOutline()
   },
 )
 

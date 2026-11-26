@@ -379,6 +379,57 @@ describe('useAutoSaveStore', () => {
       )
     })
 
+    // The copy on screen is stale and still marked saved; that must not be silent.
+    it('says once per disk revision that a changed file could not be reloaded', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      const tab = tabsStore.createTab('/tmp/grown.csv', 'a,b\n')
+      autoSaveStore.knownModifiedTimes['/tmp/grown.csv'] = 100
+      let modifiedTime = 200
+      const tooLarge =
+        "'grown.csv' is too large to open (9.0 MB; Leaf opens text files up to 4.0 MB)."
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'get_file_modified_time') return modifiedTime
+        if (command === 'read_file') throw tooLarge
+        return undefined
+      })
+      const stale = {
+        message: `grown.csv changed on disk and could not be reloaded: ${tooLarge}`,
+        type: 'error',
+      }
+
+      await autoSaveStore.checkForExternalChanges()
+      expect(autoSaveStore.saveNotification).toEqual(stale)
+      expect(tab.editorState.markdown).toBe('a,b\n')
+
+      // The same revision is not announced again on later scans.
+      autoSaveStore.saveNotification = null
+      await autoSaveStore.checkForExternalChanges()
+      expect(autoSaveStore.saveNotification).toBeNull()
+
+      // A newer revision that still cannot be read is.
+      modifiedTime = 300
+      await autoSaveStore.checkForExternalChanges()
+      expect(autoSaveStore.saveNotification).toEqual(stale)
+    })
+
+    it('stays quiet when a watched file has simply gone away', async () => {
+      const tabsStore = useTabsStore()
+      const autoSaveStore = useAutoSaveStore()
+      disableAutoSave()
+      tabsStore.createTab('/tmp/gone.md', '# Gone')
+      autoSaveStore.knownModifiedTimes['/tmp/gone.md'] = 100
+      mockedInvoke.mockImplementation(async (command) => {
+        if (command === 'get_file_modified_time') throw 'No such file or directory'
+        return undefined
+      })
+
+      await autoSaveStore.checkForExternalChanges()
+
+      expect(autoSaveStore.saveNotification).toBeNull()
+    })
+
     it('decides a reloaded document the way opening it does: front matter counts', async () => {
       const tabsStore = useTabsStore()
       const autoSaveStore = useAutoSaveStore()

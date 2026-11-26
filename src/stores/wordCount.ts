@@ -226,9 +226,10 @@ export const useWordCountStore = defineStore('wordCount', () => {
     showDetails.value = !showDetails.value
   }
 
-  // Watch active tab changes — update immediately
+  // Watch active tab changes — update immediately. Save As can change how the
+  // same tab is counted (`sourceOnly`) without changing its text.
   watch(
-    () => tabsStore.activeTabId,
+    [() => tabsStore.activeTabId, () => tabsStore.activeTab?.sourceOnly],
     () => {
       updateStats()
     },

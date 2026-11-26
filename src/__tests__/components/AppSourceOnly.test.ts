@@ -3,9 +3,11 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { EditorView } from '@codemirror/view'
 import { language } from '@codemirror/language'
+import { undoDepth } from '@codemirror/commands'
 import App from '../../App.vue'
 import { useTabsStore } from '../../stores/tabs'
 import { useEditorModeStore } from '../../stores/editorMode'
+import { useEditorSettingsStore } from '../../stores/editorSettings'
 import { useAutoSaveStore } from '../../stores/autoSave'
 import { useOutlineStore } from '../../stores/outline'
 import { invoke } from '@tauri-apps/api/core'
@@ -312,5 +314,132 @@ describe('App with source-only tabs', () => {
     tabs.setActiveTab(note.id)
     await flushPromises()
     await vi.waitFor(() => expect(sourceLanguage(wrapper!)).toBe('markdown'))
+  })
+
+  // The classification of the tab on screen can change without a tab switch.
+  it('stops parsing the shown note as markdown when it is saved as a CSV, keeping cursor and undo', async () => {
+    const tabs = useTabsStore()
+    const note = tabs.createTab('/tmp/note.md', '# Note\n\ntext')
+    const outline = useOutlineStore()
+    useEditorSettingsStore().defaultMode = 'source'
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    await sourceShown(wrapper)
+    expect(sourceLanguage(wrapper)).toBe('markdown')
+    await vi.waitFor(() => expect(outline.headings.map((h) => h.text)).toEqual(['Note']))
+
+    const view = EditorView.findFromDOM(wrapper.find('.cm-editor').element as HTMLElement)!
+    view.dispatch({
+      changes: { from: view.state.doc.length, insert: 'x' },
+      selection: { anchor: 4 },
+    })
+
+    tabs.setFilePath(note.id, '/tmp/note.csv')
+    await flushPromises()
+    expect(sourceLanguage(wrapper)).toBeNull()
+    expect(outline.headings).toEqual([])
+    expect(view.state.doc.toString()).toBe('# Note\n\ntextx')
+    expect(view.state.selection.main.head).toBe(4)
+    expect(undoDepth(view.state)).toBe(1)
+
+    // Saved back as markdown, it is a markdown document again.
+    tabs.setFilePath(note.id, '/tmp/note.md')
+    await flushPromises()
+    expect(sourceLanguage(wrapper)).toBe('markdown')
+    await vi.waitFor(() => expect(outline.headings.map((h) => h.text)).toEqual(['Note']))
+  })
+
+  // The markdown parser must not keep running on a document that has outgrown
+  // the limit: it is what makes a multi-megabyte paste freeze the editor.
+  it('stops parsing a note as markdown as soon as an edit takes it past the rich limit', async () => {
+    const tabs = useTabsStore()
+    const note = tabs.createTab('/tmp/note.md', '# Note')
+    useEditorSettingsStore().defaultMode = 'source'
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    await sourceShown(wrapper)
+    expect(sourceLanguage(wrapper)).toBe('markdown')
+
+    const view = EditorView.findFromDOM(wrapper.find('.cm-editor').element as HTMLElement)!
+    // One long line, as in the other tests here: jsdom has no layout, and a
+    // change spanning tens of thousands of lines takes minutes on a busy machine.
+    const pasted = 'a'.repeat(MAX_RICH_CHARS + 1)
+    view.dispatch({ changes: { from: view.state.doc.length, insert: '\n' + pasted } })
+    await flushPromises()
+
+    expect(note.sourceOnly).toBe('too-large')
+    expect(sourceLanguage(wrapper)).toBeNull()
+    expect(useAutoSaveStore().serializeTabToFile(note)).toBe('# Note\n' + pasted)
+
+    // Trimming it back does not flip the editor under the cursor; asking for rich mode does.
+    view.dispatch({ changes: { from: 6, to: view.state.doc.length } })
+    await flushPromises()
+    expect(note.sourceOnly).toBe('too-large')
+    useEditorModeStore().setMode('wysiwyg')
+    await richShown(wrapper)
+    expect(note.sourceOnly).toBeNull()
+  })
+
+  // CodeMirror reads CRLF as a line break and writes LF. A source-only tab is
+  // saved byte for byte, so a Windows CSV must keep its line endings.
+  it('keeps a CRLF file’s line endings through edits, capture and save', async () => {
+    const crlf = 'id,name\r\n1,ann\r\n2,bob\r\n'
+    const tabs = useTabsStore()
+    const csv = tabs.createTab('/tmp/windows.csv', crlf)
+    const other = tabs.createTab('/tmp/unix.csv', 'a,b\n1,2\n')
+    tabs.setActiveTab(csv.id)
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    await sourceShown(wrapper)
+
+    const view = EditorView.findFromDOM(wrapper.find('.cm-editor').element as HTMLElement)!
+    expect(view.state.doc.lines).toBe(4)
+    view.dispatch({ changes: { from: view.state.doc.length, insert: '3,cy\n' } })
+    expect(csv.editorState.markdown).toBe(crlf + '3,cy\r\n')
+    expect(useAutoSaveStore().serializeTabToFile(csv)).toBe(crlf + '3,cy\r\n')
+
+    window.dispatchEvent(new Event('gdown:capture-state'))
+    expect(csv.editorState.markdown).toBe(crlf + '3,cy\r\n')
+
+    // An LF file in the same editor stays LF, and coming back keeps CRLF.
+    tabs.setActiveTab(other.id)
+    await flushPromises()
+    await vi.waitFor(() => expect(view.state.doc.toString()).toBe('a,b\n1,2\n'))
+    view.dispatch({ changes: { from: view.state.doc.length, insert: '3,4\n' } })
+    expect(other.editorState.markdown).toBe('a,b\n1,2\n3,4\n')
+    expect(csv.editorState.markdown).toBe(crlf + '3,cy\r\n')
+
+    tabs.setActiveTab(csv.id)
+    await flushPromises()
+    await vi.waitFor(() => expect(view.state.doc.lines).toBe(5))
+    view.dispatch({ changes: { from: 0, insert: 'x' } })
+    expect(csv.editorState.markdown).toBe('x' + crlf + '3,cy\r\n')
+  })
+
+  it('keeps CRLF line endings when a file is reloaded from disk into the open editor', async () => {
+    const tabs = useTabsStore()
+    const csv = tabs.createTab('/tmp/data.csv', 'a,b\n')
+    wrapper = mount(App, { global: { stubs } })
+    await flushPromises()
+    await sourceShown(wrapper)
+
+    const autoSave = useAutoSaveStore()
+    autoSave.knownModifiedTimes['/tmp/data.csv'] = 100
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === 'get_file_modified_time') return 200
+      if (command === 'read_file') return 'a,b\r\n1,2\r\n'
+      return null
+    })
+    try {
+      await autoSave.checkForExternalChanges()
+      await flushPromises()
+      const view = EditorView.findFromDOM(wrapper.find('.cm-editor').element as HTMLElement)!
+      await vi.waitFor(() => expect(view.state.doc.lines).toBe(3))
+      view.dispatch({ changes: { from: 0, insert: 'x' } })
+      expect(csv.editorState.markdown).toBe('xa,b\r\n1,2\r\n')
+    } finally {
+      vi.mocked(invoke).mockReset()
+      vi.mocked(invoke).mockResolvedValue('')
+    }
   })
 })

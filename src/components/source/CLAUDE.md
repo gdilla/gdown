@@ -19,6 +19,10 @@ leaves out the markdown language and the math/front-matter highlighters for it: 
 quadratic on text with no blank lines and froze the editor on multi-megabyte CSVs. Such a tab also gets no
 outline and is stored whole (no front-matter split).
 
+The flag can change under a mounted editor (Save As to another file type, an edit past the size limit):
+a watcher swaps `languageCompartment` in place, and the update listener re-decides it on growth only.
+Read the editor's text for tab state through `editorText()`, which gives a CRLF file its line endings back.
+
 `renderedTabId` must always name the tab whose text is in the editor: on a tab switch it changes only
 when `restoreTab()` loads the new tab, never before.
 

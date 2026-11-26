@@ -50,6 +50,34 @@ describe('publishDocument', () => {
       // Should contain some CSS content (at minimum the editor base styles)
       expect(css.length).toBeGreaterThan(0)
     })
+
+    // The collector copies any rule that mentions an editor class, and the app's
+    // `@media print` block does. In an exported file there is no #print-root, so
+    // its "hide everything else" rule would print a blank page.
+    it('leaves the app-only print rules out of an exported document', () => {
+      // Vitest blanks `.css` imports, so read the real stylesheet from disk.
+      const fs = (
+        globalThis as unknown as {
+          process: {
+            getBuiltinModule(id: 'node:fs'): { readFileSync(p: string, e: 'utf8'): string }
+          }
+        }
+      ).process.getBuiltinModule('node:fs')
+      const appCss = fs.readFileSync('src/style.css', 'utf8')
+      // jsdom cannot compute styles from the whole stylesheet; the print block is the part under test.
+      const printBlock = appCss.slice(appCss.indexOf('@media print {'), appCss.indexOf('@page {'))
+      expect(printBlock).toContain('#print-root .math-block')
+      const style = document.createElement('style')
+      style.textContent = `.gdown-editor { color: black; }\n${printBlock}`
+      document.head.appendChild(style)
+      try {
+        const css = collectThemeCss()
+        expect(css).toContain('.gdown-editor')
+        expect(css).not.toContain('#print-root')
+      } finally {
+        style.remove()
+      }
+    })
   })
 
   describe('buildRenderedBody', () => {
@@ -110,17 +138,48 @@ describe('publishDocument', () => {
       })
     })
 
-    // Characterises reachability: the editor serialises diagrams as
-    // <pre class="mermaid-block">, which the export selector does not match.
-    it('does not render the editor mermaid-block markup (export path is unreachable today)', async () => {
+    // What the editor serialises a diagram as (MermaidBlock.renderHTML).
+    it('renders the editor’s mermaid-block markup as a diagram, not as code', async () => {
       const { default: mermaid } = await import('mermaid')
       const init = vi.spyOn(mermaid, 'initialize')
 
-      await buildRenderedBody(
-        `<pre class="mermaid-block" data-language="mermaid"><code class="language-mermaid">${PIE}</code></pre>`,
+      const result = await buildRenderedBody(
+        `<p>Before</p><pre class="mermaid-block" data-language="mermaid"><code class="language-mermaid">${PIE}</code></pre>`,
       )
 
-      expect(init).not.toHaveBeenCalled()
+      expect(result).toContain('<svg')
+      // The diagram replaces the code block: no <pre> chrome around it.
+      expect(result).not.toContain('<pre')
+      expect(result).not.toContain('language-mermaid')
+      expect(init.mock.calls[init.mock.calls.length - 1]?.[0]).toMatchObject({
+        securityLevel: 'strict',
+      })
+    })
+
+    it('drops form controls and image maps from a rendered diagram, as the editor does', async () => {
+      const { default: mermaid } = await import('mermaid')
+      vi.spyOn(mermaid, 'render').mockResolvedValue({
+        svg: '<svg><foreignObject><form action="https://example.com"><input name="q"><button>Go</button></form><map><area href="https://example.com"></map><span>Label</span></foreignObject></svg>',
+        diagramType: 'flowchart',
+      })
+
+      const result = await buildRenderedBody(
+        `<pre class="mermaid-block"><code class="language-mermaid">${PIE}</code></pre>`,
+      )
+
+      expect(result).toContain('Label')
+      expect(result).not.toMatch(/<(form|input|button|map|area)\b/)
+    })
+
+    it('leaves the code in place, and no stray container, when a diagram does not parse', async () => {
+      const before = document.body.children.length
+
+      const result = await buildRenderedBody(
+        '<pre class="mermaid-block"><code class="language-mermaid">not a diagram ::: {{{</code></pre>',
+      )
+
+      expect(result).toContain('not a diagram')
+      expect(document.body.children.length).toBe(before)
     })
   })
 

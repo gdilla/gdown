@@ -203,8 +203,11 @@ describe('useExportStore configuration', () => {
       return store
     }
 
-    /** What App.vue does when it starts the print: cancel the request event. */
-    const acceptPrint = (event: Event) => event.preventDefault()
+    /** What App.vue does with a print request: answer with how the print went. */
+    const answerPrint = (started: Promise<boolean>) => (event: Event) => {
+      ;(event as CustomEvent<{ started?: Promise<boolean> }>).detail.started = started
+    }
+    const acceptPrint = answerPrint(Promise.resolve(true))
 
     function exportedConfig(): ExportConfig | undefined {
       const call = mockedInvoke.mock.calls.find(([command]) => command === 'export_document')
@@ -261,12 +264,44 @@ describe('useExportStore configuration', () => {
 
     it('reports an error when nothing takes the print request', async () => {
       const store = setUpPdfExport(null)
-      // No listener cancels the event: a modal is blocking app actions, say.
       await expect(store.performExport()).resolves.toBe(false)
 
       expect(store.status).toBe('error')
       expect(store.statusMessage).toContain('File > Print / Export PDF')
       expect(exportedConfig()).toBeUndefined()
+    })
+
+    // Refused (a modal blocks app actions), busy (another print is being
+    // prepared) or rejected by the native print command: no sheet opened.
+    it('reports an error when the print does not start', async () => {
+      const store = setUpPdfExport(null)
+      const onPrint = answerPrint(Promise.resolve(false))
+      window.addEventListener('gdown:print', onPrint)
+      try {
+        await expect(store.performExport()).resolves.toBe(false)
+      } finally {
+        window.removeEventListener('gdown:print', onPrint)
+      }
+
+      expect(store.status).toBe('error')
+      expect(store.statusMessage).toContain('File > Print / Export PDF')
+    })
+
+    it('does not report success before the print has been accepted', async () => {
+      const store = setUpPdfExport(null)
+      let accept!: (started: boolean) => void
+      const onPrint = answerPrint(new Promise<boolean>((resolve) => (accept = resolve)))
+      window.addEventListener('gdown:print', onPrint)
+      try {
+        const exporting = store.performExport()
+        await Promise.resolve()
+        expect(store.status).toBe('exporting')
+        accept(true)
+        await expect(exporting).resolves.toBe(true)
+        expect(store.status).toBe('success')
+      } finally {
+        window.removeEventListener('gdown:print', onPrint)
+      }
     })
 
     it('still falls back when the flags only pass options to the engine', async () => {

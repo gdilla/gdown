@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { Tab, EditorState } from '../types/tab'
 import { createDefaultEditorState } from '../types/tab'
@@ -8,6 +8,7 @@ import { flushLiveEditorState } from '../utils/flushEditorState'
 import {
   MAX_OPEN_BYTES,
   MAX_RICH_CHARS,
+  sourceOnlyNotice,
   sourceOnlyReason,
   tabSourceOnlyReason,
 } from '../utils/documentLimits'
@@ -29,6 +30,18 @@ function fileNameFromPath(filePath: string): string {
 export const useTabsStore = defineStore('tabs', () => {
   const tabs = ref<Tab[]>([])
   const activeTabId = ref<string | null>(null)
+
+  // `sourceOnly` is decided when a tab's content is loaded, and text typed or
+  // pasted since may have outgrown the rich limit. Re-decide whenever a tab
+  // becomes active, however it does: sync, so it is settled before anything
+  // else that watches the active tab picks an editor for it.
+  watch(
+    activeTabId,
+    (tabId) => {
+      if (tabId) reclassify(tabId)
+    },
+    { flush: 'sync' },
+  )
   let closeDecisionHandler: CloseDecisionHandler | null = null
   const pendingCloseOperations = new Map<string, Promise<boolean>>()
 
@@ -252,10 +265,18 @@ export const useTabsStore = defineStore('tabs', () => {
     }
   }
 
-  /** Re-decide `sourceOnly` after a tab's content was set outside `openFile` (session recovery). */
+  /**
+   * Re-decide `sourceOnly` from a tab's current path and content, and say so
+   * when a document turns out to have outgrown the rich editor.
+   */
   function reclassify(tabId: string): void {
     const tab = tabs.value.find((t) => t.id === tabId)
-    if (tab && !tab.isImage) tab.sourceOnly = tabSourceOnlyReason(tab)
+    if (!tab || tab.isImage) return
+    const reason = tabSourceOnlyReason(tab)
+    if (reason === 'too-large' && !tab.sourceOnly) {
+      notify(sourceOnlyNotice(tab.title, reason), 'warning')
+    }
+    tab.sourceOnly = reason
   }
 
   /** Register the UI's Save / Don't Save / Cancel prompt for dirty closes. */

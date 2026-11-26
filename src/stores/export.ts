@@ -359,8 +359,13 @@ export const useExportStore = defineStore('export', () => {
       (argument) => argument === '--pdf-engine' || argument.startsWith('--pdf-engine='),
     )
     if (formatId === 'pdf' && !pdfEngine && !engineInFlags) {
-      // App.vue cancels the event when it starts the print; otherwise nothing did.
-      if (window.dispatchEvent(new Event('gdown:print', { cancelable: true }))) {
+      // App.vue answers with how the print went: refused, busy with another
+      // print and failed all mean no print sheet opened for this export.
+      const request = new CustomEvent<{ started?: Promise<boolean> }>('gdown:print', { detail: {} })
+      window.dispatchEvent(request)
+      status.value = 'exporting'
+      statusMessage.value = 'Opening the print dialog...'
+      if (!(await request.detail.started)) {
         status.value = 'error'
         statusMessage.value =
           'Could not open the print dialog. Close this dialog and use File > Print / Export PDF.'

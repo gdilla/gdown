@@ -185,27 +185,22 @@ function appActionsBlocked(): boolean {
 /**
  * Print the active document: rendered from the rich editor, or the source text
  * as shown when the source editor is active (its markdown is not rendered).
- * Returns whether a print was started.
+ * Resolves to whether the document was handed to the print sheet.
  */
-function printActiveDocument(): boolean {
-  if (appActionsBlocked()) return false
+function printActiveDocument(): Promise<boolean> {
   const tab = tabsStore.activeTab
-  if (!tab || tab.isImage) return false
+  if (appActionsBlocked() || !tab || tab.isImage) return Promise.resolve(false)
   const editor = editorRef.value?.getEditor()
-  if (editor) {
-    void publishStore.printToPdf({ html: editor.getHTML() })
-    return true
-  }
+  if (editor) return publishStore.printToPdf({ html: editor.getHTML() })
   flushLiveEditorState()
-  void publishStore.printToPdf({
+  return publishStore.printToPdf({
     text: assembleFullMarkdown(tab.editorState.markdown, tab.editorState.frontmatter),
   })
-  return true
 }
 
-/** Export dialog > PDF without a LaTeX engine (stores/export.ts): cancelling the event tells it the print started. */
+/** Export dialog > PDF without a LaTeX engine (stores/export.ts) is answered with how the print went. */
 function handlePrintRequest(event: Event): void {
-  if (printActiveDocument()) event.preventDefault()
+  ;(event as CustomEvent<{ started?: Promise<boolean> }>).detail.started = printActiveDocument()
 }
 
 // Files opened from Finder while a modal blocks app actions wait here
@@ -612,7 +607,7 @@ onMounted(async () => {
 
     // File > Print / Export PDF (Cmd+P)
     unlistenPrintPdf = await listen('menu-print-pdf', () => {
-      printActiveDocument()
+      void printActiveDocument()
     })
 
     // Clear recent files

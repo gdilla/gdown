@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { nextTick } from 'vue'
 import { useTabsStore } from '../../stores/tabs'
 import { useWordCountStore } from '../../stores/wordCount'
 
@@ -59,5 +60,23 @@ describe('useWordCountStore', () => {
       lines: 6,
       paragraphs: 2,
     })
+  })
+
+  // Save As can turn a markdown tab into a plain-text one (and back) without
+  // changing its text or the active tab.
+  it('recounts when Save As changes how the active tab is counted', async () => {
+    const tabs = useTabsStore()
+    const tab = tabs.createTab('/tmp/note.md', '# Title\n\n**bold** [link](https://example.com)')
+    const store = useWordCountStore()
+    expect(store.stats.words).toBe(3)
+
+    tabs.setFilePath(tab.id, '/tmp/note.csv')
+    await nextTick()
+    // '#', 'Title', '**bold**', '[link](https://example.com)'
+    expect(store.stats.words).toBe(4)
+
+    tabs.setFilePath(tab.id, '/tmp/note.md')
+    await nextTick()
+    expect(store.stats.words).toBe(3)
   })
 })

@@ -111,6 +111,34 @@ describe('useEditorModeStore', () => {
       )
     })
 
+    // Text pasted in the source editor can outgrow the limit after the tab was
+    // classified, and rich mode can then be turned on from another tab. However
+    // the grown tab becomes active again, it must not be handed to the rich editor.
+    it.each<[string, (tabs: ReturnType<typeof useTabsStore>, grownId: string) => unknown]>([
+      ['selecting it', (tabs, grownId) => tabs.setActiveTab(grownId)],
+      ['cycling forward to it', (tabs) => tabs.nextTab()],
+      ['cycling back to it', (tabs) => tabs.previousTab()],
+      ['closing the active tab beside it', (tabs) => tabs.closeTab(tabs.activeTabId!)],
+      ['closing every other tab', (tabs, grownId) => tabs.closeOtherTabs(grownId)],
+    ])('keeps a tab that outgrew the limit out of the rich editor on %s', async (_, activate) => {
+      const tabs = useTabsStore()
+      const grown = tabs.createTab('/tmp/grown.md', '# Small')
+      const other = tabs.createTab('/tmp/other.md', '# Other')
+      const store = useEditorModeStore()
+      store.setMode('source')
+      tabs.setActiveTab(grown.id)
+      tabs.saveEditorState(grown.id, { markdown: 'a'.repeat(200 * 1024 + 1) })
+      tabs.setActiveTab(other.id)
+      store.setMode('wysiwyg')
+      expect(store.mode).toBe('wysiwyg')
+
+      await activate(tabs, grown.id)
+
+      expect(tabs.activeTabId).toBe(grown.id)
+      expect(grown.sourceOnly).toBe('too-large')
+      expect(store.mode).toBe('source')
+    })
+
     it('allows rich mode again once a large document has been trimmed under the limit', () => {
       const tabs = useTabsStore()
       const book = tabs.createTab('/tmp/book.md', 'a'.repeat(200 * 1024 + 1))

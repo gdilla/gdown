@@ -87,7 +87,7 @@ describe('usePublishStore', () => {
     vi.mocked(printDocument).mockResolvedValue()
     const store = usePublishStore()
 
-    await store.printToPdf({ html: '<p>Hi</p>' })
+    await expect(store.printToPdf({ html: '<p>Hi</p>' })).resolves.toBe(true)
 
     expect(printDocument).toHaveBeenCalledWith({ html: '<p>Hi</p>' })
     expect(store.status).toBe('idle')
@@ -97,7 +97,7 @@ describe('usePublishStore', () => {
     vi.mocked(printDocument).mockRejectedValue('webview.print not allowed')
     const store = usePublishStore()
 
-    await store.printToPdf({ html: '<p>Hi</p>' })
+    await expect(store.printToPdf({ html: '<p>Hi</p>' })).resolves.toBe(false)
 
     expect(store.status).toBe('error')
     expect(store.statusMessage).toBe('Print failed: webview.print not allowed')
@@ -115,7 +115,7 @@ describe('usePublishStore', () => {
 
     const first = store.printToPdf({ html: '<p>One</p>' })
     await vi.waitFor(() => expect(printDocument).toHaveBeenCalledTimes(1))
-    await store.printToPdf({ html: '<p>Two</p>' })
+    await expect(store.printToPdf({ html: '<p>Two</p>' })).resolves.toBe(false)
     expect(printDocument).toHaveBeenCalledTimes(1)
 
     finish()

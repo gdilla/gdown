@@ -485,6 +485,9 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
     status.value = tab?.isModified ? 'unsaved' : 'saved'
   }
 
+  /** Disk revisions already reported as changed-but-unreadable, by file path. */
+  const unreadableModifiedTimes = new Map<string, number>()
+
   async function scanExternalChanges(): Promise<void> {
     for (const tab of [...tabsStore.tabs]) {
       if (!tab.filePath || tab.isUntitled) continue
@@ -503,10 +506,25 @@ export const useAutoSaveStore = defineStore('autoSave', () => {
         })
         if (currentModTime === knownModTime) continue
 
-        const diskContent = await invoke<string>('read_file', {
-          path: filePath,
-          maxBytes: MAX_OPEN_BYTES,
-        })
+        let diskContent: string
+        try {
+          diskContent = await invoke<string>('read_file', {
+            path: filePath,
+            maxBytes: MAX_OPEN_BYTES,
+          })
+        } catch (err) {
+          // The file changed and cannot be read (it may have outgrown the open
+          // limit), so the copy on screen is stale. Say so once per disk revision.
+          if (unreadableModifiedTimes.get(filePath) !== currentModTime) {
+            unreadableModifiedTimes.set(filePath, currentModTime)
+            const reason = typeof err === 'string' ? `: ${err}` : '.'
+            showNotification(
+              `${tab.title} changed on disk and could not be reloaded${reason}`,
+              'error',
+            )
+          }
+          continue
+        }
         const currentTab = tabsStore.tabs.find((candidate) => candidate.id === tab.id)
         if (!currentTab || currentTab.filePath !== filePath || inFlightSaves.has(tab.id)) continue
 

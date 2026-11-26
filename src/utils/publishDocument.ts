@@ -7,6 +7,7 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import katex from 'katex'
+import { stripInteractiveElements } from './mermaidSvg'
 
 /** Escape a string for safe embedding in HTML attribute/content contexts. */
 function escapeHtml(str: string): string {
@@ -66,8 +67,11 @@ export async function buildRenderedBody(rawHtml: string): Promise<string> {
     }
   }
 
-  // Render mermaid diagrams (lazy-loaded)
-  const mermaidBlocks = doc.querySelectorAll('pre.mermaid, [data-type="mermaid"]')
+  // Render mermaid diagrams (lazy-loaded). `pre.mermaid-block` is what the
+  // editor serialises a diagram as (MermaidBlock.renderHTML).
+  const mermaidBlocks = doc.querySelectorAll(
+    'pre.mermaid-block, pre.mermaid, [data-type="mermaid"]',
+  )
   if (mermaidBlocks.length > 0) {
     try {
       const { default: mermaid } = await import('mermaid')
@@ -81,14 +85,20 @@ export async function buildRenderedBody(rawHtml: string): Promise<string> {
       for (const el of mermaidBlocks) {
         const code = el.textContent || ''
         if (code.trim()) {
+          counter++
+          const id = `publish-mermaid-${Date.now()}-${counter}`
           try {
-            counter++
-            const id = `publish-mermaid-${Date.now()}-${counter}`
             const { svg } = await mermaid.render(id, code.trim())
-            el.innerHTML = svg
-            el.classList.add('mermaid-rendered')
+            // A plain block in place of the <pre>, so the diagram does not get
+            // code-block styling.
+            const diagram = doc.createElement('div')
+            diagram.className = 'mermaid-rendered'
+            diagram.innerHTML = stripInteractiveElements(svg)
+            el.replaceWith(diagram)
           } catch {
-            // Leave original code on error
+            // Leave the original code; on a syntax error Mermaid leaves its
+            // temporary container in <body>.
+            document.getElementById(`d${id}`)?.remove()
           }
         }
       }
@@ -133,6 +143,9 @@ export function collectThemeCss(): string {
       try {
         for (const rule of sheet.cssRules) {
           const ruleText = rule.cssText
+          // The app's own print rules hide everything but #print-root, which
+          // an exported document does not have.
+          if (ruleText.includes('#print-root')) continue
           if (
             ruleText.includes('.gdown-editor') ||
             ruleText.includes('.content') ||

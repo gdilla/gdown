@@ -157,6 +157,14 @@ behind them):
   is the entire file). In a plain-text file a leading `---` block is content, not front matter, so saving
   cannot rewrite it; in a large markdown file it avoids re-parsing the front matter on every keystroke.
   Front matter counts towards the 200 KB limit (`tabSourceOnlyReason`).
+- `sourceOnly` is a stored decision, re-made at fixed points — never derive it live, or a paste in the
+  rich editor would swap editors mid-edit. The points: open, disk reload and session recovery; Save As
+  (`setFilePath`); a tab becoming active (a sync watcher on `activeTabId` in `tabs.ts`, so every way of
+  activating a tab is covered); a rich-mode request (`setMode`); and, growth only, each source-editor
+  edit. SourceEditor and `wordCount` watch the active tab's flag, because it can change without a tab
+  switch (SourceEditor swaps its language through `languageCompartment`, keeping cursor and undo).
+- A source-only tab is saved byte for byte: SourceEditor restores CRLF line endings on every read of
+  its text (`editorText`), since CodeMirror reads CRLF and writes LF.
 - SourceEditor's `renderedTabId` is the tab whose text is in the editor. On a tab switch it moves only
   when the new tab is loaded (`pendingTabId` covers the gap): a `gdown:capture-state` in between must
   save the outgoing document to its own tab. Moving it early wrote one tab's text into another.
@@ -262,6 +270,9 @@ Exported HTML copies only `.gdown-editor` rules, so content tokens also get ligh
   `#print-root` (shown only by the `@media print` rules in `style.css`; `@page` supplies the margins,
   because the native print operation sets none). Images in that hidden root must be `loading="eager"`
   (the editor serialises them lazy, which never loads there), and do not `await img.decode()` on an
-  image that is not displayed — WebKit never settles it.
+  image that is not displayed — WebKit never settles it. `collectThemeCss()` skips rules that mention
+  `#print-root`: in an exported file they would hide the whole document when it is printed. A print is
+  requested from outside App.vue with a `gdown:print` CustomEvent; App.vue sets `detail.started`, a
+  promise of whether the print sheet was reached.
 - **Test files use `.test.ts`** extension (not `.spec.ts`). Tests live in `src/__tests__/` mirroring `src/` structure.
 - **Worktree pnpm setup:** `pnpm-workspace.yaml` intentionally denies esbuild build scripts. Do not symlink binaries, approve dependency scripts ad hoc, or bypass hooks with `--no-verify`. Report missing build outputs as a setup/config failure and handle policy changes separately.

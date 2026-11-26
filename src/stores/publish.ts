@@ -84,15 +84,18 @@ export const usePublishStore = defineStore('publish', () => {
    * Print the document through the native print sheet (Save as PDF on macOS).
    * A request made while one is still being prepared is ignored: they share
    * one print root, and each would open its own sheet.
+   * Resolves to whether this request was handed to the print sheet.
    */
-  async function printToPdf(content: PrintContent): Promise<void> {
-    if (printing) return
+  async function printToPdf(content: PrintContent): Promise<boolean> {
+    if (printing) return false
     printing = true
     try {
       const { printDocument } = await import('../utils/publishDocument')
       await printDocument(content)
+      return true
     } catch (err) {
       setStatus('error', `Print failed: ${err instanceof Error ? err.message : String(err)}`)
+      return false
     } finally {
       printing = false
     }
