@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useOutlineStore, type OutlineHeading } from '../../stores/outline'
+import { useTabsStore } from '../../stores/tabs'
+import { sourceOnlyNotice } from '../../utils/documentLimits'
 
 const outlineStore = useOutlineStore()
+const tabsStore = useTabsStore()
 
 const emit = defineEmits<{
   (e: 'navigate', heading: OutlineHeading): void
@@ -105,7 +108,13 @@ async function copyWholeDoc(format: 'markdown' | 'richtext') {
 
     <div class="outline-content">
       <!-- No headings state -->
-      <div v-if="!outlineStore.hasHeadings" class="outline-empty">
+      <div v-if="tabsStore.activeTab?.sourceOnly" class="outline-empty">
+        <p class="outline-empty-text">No outline for this document</p>
+        <p class="outline-empty-hint">
+          {{ sourceOnlyNotice(tabsStore.activeTab.title, tabsStore.activeTab.sourceOnly) }}
+        </p>
+      </div>
+      <div v-else-if="!outlineStore.hasHeadings" class="outline-empty">
         <p class="outline-empty-text">No headings found</p>
         <p class="outline-empty-hint">Use <kbd>#</kbd> to create headings</p>
       </div>

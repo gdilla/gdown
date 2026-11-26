@@ -89,6 +89,24 @@ describe('publishDocument', () => {
       )
     })
 
+    // The editor serialises a blank line as <p></p>; ProseMirror's own trailing
+    // <br> is display-only. Without a line box it collapses to nothing on paper.
+    it('gives an empty paragraph a line of height in print', () => {
+      const fs = (
+        globalThis as unknown as {
+          process: {
+            getBuiltinModule(id: 'node:fs'): { readFileSync(p: string, e: 'utf8'): string }
+          }
+        }
+      ).process.getBuiltinModule('node:fs')
+      const css = fs.readFileSync('src/style.css', 'utf8')
+      const printBlock = css.slice(css.indexOf('@media print {'), css.indexOf('@page {'))
+
+      expect(printBlock).toMatch(
+        /body > #print-root p:empty::before \{\s*content: '';\s*display: inline-block;/,
+      )
+    })
+
     // The collector copies any rule that mentions an editor class, and the app's
     // `@media print` block does. In an exported file there is no #print-root, so
     // its "hide everything else" rule would print a blank page.

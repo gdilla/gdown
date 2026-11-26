@@ -966,6 +966,12 @@ body > #print-root {
     white-space: break-spaces;
   }
 
+  /* A blank line is an empty <p>: give it a line box, or it collapses to nothing. */
+  body > #print-root p:empty::before {
+    content: '';
+    display: inline-block;
+  }
+
   body > #print-root > .print-source {
     margin: 0;
     padding: 0;

@@ -518,21 +518,44 @@ fn extended_path() -> String {
 /// and only xelatex ran before this check existed.
 const PDF_ENGINE: &str = "xelatex";
 
+/// How long the engine probe may take. `xelatex --version` answers in well
+/// under a second; a wrapper that hangs must not hold up the export dialog,
+/// which waits for this before offering any format.
+const PDF_ENGINE_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// `PDF_ENGINE` when running it by name with `path` as the PATH succeeds.
 /// That is how Pandoc starts it, so this finds the same executable Pandoc
 /// would, and finds out whether the user running Leaf can run it and whether it
 /// works: an execute bit, or a working copy later on the PATH, says neither.
 fn find_pdf_engine(path: &str) -> Option<String> {
+    probe_pdf_engine(path, PDF_ENGINE_PROBE_TIMEOUT)
+}
+
+fn probe_pdf_engine(path: &str, timeout: std::time::Duration) -> Option<String> {
     use std::process::Stdio;
-    Command::new(PDF_ENGINE)
+    let mut probe = Command::new(PDF_ENGINE)
         .arg("--version")
         .env("PATH", path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
-        .then(|| PDF_ENGINE.to_string())
+        .spawn()
+        .ok()?;
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match probe.try_wait() {
+            Ok(Some(status)) => return status.success().then(|| PDF_ENGINE.to_string()),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            // Timed out, or the child cannot be waited for: not an engine.
+            _ => {
+                let _ = probe.kill();
+                let _ = probe.wait();
+                return None;
+            }
+        }
+    }
 }
 
 /// Execute Pandoc with the given config, markdown input, and output path.
@@ -968,6 +991,18 @@ mod tests {
 
         install("xelatex", 0o755);
         assert_eq!(find_pdf_engine(&path), Some("xelatex".to_string()));
+
+        // One that never answers must not hold the export dialog: the probe
+        // gives up, and that is not an engine.
+        install("xelatex", 0o755);
+        fs::write(bin.path().join("xelatex"), "#!/bin/sh\nexec sleep 30\n").unwrap();
+        let started = std::time::Instant::now();
+        assert_eq!(
+            probe_pdf_engine(&path, std::time::Duration::from_millis(300)),
+            None
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        install("xelatex", 0o755);
 
         // A broken xelatex earlier on the PATH is the one Pandoc would run
         // (it is given the bare name), whatever comes after it.

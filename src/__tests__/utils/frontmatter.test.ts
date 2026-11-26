@@ -165,3 +165,21 @@ describe('extractTitle', () => {
     expect(extractTitle({ title: 'lower', Title: 'cap', TITLE: 'upper' })).toBe('lower')
   })
 })
+
+// assembleFrontMatter runs on every save and whenever a tab is classified
+// (synchronously, when a tab becomes active). Its trailing-newline trim was a
+// `/\n+$/` replace, which is quadratic on a long run of newlines that is not at
+// the end (4.8 s for 50,000).
+describe('assembleFrontMatter on a long run of blank lines', () => {
+  it('assembles it in linear time and still trims only the trailing newlines', () => {
+    const blankRun = '\n'.repeat(50_000)
+    const yaml = `a: 1${blankRun}b: 2\n\n\n`
+
+    const started = performance.now()
+    const assembled = assembleFrontMatter(yaml, 'body')
+    const elapsed = performance.now() - started
+
+    expect(assembled).toBe(`---\na: 1${blankRun}b: 2\n---\nbody`)
+    expect(elapsed).toBeLessThan(1000)
+  })
+})

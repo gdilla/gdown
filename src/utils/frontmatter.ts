@@ -102,7 +102,11 @@ export function assembleFrontMatter(rawYaml: string | null | undefined, body: st
   }
 
   // Ensure the YAML doesn't have trailing newline before we add delimiter
-  const trimmedYaml = rawYaml.replace(/\n+$/, '')
+  // A loop, not `/\n+$/`: that regex retries from every newline of a long run
+  // that is not at the end, which is quadratic (4.8 s for 50,000 of them).
+  let yamlEnd = rawYaml.length
+  while (yamlEnd > 0 && rawYaml[yamlEnd - 1] === '\n') yamlEnd--
+  const trimmedYaml = rawYaml.slice(0, yamlEnd)
 
   // Ensure body starts without leading newline (we add exactly one)
   const trimmedBody = body.replace(/^\n/, '')
